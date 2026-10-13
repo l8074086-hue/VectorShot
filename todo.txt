@@ -1,0 +1,19 @@
+(B) 2026-10-12 Add more enemy types +roguelike @enemies
+(A) 2026-10-13 Work on better enemy AI +roguelike @enemies
+(B) 2026-10-13 Add more gun types +roguelike @guns
+(C) 2026-10-13 Add a shop system +roguelike @shop
+(B) 2026-10-13 Work on main menu +roguelike @main-menu
+(E) 2026-10-13 Add sounds +roguelike @sounds
+(A) 2026-10-13 Add a skills system +roguelike @skills
+(A) 2026-10-13 Add ammo mechanics +roguelike @ammo
+(A) 2026-10-13 Add ammo drops +roguelike @ammo @drops
+(A) 2026-10-13 Add health drops +roguelike @drops
+(B) 2026-10-13 Add kicks/melee +roguelike @combat
+(B) 2026-10-13 Add secondary weapon slot +roguelike @guns @combat
+(C) 2026-10-13 Add currency +roguelike @shop @drops
+(A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
+(C) 2026-10-13 Add walls +roguelike @environment @levels
+(C) 2026-10-13 Add explosive barrels +roguelike @combat @environment
+(A) 2026-10-13 Add roles +roguelike @combat @characters
+(D) Add floor texture +roguelike @levels @environment
+(D) 2026-10-13 Add trees +roguelike @environment
