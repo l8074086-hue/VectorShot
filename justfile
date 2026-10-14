@@ -3,8 +3,11 @@ run:
   ./roguelike
 build:
   odin build .
-# Cross-compile a Windows .exe (see README: Building for Windows).
+# Cross-compile a Windows .exe from Linux (Odin objects + Zig's MinGW linker).
 build-windows:
-  odin build . -target:windows_amd64 -out:roguelike.exe
+  ./build-windows.sh
 clean:
   rm -f roguelike roguelike.exe
+# Also drop the Windows cross-compile cache (downloaded raylib libs, objects).
+clean-windows:
+  rm -rf roguelike.exe .build-windows

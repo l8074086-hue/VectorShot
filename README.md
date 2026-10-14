@@ -33,14 +33,28 @@ Install odin and raylib with their respective installation instructions.
 then you can either just `just run` or `odin run .` it's the same either way, I only have the justfile for convenience and also because I'm more comfortable typing it.
 
 ## Building for Windows
-The Linux build produces an ELF binary, so it won't run on Windows. To get a `.exe` you have two options:
+The Linux build produces an ELF binary, so it won't run on Windows.
 
-- **On Windows** (easiest): install Odin + raylib, then `odin build .` in the project folder.
-- **Cross-compiling** from Linux/macOS: `just build-windows`, which runs
-  `odin build . -target:windows_amd64 -out:roguelike.exe`. This needs the Windows
-  raylib libs (the ones shipped with this Odin install are Git-LFS stubs you must
-  fetch first) and an LLVM/`lld-link` linker, since Odin cannot cross-link to
-  Windows on its own yet. On this specific environment, cross-linking is not
-  feasible due to missing MSVC C runtime import libs; building on Windows is
-  strongly recommended.
+### From Linux (cross-compile)
+Run `just build-windows` (or `./build-windows.sh`) to produce `roguelike.exe`.
+Odin can't cross-link to Windows by itself (it only supports Android), so the
+script does it in stages:
+
+1. Downloads the real Windows `raylib.lib` / `raygui.lib` — the ones shipped
+   with Odin are Git-LFS pointer stubs — from the matching Odin commit.
+2. Compiles the sources to Windows objects with
+   `odin build . -target:windows_amd64 -build-mode:obj`.
+3. Links them with Zig's bundled MinGW-w64 toolchain:
+   `zig cc -target x86_64-windows-gnu ...`.
+
+`windows_shims.c` supplies a few MSVC-only CRT symbols (`__security_cookie`,
+`__GSHandlerCheck`, `_fltused`) that the MSVC-built `raylib.lib` expects but
+MinGW-w64 doesn't provide.
+
+Requirements: `odin`, `zig`, `ar` (binutils) and `curl`. Use `just
+clean-windows` to drop the `.build-windows/` cache (downloaded libs + objects).
+
+### On Windows
+Install Odin + raylib and run `build-windows.cmd` (or `odin build .`) in the
+project folder.
 

@@ -1,2 +1,5 @@
 main
 roguelike
+roguelike.exe
+roguelike.pdb
+.build-windows/
