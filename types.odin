@@ -77,6 +77,11 @@ enemy :: struct {
 	elite_step:    i32, // RUNNER: dashes left in the current burst
 	ability_timer: f32,
 	flash:         f32,
+	// Bulwark (elite TANK): each crystal plate guards one world-space direction.
+	// A hit arriving from roughly that direction shatters it; while any plate
+	// remains the armored body shrugs off hp damage.
+	plate_dir:     [ELITE_TANK_PLATES]raylib.Vector2,
+	plate_live:    [ELITE_TANK_PLATES]bool,
 }
 
 Enemy_Kind :: enum {
@@ -85,6 +90,13 @@ Enemy_Kind :: enum {
 	TANK,
 	RANGED,
 	CHARGER,
+}
+
+// What a hit on an enemy actually did, so callers can pick the right feedback.
+Enemy_Hit :: enum {
+	DAMAGE,  // hp was reduced
+	BLOCKED, // a Bulwark's armored body absorbed it (plates still intact)
+	SHATTER, // a Bulwark crystal plate broke off
 }
 
 // Ranged/charger enemies use a tiny state machine.

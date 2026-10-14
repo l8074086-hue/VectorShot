@@ -159,6 +159,8 @@ Game_Sounds :: struct {
 	dash:        raylib.Sound,
 	reload:      raylib.Sound,
 	hit:         raylib.Sound,
+	clink:       raylib.Sound,
+	shatter:     raylib.Sound,
 	enemy_die:   raylib.Sound,
 	player_hurt: raylib.Sound,
 	coin:        raylib.Sound,
@@ -212,6 +214,10 @@ audio_init :: proc() {
 	sounds.dash = synth_soft({.NOISE, 0, 0, 0.15, 0.4, 0.012, 11, 1.0}, 0.18)
 	sounds.reload = synth({.SQUARE, 300, 220, 0.08, 0.35, 0.002, 25, 0.5})
 	sounds.hit = synth({.SQUARE, 700, 500, 0.05, 0.3, 0.001, 40, 0.3})
+	// Bulwark feedback: a metallic tink when its armored body absorbs a hit, and
+	// a bright glassy burst when a crystal plate shatters.
+	sounds.clink = synth({.TRIANGLE, 1900, 1500, 0.07, 0.30, 0.0005, 55, 0.15})
+	sounds.shatter = synth({.SINE, 3000, 1200, 0.22, 0.42, 0.0005, 18, 0.45})
 	sounds.enemy_die = synth({.SAW, 500, 120, 0.22, 0.5, 0.002, 12, 0.3})
 	sounds.player_hurt = synth({.SAW, 180, 80, 0.25, 0.6, 0.002, 10, 0.4})
 	sounds.explosion = synth({.NOISE, 120, 35, 0.60, 0.9, 0.001, 5, 1.0})
@@ -242,6 +248,8 @@ audio_shutdown :: proc() {
 	raylib.UnloadSound(sounds.dash)
 	raylib.UnloadSound(sounds.reload)
 	raylib.UnloadSound(sounds.hit)
+	raylib.UnloadSound(sounds.clink)
+	raylib.UnloadSound(sounds.shatter)
 	raylib.UnloadSound(sounds.enemy_die)
 	raylib.UnloadSound(sounds.player_hurt)
 	raylib.UnloadSound(sounds.coin)

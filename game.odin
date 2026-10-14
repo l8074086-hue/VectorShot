@@ -44,8 +44,8 @@ ELITE_SPEED_MULT :: 1.1
 ELITE_SIZE_MULT :: 1.3
 
 // Crystalized-elite behaviors. Every elite is a corrupted variant with its own
-// trick: GRUNT devours grunts, RUNNER zig-zag dashes, TANK wears crystal plates,
-// RANGED throws boomerang shards, CHARGER phases through terrain.
+// trick: GRUNT devours grunts, RUNNER zig-zag dashes, TANK wears directional
+// crystal plates, RANGED throws boomerang shards, CHARGER phases through terrain.
 ELITE_DEVOUR_RANGE :: 48 // GRUNT: how close a grunt must be to be eaten
 ELITE_DEVOUR_HEAL :: 0.20 // fraction of max hp restored per meal
 ELITE_DEVOUR_COOLDOWN :: 3.0 // seconds between meals
@@ -57,7 +57,8 @@ ELITE_DASH_ZIGZAG :: 0.55 // sideways bias per dash (alternates)
 ELITE_DASH_CYCLE :: 1.8 // seconds of stalking between bursts
 ELITE_BOOMERANG_RANGE :: 320 // RANGED: shard outbound distance before it turns
 ELITE_BOOMERANG_SPEED :: 300
-ELITE_TANK_PLATES :: 3 // TANK: hits absorbed before it takes real damage
+ELITE_TANK_PLATES :: 3 // TANK: directional plates to shatter before hp is exposed
+ELITE_PLATE_ARC :: 0.70 // half-angle (radians) a hit must fall within to crack a plate
 
 // Shop: how many offers are stocked, and the reroll limit/cost curve.
 SHOP_OFFER_COUNT :: 3
@@ -338,25 +339,33 @@ spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
 			hp = ENEMIES[.TANK].hp * hp_scale
 		}
 
-		append(
-			enemies,
-			enemy {
-				position = random_spawn_pos(sz),
-				size = sz,
-				velocity = {0, 0},
-				attacking = false,
-				color = s.color,
-				damage = damage,
-				hp = hp,
-				max_hp = hp,
-				id = next_enemy_id,
-				speed = speed,
-				kind = kind,
-				state = .CHASE,
-				elite = elite,
-				plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
-			},
-		)
+		en := enemy {
+			position = random_spawn_pos(sz),
+			size = sz,
+			velocity = {0, 0},
+			attacking = false,
+			color = s.color,
+			damage = damage,
+			hp = hp,
+			max_hp = hp,
+			id = next_enemy_id,
+			speed = speed,
+			kind = kind,
+			state = .CHASE,
+			elite = elite,
+			plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
+		}
+		if elite && kind == .TANK {
+			// Spread the plates evenly, with a random base so every Bulwark
+			// presents its weak sides differently.
+			base := rand.float32() * 2 * math.PI
+			for k in 0 ..< ELITE_TANK_PLATES {
+				ang := base + f32(k) * (2 * math.PI / f32(ELITE_TANK_PLATES))
+				en.plate_dir[k] = {math.cos_f32(ang), math.sin_f32(ang)}
+				en.plate_live[k] = true
+			}
+		}
+		append(enemies, en)
 		next_enemy_id += 1
 	}
 }
@@ -559,15 +568,47 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 	}
 }
 
-// Damage an enemy, respecting the Bulwark's crystal plates. Each plate soaks a
-// whole hit and breaks off; once they're gone the tank takes full damage.
-apply_enemy_damage :: proc(e: ^enemy, amount: f32) {
+// Damage an enemy. The Bulwark's crystal plates are directional: a hit arriving
+// from roughly a plate's side shatters that plate, and while any plate remains
+// the armored body takes no hp damage. `from` points from the enemy toward the
+// source of the damage. The result tells the caller what happened.
+apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enemy_Hit {
 	if e.elite && e.kind == .TANK && e.plates > 0 {
-		e.plates -= 1
-		e.flash = 0.15
-		return
+		dir: raylib.Vector2 = {0, 0}
+		if raylib.Vector2Length(from) > 0.01 {
+			dir = raylib.Vector2Normalize(from)
+		}
+		threshold := math.cos_f32(ELITE_PLATE_ARC)
+		for k in 0 ..< ELITE_TANK_PLATES {
+			if !e.plate_live[k] {
+				continue
+			}
+			if raylib.Vector2DotProduct(dir, e.plate_dir[k]) >= threshold {
+				e.plate_live[k] = false
+				e.plates -= 1
+				e.flash = 0.15
+				return .SHATTER
+			}
+		}
+		// Struck the armored body, not a plate: hp stays protected.
+		e.flash = 0.06
+		return .BLOCKED
 	}
 	e.hp -= amount
+	return .DAMAGE
+}
+
+// Impact feedback for a resolved enemy hit: a metallic clink on armored bodies,
+// a glassy break when a Bulwark plate shatters, the usual tick otherwise.
+play_enemy_hit :: proc(result: Enemy_Hit) {
+	switch result {
+	case .BLOCKED:
+		play(sounds.clink, rand.float32_range(0.95, 1.08))
+	case .SHATTER:
+		play(sounds.shatter, rand.float32_range(0.97, 1.03))
+	case .DAMAGE:
+		play(sounds.hit, rand.float32_range(0.9, 1.1))
+	}
 }
 
 // Soft body separation: overlapping enemies push each other apart instead of
@@ -732,7 +773,7 @@ explode_at :: proc(center: raylib.Vector2) {
 	for i := len(enemies) - 1; i >= 0; i -= 1 {
 		ec := enemies[i].position + enemies[i].size * 0.5
 		if raylib.Vector2Distance(ec, center) <= EXPLOSION_RADIUS {
-			apply_enemy_damage(&enemies[i], EXPLOSION_DAMAGE)
+			apply_enemy_damage(&enemies[i], EXPLOSION_DAMAGE, center - ec)
 			d := ec - center
 			if raylib.Vector2Length(d) > 0.01 {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24

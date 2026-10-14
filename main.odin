@@ -337,7 +337,8 @@ main :: proc() {
 							enemies[i].size.y,
 						}
 						if raylib.CheckCollisionRecs(impact_rect, er) {
-							enemies[i].hp -= 30 * dT
+							ec := enemies[i].position + enemies[i].size * 0.5
+							apply_enemy_damage(&enemies[i], 30 * dT, position + size * 0.5 - ec)
 							if enemies[i].hp <= 0 {
 								try_spawn_health_drop(enemies[i].position, &drops)
 								try_spawn_ammo_drop(enemies[i].position, &drops)
@@ -462,7 +463,10 @@ main :: proc() {
 					if raylib.Vector2Angle(last_dir, raylib.Vector2Normalize(to)) > MELEE_ARC {
 						continue
 					}
-					apply_enemy_damage(&enemies[i], MELEE_DAMAGE)
+					melee_hit := apply_enemy_damage(&enemies[i], MELEE_DAMAGE, player_c - e_c)
+					if melee_hit != .DAMAGE {
+						play_enemy_hit(melee_hit)
+					}
 					enemies[i].position += raylib.Vector2Normalize(to) * MELEE_KNOCKBACK
 					if enemies[i].hp <= 0 {
 						spawn_kill_rewards(enemies[i].position, enemies[i].elite)
@@ -554,8 +558,7 @@ main :: proc() {
 						{p.x, p.y, s.x, s.y},
 						{e.position.x, e.position.y, e.size.x, e.size.y},
 					) {
-						apply_enemy_damage(e, bullets[i].damage)
-						play(sounds.hit, rand.float32_range(0.9, 1.1))
+						play_enemy_hit(apply_enemy_damage(e, bullets[i].damage, -bullets[i].velocity))
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
 							spawn_kill_rewards(e.position, e.elite)
@@ -776,17 +779,19 @@ main :: proc() {
 				}
 				raylib.DrawRectangleV(e.position, e.size, body)
 				if e.elite {
-					// Bulwark crystal plates: one small shard per hit absorbed.
+					// Bulwark crystal plates: one shard per intact side, drawn
+					// where it sits so the weak directions are readable.
 					if e.kind == .TANK {
-						for p in 0 ..< e.plates {
-							t := (f32(p) + 0.5) / f32(ELITE_TANK_PLATES)
+						center := e.position + e.size * 0.5
+						rad := max(e.size.x, e.size.y) * 0.5
+						for k in 0 ..< ELITE_TANK_PLATES {
+							if !e.plate_live[k] {
+								continue
+							}
 							raylib.DrawPoly(
-								{
-									e.position.x + e.size.x * t,
-									e.position.y + e.size.y * 0.5,
-								},
+								center + e.plate_dir[k] * rad,
 								4,
-								4,
+								5,
 								0,
 								raylib.SKYBLUE,
 							)
