@@ -1,3 +1,2 @@
 (A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
 (A) 2026-10-13 Add roles +roguelike @combat @characters
-(E) 2026-10-13 Add sounds +roguelike @sounds

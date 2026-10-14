@@ -287,6 +287,7 @@ spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
 }
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
+	play(sounds.wave_start)
 	spawn_enemies(enemies, wave, wave)
 }
 
@@ -524,6 +525,7 @@ bullet_blocked_by_terrain :: proc(rect: raylib.Rectangle) -> bool {
 // Blow up at `center`: hurt nearby enemies (with a shove), the player, and
 // chain into any other barrels caught in the blast.
 explode_at :: proc(center: raylib.Vector2) {
+	play(sounds.explosion)
 	append(&explosions, explosion{pos = center, life = EXPLOSION_TIME})
 
 	for i := len(enemies) - 1; i >= 0; i -= 1 {
@@ -589,6 +591,7 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 
 // Standard rewards for killing something. Call right before removing an enemy.
 spawn_kill_rewards :: proc(pos: raylib.Vector2) {
+	play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
 	try_spawn_health_drop(pos, &drops)
 	try_spawn_ammo_drop(pos, &drops)
 	try_spawn_currency_drop(pos, &drops)

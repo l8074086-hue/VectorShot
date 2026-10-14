@@ -11,6 +11,10 @@ main :: proc() {
 	defer raylib.CloseWindow()
 	raylib.ToggleFullscreen()
 
+	// Synthesize the whole sound bank into memory and open the audio device.
+	audio_init()
+	defer audio_shutdown()
+
 	// Everything is drawn to a fixed 800x600 canvas which then gets scaled up to
 	// the window. That keeps every layout coordinate (and the camera offset)
 	// valid in fullscreen, letterboxed to preserve the aspect ratio.
@@ -53,6 +57,7 @@ main :: proc() {
 		#partial switch state {
 		case .MAIN_MENU:
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+				play(sounds.ui_select)
 				skill_state = .MAIN_SCREEN
 				state = .SKILL_SELECT
 			}
@@ -67,6 +72,22 @@ main :: proc() {
 			raylib.DrawText(prompt, 400 - pw / 2, 300, 25, raylib.GRAY)
 			raylib.EndTextureMode()
 		case .SKILL_SELECT:
+			// Menu navigation + confirm blips, shared by every skill screen.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.W) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+				play(sounds.ui_move)
+			}
+			for key in NUMBER_KEYS {
+				if raylib.IsKeyPressed(key) {
+					play(sounds.ui_move)
+					break
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+				play(sounds.ui_select)
+			}
 			#partial switch skill_state {
 			case .MAIN_SCREEN:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ONE) {
@@ -285,6 +306,7 @@ main :: proc() {
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.Q) {
 				active_slot = 1 - active_slot
+				play(sounds.ui_move)
 			}
 			dir := raylib.Vector2(0)
 			if raylib.IsKeyDown(raylib.KeyboardKey.A) {dir.x -= 1}
@@ -398,6 +420,11 @@ main :: proc() {
 				}
 				w.cooldown = ws.cooldown
 				w.mag -= 1
+				if active_slot == 0 {
+					play(sounds.primary[gun], rand.float32_range(0.94, 1.06))
+				} else {
+					play(sounds.secondary[secondary_kind], rand.float32_range(0.94, 1.06))
+				}
 			}
 			// Manual reload: R (only if you have something to load).
 			if raylib.IsKeyPressed(raylib.KeyboardKey.R) &&
@@ -405,10 +432,12 @@ main :: proc() {
 			   w.mag < w.mag_cap &&
 			   w.ammo > 0 {
 				w.reload = RELOAD_TIME
+				play(sounds.reload)
 			}
 			// Auto-reload when the mag runs dry.
 			if w.mag <= 0 && w.ammo > 0 && w.reload <= 0 {
 				w.reload = RELOAD_TIME
+				play(sounds.reload)
 			}
 			// Melee kick: free (no ammo), an arc in the facing direction that shoves
 			// enemies back hard.
@@ -420,6 +449,7 @@ main :: proc() {
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.E) && melee_cooldown <= 0 {
 				melee_cooldown = MELEE_COOLDOWN_MAX
+				play(sounds.kick)
 				melee_flash = 0.15
 				player_c := position + size * 0.5
 				for i := len(enemies) - 1; i >= 0; i -= 1 {
@@ -441,6 +471,7 @@ main :: proc() {
 				}
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT_SHIFT) && dash_cooldown <= 0 {
+				play(sounds.dash)
 				if dash_blink {
 					position += raylib.Vector2Normalize(last_dir) * dash_distance
 					inv_timer = 0.20
@@ -474,6 +505,7 @@ main :: proc() {
 					}
 					if raylib.CheckCollisionRecs(mouse, card_rect) {
 						apply_upgrade(cards[i].name)
+						play(sounds.card)
 						clear(&cards)
 						if !debug_mode {
 							new_wave(&enemies, wave)
@@ -523,6 +555,7 @@ main :: proc() {
 						{e.position.x, e.position.y, e.size.x, e.size.y},
 					) {
 						e.hp -= bullets[i].damage
+						play(sounds.hit, rand.float32_range(0.9, 1.1))
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
 							spawn_kill_rewards(e.position)
@@ -570,6 +603,7 @@ main :: proc() {
 					if inv_timer <= 0 {
 						health -= enemies[i].damage
 						inv_timer = 0.5
+						play(sounds.player_hurt)
 					}
 					if health <= 0 {
 						state = .GAME_OVER
@@ -591,6 +625,7 @@ main :: proc() {
 					if inv_timer <= 0 {
 						health -= enemy_bullets[i].damage
 						inv_timer = 0.5
+						play(sounds.player_hurt)
 					}
 					unordered_remove(&enemy_bullets, i)
 				}
@@ -598,6 +633,7 @@ main :: proc() {
 
 			if health <= 0 {
 				state = .GAME_OVER
+				play(sounds.game_over)
 			}
 
 			for i := len(drops) - 1; i >= 0; i -= 1 {
@@ -616,14 +652,17 @@ main :: proc() {
 					switch drops[i].kind {
 					case .HEALTH:
 						health = min(max_health, health + drops[i].amount)
+						play(sounds.health)
 					case .AMMO:
 						primary.ammo = min(primary.ammo_cap, primary.ammo + i32(drops[i].amount))
 						secondary.ammo = min(
 							secondary.ammo_cap,
 							secondary.ammo + i32(drops[i].amount),
 						)
+						play(sounds.ammo)
 					case .CURRENCY:
 						currency += i32(drops[i].amount)
+						play(sounds.coin, rand.float32_range(0.97, 1.03))
 					}
 					unordered_remove(&drops, i)
 				}
@@ -805,21 +844,26 @@ main :: proc() {
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 				shop_selected = (shop_selected + 1) % entries
+				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
 				shop_selected = (shop_selected - 1 + entries) % entries
+				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 				if shop_selected >= n {
 					// Leave the shop and spawn the next wave.
 					state = .PLAYING
+					play(sounds.ui_select)
 					if !debug_mode {
 						new_wave(&enemies, wave)
 					}
 					wave += 1
+				} else if buy_shop_item(shop_selected) {
+					play(sounds.shop_buy)
 				} else {
-					_ = buy_shop_item(shop_selected)
+					play(sounds.ui_move)
 				}
 			}
 			raylib.BeginTextureMode(target)
@@ -850,6 +894,7 @@ main :: proc() {
 
 		case .GAME_OVER:
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+				play(sounds.ui_select)
 				end_run()
 			}
 			raylib.BeginTextureMode(target)

@@ -27,4 +27,5 @@
 (D) 2026-10-14 Add a local leaderboard +roguelike @meta @score
 (D) 2026-10-14 Add screen shake +roguelike @polish
 (D) 2026-10-14 Add hit particles & blood +roguelike @polish
-(E) 2026-10-13 Add sounds +roguelike @sounds
+(D) 2026-10-14 Add procedural background music +roguelike @sounds @music
+(D) 2026-10-14 Add a volume / mute option +roguelike @sounds @ui
