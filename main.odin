@@ -736,11 +736,11 @@ main :: proc() {
 			for e in enemies {
 				raylib.DrawRectangleV(e.position, e.size, e.color)
 				if e.elite {
-					// Gold outline + a little health bar so elites read clearly.
-					raylib.DrawRectangleLinesEx(
-						{e.position.x, e.position.y, e.size.x, e.size.y},
-						3,
-						raylib.GOLD,
+					// Crystalized: a floating shard marks it, plus a health bar.
+					draw_crystal_shard(
+						{e.position.x + e.size.x * 0.5, e.position.y - 18},
+						7,
+						f32(e.id),
 					)
 					if e.max_hp > 0 {
 						bx := i32(e.position.x)

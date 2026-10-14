@@ -1,4 +1,5 @@
 package main
+import "core:math"
 import "core:math/rand"
 import "vendor:raylib"
 
@@ -930,6 +931,15 @@ NUMBER_KEYS := [9]raylib.KeyboardKey{.ONE, .TWO, .THREE, .FOUR, .FIVE, .SIX, .SE
 draw_centered :: proc(text: cstring, y, size: i32, color: raylib.Color) {
 	width := raylib.MeasureText(text, size)
 	raylib.DrawText(text, 400 - width / 2, y, size, color)
+}
+
+// A floating crystal shard marks a crystalized (elite) enemy. `phase` staggers
+// the bob so a group of elites doesn't pulse in lockstep.
+draw_crystal_shard :: proc(center: raylib.Vector2, radius: f32, phase: f32) {
+	c := raylib.Vector2{center.x, center.y + math.sin_f32(f32(raylib.GetTime()) * 3 + phase) * 3}
+	raylib.DrawPoly(c, 4, radius, 0, raylib.Color{24, 68, 104, 255}) // dark crystal edge
+	raylib.DrawPoly(c, 4, radius * 0.74, 0, raylib.SKYBLUE) // body
+	raylib.DrawPoly(c, 4, radius * 0.34, 0, raylib.WHITE) // facet highlight
 }
 
 skill_screen_draw :: proc(selected_skill: cstring) {
