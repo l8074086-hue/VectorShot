@@ -43,6 +43,19 @@ ELITE_DMG_MULT :: 1.6
 ELITE_SPEED_MULT :: 1.1
 ELITE_SIZE_MULT :: 1.3
 
+// Crystalized-elite behaviors. Every elite is a corrupted variant with its own
+// trick: GRUNT devours allies, RUNNER blink-hops, TANK wears crystal plates,
+// RANGED throws boomerang shards, CHARGER phases through terrain.
+ELITE_DEVOUR_RANGE :: 48 // GRUNT: how close an ally must be to be eaten
+ELITE_DEVOUR_HEAL :: 0.20 // fraction of max hp restored per meal
+ELITE_DEVOUR_COOLDOWN :: 3.0 // seconds between meals
+ELITE_DEVOUR_LURE :: 160 // GRUNT drifts toward an ally within this range
+ELITE_BLINK_DISTANCE :: 95 // RUNNER: teleport hop length
+ELITE_BLINK_COOLDOWN :: 1.6 // seconds between hops
+ELITE_BOOMERANG_RANGE :: 320 // RANGED: shard outbound distance before it turns
+ELITE_BOOMERANG_SPEED :: 300
+ELITE_TANK_PLATES :: 3 // TANK: hits absorbed before it takes real damage
+
 // Shop: how many offers are stocked, and the reroll limit/cost curve.
 SHOP_OFFER_COUNT :: 3
 SHOP_MAX_REROLLS :: 2
@@ -334,6 +347,7 @@ spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
 				kind = kind,
 				state = .CHASE,
 				elite = elite,
+				plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
 			},
 		)
 		next_enemy_id += 1
@@ -348,6 +362,9 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 // Per-enemy steering. Movement is applied here; wall collision is resolved
 // afterwards in the update loop.
 update_enemy :: proc(e: ^enemy, dT: f32) {
+	if e.flash > 0 {
+		e.flash -= dT
+	}
 	s := ENEMIES[e.kind]
 	pc := position + size * 0.5
 	ec := e.position + e.size * 0.5
@@ -360,13 +377,37 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 
 	switch e.kind {
 	case .GRUNT, .TANK:
+		// Crystalized grunts (Devourers) drift toward a nearby ally to feed.
+		if e.elite && e.kind == .GRUNT {
+			if lure, ok := nearest_other_enemy(e, ELITE_DEVOUR_LURE); ok {
+				if d := raylib.Vector2Length(lure - ec); d > 0.01 {
+					e.position += (lure - ec) / d * e.speed * dT
+					break
+				}
+			}
+		}
 		e.position += dir * e.speed * dT
 
 	case .RUNNER:
-		// Fast, with a little zig-zag so they're harder to line up.
-		perp := raylib.Vector2{-dir.y, dir.x}
-		osc := rand.float32_range(-0.5, 0.5)
-		e.position += (dir + perp * osc) * e.speed * dT
+		if e.elite {
+			// Blinker: erratic blink-hops instead of a smooth approach.
+			e.ability_timer -= dT
+			if e.ability_timer <= 0 {
+				perp := raylib.Vector2{-dir.y, dir.x}
+				hop := dir + perp * rand.float32_range(-0.45, 0.45)
+				e.position += raylib.Vector2Normalize(hop) * ELITE_BLINK_DISTANCE
+				e.ability_timer = ELITE_BLINK_COOLDOWN
+				e.flash = 0.18
+				play(sounds.dash, 1.25)
+			} else {
+				e.position += dir * e.speed * 0.25 * dT
+			}
+		} else {
+			// Fast, with a little zig-zag so they're harder to line up.
+			perp := raylib.Vector2{-dir.y, dir.x}
+			osc := rand.float32_range(-0.5, 0.5)
+			e.position += (dir + perp * osc) * e.speed * dT
+		}
 
 	case .RANGED:
 		e.fire_cooldown -= dT
@@ -381,16 +422,35 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			e.position += perp * e.speed * 0.7 * dT * side
 		}
 		if e.fire_cooldown <= 0 && dist < s.preferred_range + 140 {
-			append(
-				&enemy_bullets,
-				bullet {
-					position = ec - {5, 5},
-					size = {10, 10},
-					velocity = dir * 260,
-					damage = s.damage,
-					pierce = 0,
-				},
-			)
+			if e.elite {
+				// Boomerang: a fan of three shards that fly out, then back.
+				spread := [3]f32{-0.30, 0.0, 0.30}
+				for off in spread {
+					append(
+						&enemy_bullets,
+						bullet {
+							position = ec - {5, 5},
+							size = {10, 10},
+							velocity = raylib.Vector2Rotate(dir, off) * ELITE_BOOMERANG_SPEED,
+							damage = s.damage,
+							pierce = 0,
+							boomerang = true,
+							max_range = ELITE_BOOMERANG_RANGE,
+						},
+					)
+				}
+			} else {
+				append(
+					&enemy_bullets,
+					bullet {
+						position = ec - {5, 5},
+						size = {10, 10},
+						velocity = dir * 260,
+						damage = s.damage,
+						pierce = 0,
+					},
+				)
+			}
 			e.fire_cooldown = s.fire_rate
 		}
 
@@ -421,6 +481,77 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			}
 		}
 	}
+}
+
+// Center of the nearest *other* enemy within `radius`, used by the Devourer to
+// home in on a meal.
+nearest_other_enemy :: proc(e: ^enemy, radius: f32) -> (raylib.Vector2, bool) {
+	ec := e.position + e.size * 0.5
+	best := raylib.Vector2{}
+	best_d := radius
+	found := false
+	for other in enemies {
+		if other.id == e.id {
+			continue
+		}
+		oc := other.position + other.size * 0.5
+		if d := raylib.Vector2Length(oc - ec); d < best_d {
+			best_d = d
+			best = oc
+			found = true
+		}
+	}
+	return best, found
+}
+
+// Elite abilities that have to mutate the enemy list run in their own pass so
+// removals can't invalidate the AI loop. Right now that's the Devourer eating
+// an ally; the rest of the elites act inside `update_enemy`.
+update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
+	for i in 0 ..< len(enemies) {
+		e := &enemies[i]
+		if !e.elite || e.kind != .GRUNT {
+			continue
+		}
+		e.ability_timer -= dT
+		if e.ability_timer > 0 {
+			continue
+		}
+		ec := e.position + e.size * 0.5
+		best := -1
+		best_d: f32 = ELITE_DEVOUR_RANGE
+		for j in 0 ..< len(enemies) {
+			if j == i || enemies[j].elite {
+				continue
+			}
+			oc := enemies[j].position + enemies[j].size * 0.5
+			if d := raylib.Vector2Length(oc - ec); d < best_d {
+				best_d = d
+				best = j
+			}
+		}
+		if best < 0 {
+			continue
+		}
+		// The victim dies (and still drops); the Devourer heals off it.
+		spawn_kill_rewards(enemies[best].position, false)
+		e.hp = min(e.hp + e.max_hp * ELITE_DEVOUR_HEAL, e.max_hp)
+		e.flash = 0.25
+		e.ability_timer = ELITE_DEVOUR_COOLDOWN
+		unordered_remove(enemies, best)
+		break // removal shifted indices; resume next frame
+	}
+}
+
+// Damage an enemy, respecting the Bulwark's crystal plates. Each plate soaks a
+// whole hit and breaks off; once they're gone the tank takes full damage.
+apply_enemy_damage :: proc(e: ^enemy, amount: f32) {
+	if e.elite && e.kind == .TANK && e.plates > 0 {
+		e.plates -= 1
+		e.flash = 0.15
+		return
+	}
+	e.hp -= amount
 }
 
 // Soft body separation: overlapping enemies push each other apart instead of
@@ -585,7 +716,7 @@ explode_at :: proc(center: raylib.Vector2) {
 	for i := len(enemies) - 1; i >= 0; i -= 1 {
 		ec := enemies[i].position + enemies[i].size * 0.5
 		if raylib.Vector2Distance(ec, center) <= EXPLOSION_RADIUS {
-			enemies[i].hp -= EXPLOSION_DAMAGE
+			apply_enemy_damage(&enemies[i], EXPLOSION_DAMAGE)
 			d := ec - center
 			if raylib.Vector2Length(d) > 0.01 {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24

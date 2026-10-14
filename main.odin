@@ -462,7 +462,7 @@ main :: proc() {
 					if raylib.Vector2Angle(last_dir, raylib.Vector2Normalize(to)) > MELEE_ARC {
 						continue
 					}
-					enemies[i].hp -= MELEE_DAMAGE
+					apply_enemy_damage(&enemies[i], MELEE_DAMAGE)
 					enemies[i].position += raylib.Vector2Normalize(to) * MELEE_KNOCKBACK
 					if enemies[i].hp <= 0 {
 						spawn_kill_rewards(enemies[i].position, enemies[i].elite)
@@ -554,7 +554,7 @@ main :: proc() {
 						{p.x, p.y, s.x, s.y},
 						{e.position.x, e.position.y, e.size.x, e.size.y},
 					) {
-						e.hp -= bullets[i].damage
+						apply_enemy_damage(e, bullets[i].damage)
 						play(sounds.hit, rand.float32_range(0.9, 1.1))
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
@@ -584,8 +584,27 @@ main :: proc() {
 			// Enemy AI: steer, push off terrain, then separate from each other.
 			for i in 0 ..< len(enemies) {
 				update_enemy(&enemies[i], dT)
-				resolve_obstacles(&enemies[i].position, enemies[i].size)
+				// Phantom chargers pass straight through terrain mid-dash, but
+				// are still kept inside the arena.
+				if enemies[i].elite &&
+				   enemies[i].kind == .CHARGER &&
+				   enemies[i].state == .CHARGE {
+					e := &enemies[i]
+					e.position.x = clamp(
+						e.position.x,
+						f32(WALL_THICK),
+						f32(ARENA_W) - f32(WALL_THICK) - e.size.x,
+					)
+					e.position.y = clamp(
+						e.position.y,
+						f32(WALL_THICK),
+						f32(ARENA_H) - f32(WALL_THICK) - e.size.y,
+					)
+				} else {
+					resolve_obstacles(&enemies[i].position, enemies[i].size)
+				}
 			}
+			update_elite_abilities(&enemies, dT)
 			separate_enemies()
 
 			if inv_timer > 0 {
@@ -613,17 +632,29 @@ main :: proc() {
 
 			// Hostile projectiles (ranged enemies).
 			for i := len(enemy_bullets) - 1; i >= 0; i -= 1 {
-				enemy_bullets[i].position += enemy_bullets[i].velocity * dT
-				bp := enemy_bullets[i].position
-				bs := enemy_bullets[i].size
-				if raylib.Vector2Distance(bp, position) > 1600 ||
+				b := &enemy_bullets[i]
+				b.position += b.velocity * dT
+				if b.boomerang {
+					// Fly out to max_range, turn around, then leave play.
+					b.traveled += raylib.Vector2Length(b.velocity) * dT
+					if !b.returning && b.traveled >= b.max_range {
+						b.returning = true
+						b.velocity = -b.velocity
+					} else if b.returning && b.traveled >= b.max_range * 2 {
+						unordered_remove(&enemy_bullets, i)
+						continue
+					}
+				}
+				bp := b.position
+				bs := b.size
+				if (!b.boomerang && raylib.Vector2Distance(bp, position) > 1600) ||
 				   bullet_blocked_by_terrain({bp.x, bp.y, bs.x, bs.y}) {
 					unordered_remove(&enemy_bullets, i)
 					continue
 				}
 				if raylib.CheckCollisionRecs({bp.x, bp.y, bs.x, bs.y}, player_rect) {
 					if inv_timer <= 0 {
-						health -= enemy_bullets[i].damage
+						health -= b.damage
 						inv_timer = 0.5
 						play(sounds.player_hurt)
 					}
@@ -734,8 +765,33 @@ main :: proc() {
 			}
 			// Enemies (chargers flash a white box while winding up).
 			for e in enemies {
-				raylib.DrawRectangleV(e.position, e.size, e.color)
+				// Crystalized elites flash white for a beat after acting.
+				body := e.color
+				if e.flash > 0 {
+					body = raylib.WHITE
+				}
+				// Phantom chargers go translucent while passing through terrain.
+				if e.elite && e.kind == .CHARGER && e.state == .CHARGE {
+					body.a = 110
+				}
+				raylib.DrawRectangleV(e.position, e.size, body)
 				if e.elite {
+					// Bulwark crystal plates: one small shard per hit absorbed.
+					if e.kind == .TANK {
+						for p in 0 ..< e.plates {
+							t := (f32(p) + 0.5) / f32(ELITE_TANK_PLATES)
+							raylib.DrawPoly(
+								{
+									e.position.x + e.size.x * t,
+									e.position.y + e.size.y * 0.5,
+								},
+								4,
+								4,
+								0,
+								raylib.SKYBLUE,
+							)
+						}
+					}
 					// Crystalized: a floating shard marks it, plus a health bar.
 					draw_crystal_shard(
 						{e.position.x + e.size.x * 0.5, e.position.y - 18},

@@ -27,6 +27,12 @@ bullet :: struct {
 	pierce:    i32, // how many more enemies this shot can pass through
 	hits:      [BULLET_MAX_HITS]i32, // enemy ids already damaged
 	hit_count: int,
+	// Boomerang shards (elite RANGED only): fly out to `max_range`, then head
+	// back the way they came.
+	boomerang: bool,
+	returning: bool,
+	traveled:  f32,
+	max_range: f32,
 }
 
 card :: struct {
@@ -64,6 +70,12 @@ enemy :: struct {
 	fire_cooldown: f32,
 	charge_dir:    raylib.Vector2, // locked-in direction while charging
 	elite:         bool,
+	// Crystalized-elite state. `plates` = Bulwark crystal plates left; other
+	// elites use `ability_timer` for their ability cooldown and `flash` for a
+	// brief white tell after acting.
+	plates:        i32,
+	ability_timer: f32,
+	flash:         f32,
 }
 
 Enemy_Kind :: enum {
