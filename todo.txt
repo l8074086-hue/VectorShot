@@ -4,7 +4,6 @@
 (B) 2026-10-14 Add status effects (burn/freeze/poison/shock) +roguelike @combat @content
 (B) 2026-10-14 Add elemental ammo types +roguelike @guns @combat
 (B) 2026-10-14 Add a combo & score multiplier +roguelike @combat @score
-(B) 2026-10-14 Add elite enemy variants +roguelike @enemies @combat
 (B) 2026-10-14 Add a minimap +roguelike @ui @levels
 (B) 2026-10-14 Add controller support +roguelike @input @ui
 (C) 2026-10-14 Add throwable grenades +roguelike @combat @items

@@ -15,3 +15,5 @@ x 2026-10-14 2026-10-13 Add a shop system +roguelike @shop
 x 2026-10-14 2026-10-13 Add currency +roguelike @shop @drops
 x 2026-10-14 2026-10-13 Add a skills system +roguelike @skills
 x 2026-10-14 2026-10-13 Add sounds +roguelike @sounds
+x 2026-10-14 2026-10-14 Add elite enemy variants +roguelike @enemies @combat
+x 2026-10-14 2026-10-14 Balance runs: upgrade caps, enemy scaling, shop rework +roguelike @balance @shop @enemies

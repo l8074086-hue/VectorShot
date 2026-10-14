@@ -19,6 +19,34 @@ EXPLOSION_RADIUS :: 130
 EXPLOSION_DAMAGE :: 6
 EXPLOSION_TIME :: 0.35
 
+// Player upgrade ceilings. Once a card would push a stat past its cap it stops
+// being offered, so runs plateau instead of snowballing forever.
+MAX_SPEED :: 450
+MAX_BONUS_DAMAGE :: 6
+MAX_BONUS_PROJECTILES :: 4
+MAX_BONUS_PIERCE :: 3
+
+// Enemies get tougher, hit harder and move a little faster every wave, so the
+// difficulty curve keeps up with the player's upgrades.
+ENEMY_HP_PER_WAVE :: 0.16
+ENEMY_DMG_PER_WAVE :: 0.06
+ENEMY_SPEED_PER_WAVE :: 0.02
+ENEMY_SPEED_CAP :: 1.4
+
+// Elite variants: rare early, more common later. Beefier, angrier, richer.
+ELITE_BASE_CHANCE :: 0.03
+ELITE_CHANCE_PER_WAVE :: 0.01
+ELITE_CHANCE_CAP :: 0.20
+ELITE_HP_MULT :: 2.5
+ELITE_DMG_MULT :: 1.6
+ELITE_SPEED_MULT :: 1.1
+ELITE_SIZE_MULT :: 1.3
+
+// Shop: how many offers are stocked, and the reroll limit/cost curve.
+SHOP_OFFER_COUNT :: 3
+SHOP_MAX_REROLLS :: 2
+SHOP_REROLL_BASE_COST :: 15
+
 // ---------------------------------------------------------------------------
 // Run state
 //
@@ -77,6 +105,7 @@ currency: i32 = 0
 // Shop.
 shop_items: [dynamic]shop_item
 shop_selected: int = 0
+shop_rerolls_used: i32 = 0
 
 // Entities.
 enemies: [dynamic]enemy
@@ -121,6 +150,7 @@ start_run :: proc(stats: Run_Stats) {
 	wave = 1
 	currency = 0
 	shop_selected = 0
+	shop_rerolls_used = 0
 	last_dir = {0, -1}
 	aim_dir = {0, -1}
 	clear_run_entities()
@@ -263,23 +293,46 @@ random_spawn_pos :: proc(sz: raylib.Vector2) -> raylib.Vector2 {
 }
 
 spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
+	hp_scale := 1 + ENEMY_HP_PER_WAVE * f32(wave - 1)
+	dmg_scale := 1 + ENEMY_DMG_PER_WAVE * f32(wave - 1)
+	spd_scale := min(1 + ENEMY_SPEED_PER_WAVE * f32(wave - 1), f32(ENEMY_SPEED_CAP))
+	elite_chance := min(
+		ELITE_BASE_CHANCE + ELITE_CHANCE_PER_WAVE * f32(wave - 1),
+		f32(ELITE_CHANCE_CAP),
+	)
+
 	for _ in 0 ..< num {
 		kind := pick_enemy_kind(wave)
 		s := ENEMIES[kind]
+		elite := wave >= 2 && rand.float32() < elite_chance
+
+		sz := s.size
+		hp := s.hp * hp_scale
+		damage := s.damage * dmg_scale
+		speed := s.speed * spd_scale
+		if elite {
+			sz *= ELITE_SIZE_MULT
+			hp *= ELITE_HP_MULT
+			damage *= ELITE_DMG_MULT
+			speed *= ELITE_SPEED_MULT
+		}
+
 		append(
 			enemies,
 			enemy {
-				position = random_spawn_pos(s.size),
-				size = s.size,
+				position = random_spawn_pos(sz),
+				size = sz,
 				velocity = {0, 0},
 				attacking = false,
 				color = s.color,
-				damage = s.damage,
-				hp = s.hp,
+				damage = damage,
+				hp = hp,
+				max_hp = hp,
 				id = next_enemy_id,
-				speed = s.speed,
+				speed = speed,
 				kind = kind,
 				state = .CHASE,
+				elite = elite,
 			},
 		)
 		next_enemy_id += 1
@@ -537,7 +590,7 @@ explode_at :: proc(center: raylib.Vector2) {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24
 			}
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position)
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -578,10 +631,11 @@ try_spawn_ammo_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 	}
 }
 
-// Coins are the common drop; spend them in the shop every 5 waves.
+// Coins are the common drop; spend them in the shop every 5 waves. Kept
+// deliberately stingy so a big wave of enemies can't flood the run with cash.
 try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
-	if rand.float32() < 0.90 {
-		amount := f32(rand.int_range(3, 7)) // 3..6 coins
+	if rand.float32() < 0.5 {
+		amount := f32(rand.int_range(2, 5)) // 2..4 coins
 		append(
 			drops,
 			drop{position = pos, size = {10, 10}, kind = .CURRENCY, amount = amount, life = 8.0},
@@ -590,8 +644,21 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 }
 
 // Standard rewards for killing something. Call right before removing an enemy.
-spawn_kill_rewards :: proc(pos: raylib.Vector2) {
+// Elites leave a guaranteed pile of coins on top of the usual rolls.
+spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
 	play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
+	if elite {
+		append(
+			&drops,
+			drop {
+				position = pos,
+				size = {13, 13},
+				kind = .CURRENCY,
+				amount = f32(rand.int_range(10, 18)),
+				life = 8.0,
+			},
+		)
+	}
 	try_spawn_health_drop(pos, &drops)
 	try_spawn_ammo_drop(pos, &drops)
 	try_spawn_currency_drop(pos, &drops)
@@ -605,9 +672,9 @@ spawn_kill_rewards :: proc(pos: raylib.Vector2) {
 // shop's "mystery upgrade" so the two never drift apart.
 apply_upgrade :: proc(name: cstring) {
 	if name == "SPEED" {
-		SPEED += 50
+		SPEED = min(SPEED + 50, f32(MAX_SPEED))
 	} else if name == "ATTACK" {
-		bonus_damage += 1
+		bonus_damage = min(bonus_damage + 1, f32(MAX_BONUS_DAMAGE))
 	} else if name == "HEALTH" {
 		max_health += 25
 		health = max_health
@@ -618,34 +685,140 @@ apply_upgrade :: proc(name: cstring) {
 			DASH_DURATION += 0.05
 		}
 	} else if name == "PROJECTILE" {
-		bonus_projectiles += 1
+		bonus_projectiles = min(bonus_projectiles + 1, MAX_BONUS_PROJECTILES)
 	} else if name == "PRECISION" {
 		spread_cut += 0.2
 	} else if name == "PIERCE" {
-		bonus_pierce += 1
+		bonus_pierce = min(bonus_pierce + 1, MAX_BONUS_PIERCE)
 	}
+}
+
+// Would this upgrade actually do anything right now? Capped stats report false so
+// they can be filtered out of card deals and shop stock.
+upgrade_is_useful :: proc(name: cstring) -> bool {
+	switch name {
+	case "SPEED":
+		return SPEED < f32(MAX_SPEED)
+	case "ATTACK":
+		return bonus_damage < f32(MAX_BONUS_DAMAGE)
+	case "PROJECTILE":
+		return bonus_projectiles < MAX_BONUS_PROJECTILES
+	case "PIERCE":
+		return bonus_pierce < MAX_BONUS_PIERCE
+	case "PRECISION":
+		return precision_is_useful()
+	}
+	return true // HEALTH, DASH, etc. always have room
 }
 
 apply_random_upgrade :: proc() {
-	// CARD_POOL is a constant, so walk it to reach the rolled index.
-	idx := rand.int_range(0, len(CARD_POOL))
-	i := 0
+	// Roll from the upgrades that still have room, so a mystery crate can't
+	// hand out a capped stat.
+	pool: [dynamic]card_definition
+	defer delete(pool)
 	for c in CARD_POOL {
-		if i == idx {
-			apply_upgrade(c.name)
-			return
+		if upgrade_is_useful(c.name) {
+			append(&pool, c)
 		}
-		i += 1
+	}
+	if len(pool) == 0 {
+		apply_upgrade("HEALTH")
+		return
+	}
+	apply_upgrade(pool[rand.int_range(0, len(pool))].name)
+}
+
+// How often each rarity shows up in a stocked shop.
+shop_tier_weight :: proc(tier: Shop_Tier) -> int {
+	switch tier {
+	case .COMMON:
+		return 6
+	case .RARE:
+		return 3
+	case .EPIC:
+		return 1
+	}
+	return 1
+}
+
+shop_tier_color :: proc(tier: Shop_Tier) -> raylib.Color {
+	switch tier {
+	case .COMMON:
+		return raylib.RAYWHITE
+	case .RARE:
+		return raylib.SKYBLUE
+	case .EPIC:
+		return raylib.VIOLET
+	}
+	return raylib.RAYWHITE
+}
+
+// Weighted roll of one offer from SHOP_POOL.
+pick_shop_definition :: proc() -> shop_definition {
+	total := 0
+	for d in SHOP_POOL {
+		total += shop_tier_weight(d.tier)
+	}
+	roll := rand.int_range(0, total)
+	acc := 0
+	for d in SHOP_POOL {
+		acc += shop_tier_weight(d.tier)
+		if roll < acc {
+			return d
+		}
+	}
+	return SHOP_POOL[0]
+}
+
+// Deal a fresh set of distinct offers into `shop_items`.
+stock_shop :: proc() {
+	clear(&shop_items)
+	for tries := 0; len(shop_items) < SHOP_OFFER_COUNT && tries < 200; tries += 1 {
+		d := pick_shop_definition()
+		// Don't offer an upgrade the player can no longer benefit from.
+		if d.kind == .UPGRADE && !upgrade_is_useful(d.upgrade) {
+			continue
+		}
+		duplicate := false
+		for it in shop_items {
+			if it.name == d.name {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		append(&shop_items, shop_item{d.name, d.desc, d.cost, d.kind, d.upgrade, d.tier, false})
 	}
 }
 
-// Stock the shop for this visit. One of each item.
+// Cost of the next reroll; rises with each reroll already spent this visit.
+shop_reroll_cost :: proc() -> i32 {
+	return SHOP_REROLL_BASE_COST * (shop_rerolls_used + 1)
+}
+
+// Called once when the shop opens.
 build_shop :: proc() {
-	clear(&shop_items)
-	append(&shop_items, shop_item{"AMMO REFILL", "TOP UP BOTH GUNS", 15, .AMMO, false})
-	append(&shop_items, shop_item{"PATCH UP", "RESTORE FULL HP", 20, .HEAL, false})
-	append(&shop_items, shop_item{"TOUGHEN UP", "+25 MAX HP", 35, .MAX_HP, false})
-	append(&shop_items, shop_item{"MYSTERY UPGRADE", "RANDOM CARD", 25, .UPGRADE, false})
+	shop_selected = 0
+	shop_rerolls_used = 0
+	stock_shop()
+}
+
+// Reroll the offers. Returns false (and costs nothing) if out of rerolls or cash.
+try_shop_reroll :: proc() -> bool {
+	if shop_rerolls_used >= SHOP_MAX_REROLLS {
+		return false
+	}
+	cost := shop_reroll_cost()
+	if currency < cost {
+		return false
+	}
+	currency -= cost
+	shop_rerolls_used += 1
+	shop_selected = 0
+	stock_shop()
+	return true
 }
 
 // Returns true if the purchase went through.
@@ -668,7 +841,11 @@ buy_shop_item :: proc(idx: int) -> bool {
 		max_health += 25
 		health += 25
 	case .UPGRADE:
-		apply_random_upgrade()
+		if it.upgrade == "RANDOM" {
+			apply_random_upgrade()
+		} else {
+			apply_upgrade(it.upgrade)
+		}
 	}
 	it.sold = true
 	return true
@@ -678,19 +855,18 @@ buy_shop_item :: proc(idx: int) -> bool {
 // Cards
 // ---------------------------------------------------------------------------
 
-spawn_cards :: proc(cards: ^[dynamic]card, count := 3, precision_useful: bool) {
+spawn_cards :: proc(cards: ^[dynamic]card, count := 3) {
 	CARD_W: f32 = 120
 	CARD_H: f32 = 160
 	spacing: f32 = CARD_W + 40
 	center_x := f32(800) / 2
 	y := f32(600) / 2 - CARD_H / 2
 
-	// Build the deal pool, dropping PRECISION once the current gun can't get
-	// any tighter (its spread is already at min_spread).
+	// Build the deal pool, dropping cards whose stat is already capped.
 	pool: [dynamic]card_definition
 	defer delete(pool)
 	for c in CARD_POOL {
-		if c.name == "PRECISION" && !precision_useful {
+		if !upgrade_is_useful(c.name) {
 			continue
 		}
 		append(&pool, c)

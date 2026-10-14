@@ -55,6 +55,7 @@ enemy :: struct {
 	color:         raylib.Color,
 	damage:        f32,
 	hp:            f32,
+	max_hp:        f32,
 	id:            i32,
 	speed:         f32,
 	kind:          Enemy_Kind,
@@ -62,6 +63,7 @@ enemy :: struct {
 	state_timer:   f32,
 	fire_cooldown: f32,
 	charge_dir:    raylib.Vector2, // locked-in direction while charging
+	elite:         bool,
 }
 
 Enemy_Kind :: enum {
@@ -222,10 +224,31 @@ Shop_Item_Kind :: enum {
 	UPGRADE,
 }
 
+// Rarity band for shop offers: sets the price range and how often the offer is
+// drawn from SHOP_POOL (see `shop_tier_weight`).
+Shop_Tier :: enum {
+	COMMON,
+	RARE,
+	EPIC,
+}
+
+// A possible shop offer (the static template, kept in SHOP_POOL).
+shop_definition :: struct {
+	name:    cstring,
+	desc:    cstring,
+	cost:    i32,
+	kind:    Shop_Item_Kind,
+	upgrade: cstring, // for .UPGRADE: a card name, or "RANDOM"
+	tier:    Shop_Tier,
+}
+
+// One stocked offer for the current shop visit.
 shop_item :: struct {
-	name: cstring,
-	desc: cstring,
-	cost: i32,
-	kind: Shop_Item_Kind,
-	sold: bool,
+	name:    cstring,
+	desc:    cstring,
+	cost:    i32,
+	kind:    Shop_Item_Kind,
+	upgrade: cstring,
+	tier:    Shop_Tier,
+	sold:    bool,
 }

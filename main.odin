@@ -465,7 +465,7 @@ main :: proc() {
 					enemies[i].hp -= MELEE_DAMAGE
 					enemies[i].position += raylib.Vector2Normalize(to) * MELEE_KNOCKBACK
 					if enemies[i].hp <= 0 {
-						spawn_kill_rewards(enemies[i].position)
+						spawn_kill_rewards(enemies[i].position, enemies[i].elite)
 						unordered_remove(&enemies, i)
 					}
 				}
@@ -486,7 +486,7 @@ main :: proc() {
 			resolve_obstacles(&position, size)
 			if raylib.IsKeyPressed(raylib.KeyboardKey.F) {
 				clear(&cards)
-				spawn_cards(&cards, card_choices, precision_is_useful())
+				spawn_cards(&cards, card_choices)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.G) {
 				pop(&cards)
@@ -558,7 +558,7 @@ main :: proc() {
 						play(sounds.hit, rand.float32_range(0.9, 1.1))
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
-							spawn_kill_rewards(e.position)
+							spawn_kill_rewards(e.position, e.elite)
 							unordered_remove(&enemies, j)
 						}
 						// Spend a pierce charge, or die on this hit.
@@ -676,7 +676,7 @@ main :: proc() {
 					build_shop()
 					state = .SHOP
 				} else if !debug_mode || wave == 1 {
-					spawn_cards(&cards, card_choices, precision_is_useful())
+					spawn_cards(&cards, card_choices)
 				}
 				// In debug (not shop wave), skip the card reward after wave 1.
 			}
@@ -735,6 +735,22 @@ main :: proc() {
 			// Enemies (chargers flash a white box while winding up).
 			for e in enemies {
 				raylib.DrawRectangleV(e.position, e.size, e.color)
+				if e.elite {
+					// Gold outline + a little health bar so elites read clearly.
+					raylib.DrawRectangleLinesEx(
+						{e.position.x, e.position.y, e.size.x, e.size.y},
+						3,
+						raylib.GOLD,
+					)
+					if e.max_hp > 0 {
+						bx := i32(e.position.x)
+						by := i32(e.position.y) - 8
+						w := i32(e.size.x)
+						filled := i32(e.size.x * (e.hp / e.max_hp))
+						raylib.DrawRectangle(bx, by, w, 4, raylib.RED)
+						raylib.DrawRectangle(bx, by, filled, 4, raylib.GREEN)
+					}
+				}
 				if e.kind == .CHARGER && e.state == .WINDUP {
 					raylib.DrawRectangleLinesEx(
 						{e.position.x - 4, e.position.y - 4, e.size.x + 8, e.size.y + 8},
@@ -840,7 +856,9 @@ main :: proc() {
 
 		case .SHOP:
 			n := len(shop_items)
-			entries := n + 1 // the extra row is LEAVE
+			reroll_row := n // the row after the offers
+			leave_row := n + 1
+			entries := n + 2
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 				shop_selected = (shop_selected + 1) % entries
@@ -851,8 +869,15 @@ main :: proc() {
 				shop_selected = (shop_selected - 1 + entries) % entries
 				play(sounds.ui_move)
 			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.R) {
+				if try_shop_reroll() {
+					play(sounds.shop_buy)
+				} else {
+					play(sounds.ui_move)
+				}
+			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-				if shop_selected >= n {
+				if shop_selected == leave_row {
 					// Leave the shop and spawn the next wave.
 					state = .PLAYING
 					play(sounds.ui_select)
@@ -860,6 +885,12 @@ main :: proc() {
 						new_wave(&enemies, wave)
 					}
 					wave += 1
+				} else if shop_selected == reroll_row {
+					if try_shop_reroll() {
+						play(sounds.shop_buy)
+					} else {
+						play(sounds.ui_move)
+					}
 				} else if buy_shop_item(shop_selected) {
 					play(sounds.shop_buy)
 				} else {
@@ -871,25 +902,52 @@ main :: proc() {
 			draw_centered(cstring("SHOP"), 30, 44, raylib.WHITE)
 			draw_centered(raylib.TextFormat("COINS: %i", int(currency)), 84, 24, raylib.GOLD)
 			for it, i in shop_items {
-				color := raylib.RAYWHITE
+				color := shop_tier_color(it.tier)
 				if it.sold {
 					color = raylib.DARKGRAY
 				} else if i == shop_selected {
 					color = raylib.YELLOW
+				} else if currency < it.cost {
+					color = raylib.GRAY
 				}
 				label: cstring
 				if it.sold {
 					label = raylib.TextFormat("%s   -   SOLD", it.name)
 				} else {
-					label = raylib.TextFormat("%s   -   %i", it.name, it.cost)
+					label = raylib.TextFormat("%s   -   %i", it.name, int(it.cost))
 				}
 				row := 150 + i32(i) * 58
 				draw_centered(label, row, 26, color)
 				draw_centered(it.desc, row + 28, 16, raylib.DARKGRAY)
 			}
-			leave_color := shop_selected >= n ? raylib.YELLOW : raylib.GRAY
-			draw_centered(cstring("LEAVE"), 150 + i32(n) * 58, 26, leave_color)
-			draw_centered(cstring("UP/DOWN move   ENTER buy/leave"), 552, 18, raylib.GRAY)
+			// Reroll row.
+			reroll_y := 150 + i32(n) * 58
+			rerolls_left := SHOP_MAX_REROLLS - shop_rerolls_used
+			reroll_label: cstring
+			if rerolls_left > 0 {
+				reroll_label = raylib.TextFormat(
+					"REROLL OFFERS   -   $%i   (%i LEFT)",
+					int(shop_reroll_cost()),
+					int(rerolls_left),
+				)
+			} else {
+				reroll_label = cstring("REROLL OFFERS   -   NONE LEFT")
+			}
+			reroll_color := raylib.GRAY
+			if rerolls_left > 0 {
+				reroll_color = shop_selected == reroll_row ? raylib.YELLOW : raylib.RAYWHITE
+			}
+			draw_centered(reroll_label, reroll_y, 24, reroll_color)
+			// Leave row.
+			leave_y := reroll_y + 58
+			leave_color := shop_selected == leave_row ? raylib.YELLOW : raylib.GRAY
+			draw_centered(cstring("LEAVE"), leave_y, 26, leave_color)
+			draw_centered(
+				cstring("UP/DOWN move   ENTER buy   R reroll   LEAVE to continue"),
+				552,
+				18,
+				raylib.GRAY,
+			)
 			raylib.EndTextureMode()
 
 		case .GAME_OVER:

@@ -13,6 +13,25 @@ CARD_POOL :: [?]card_definition {
 	{"PIERCE", "UPGRADE"},
 }
 
+// Possible shop offers. Each visit draws a few distinct entries from here, so
+// the stock rotates instead of being the same fixed list every time. `tier`
+// sets the price band and the draw weight (COMMON shows up most often).
+SHOP_POOL :: [?]shop_definition {
+	// COMMON
+	{"AMMO REFILL", "TOP UP BOTH GUNS", 15, .AMMO, "", .COMMON},
+	{"PATCH UP", "RESTORE FULL HP", 20, .HEAL, "", .COMMON},
+	{"TOUGHEN UP", "+25 MAX HP", 25, .MAX_HP, "", .COMMON},
+	{"SHARPSHOOTER", "+1 DAMAGE", 25, .UPGRADE, "ATTACK", .COMMON},
+	{"LIGHT FEET", "+50 SPEED", 25, .UPGRADE, "SPEED", .COMMON},
+	// RARE
+	{"TIGHT GROUPS", "-20% SPREAD", 35, .UPGRADE, "PRECISION", .RARE},
+	{"EXTENDED DASH", "STRONGER DASH", 35, .UPGRADE, "DASH", .RARE},
+	{"HOT LOAD", "+1 PIERCE", 40, .UPGRADE, "PIERCE", .RARE},
+	// EPIC
+	{"MYSTERY CRATE", "RANDOM UPGRADE", 50, .UPGRADE, "RANDOM", .EPIC},
+	{"DOUBLE TAP", "+1 PROJECTILE", 60, .UPGRADE, "PROJECTILE", .EPIC},
+}
+
 ENEMIES := [Enemy_Kind]Enemy_Stats {
 	// NAME, SIZE, SPEED, DAMAGE, HP, COLOR, RANGED, PREFERRED_RANGE, FIRE_RATE, CHARGE_SPEED
 	.GRUNT   = {"GRUNT", {50, 50}, 80, 10, 2, raylib.BLUE, false, 0, 0, 0},
