@@ -74,6 +74,7 @@ enemy :: struct {
 	// elites use `ability_timer` for their ability cooldown and `flash` for a
 	// brief white tell after acting.
 	plates:        i32,
+	elite_step:    i32, // RUNNER: dashes left in the current burst
 	ability_timer: f32,
 	flash:         f32,
 }

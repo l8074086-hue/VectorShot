@@ -44,14 +44,17 @@ ELITE_SPEED_MULT :: 1.1
 ELITE_SIZE_MULT :: 1.3
 
 // Crystalized-elite behaviors. Every elite is a corrupted variant with its own
-// trick: GRUNT devours allies, RUNNER blink-hops, TANK wears crystal plates,
+// trick: GRUNT devours grunts, RUNNER zig-zag dashes, TANK wears crystal plates,
 // RANGED throws boomerang shards, CHARGER phases through terrain.
-ELITE_DEVOUR_RANGE :: 48 // GRUNT: how close an ally must be to be eaten
+ELITE_DEVOUR_RANGE :: 48 // GRUNT: how close a grunt must be to be eaten
 ELITE_DEVOUR_HEAL :: 0.20 // fraction of max hp restored per meal
 ELITE_DEVOUR_COOLDOWN :: 3.0 // seconds between meals
-ELITE_DEVOUR_LURE :: 160 // GRUNT drifts toward an ally within this range
-ELITE_BLINK_DISTANCE :: 95 // RUNNER: teleport hop length
-ELITE_BLINK_COOLDOWN :: 1.6 // seconds between hops
+ELITE_DEVOUR_LURE :: 160 // GRUNT drifts toward a grunt within this range
+ELITE_DASH_COUNT :: 4 // RUNNER: zig-zag dashes per burst
+ELITE_DASH_SPEED :: 640 // px/s while dashing
+ELITE_DASH_TIME :: 0.12 // seconds per dash
+ELITE_DASH_ZIGZAG :: 0.55 // sideways bias per dash (alternates)
+ELITE_DASH_CYCLE :: 1.8 // seconds of stalking between bursts
 ELITE_BOOMERANG_RANGE :: 320 // RANGED: shard outbound distance before it turns
 ELITE_BOOMERANG_SPEED :: 300
 ELITE_TANK_PLATES :: 3 // TANK: hits absorbed before it takes real damage
@@ -330,6 +333,10 @@ spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
 			damage *= ELITE_DMG_MULT
 			speed *= ELITE_SPEED_MULT
 		}
+		if elite && kind == .GRUNT {
+			// Devourers are as bulky as a tank so they survive long enough to feed.
+			hp = ENEMIES[.TANK].hp * hp_scale
+		}
 
 		append(
 			enemies,
@@ -390,17 +397,26 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 
 	case .RUNNER:
 		if e.elite {
-			// Blinker: erratic blink-hops instead of a smooth approach.
-			e.ability_timer -= dT
-			if e.ability_timer <= 0 {
+			// Blinker: bursts of erratic zig-zag dashes, charger-style.
+			e.state_timer -= dT
+			if e.state_timer > 0 {
+				e.position += e.charge_dir * ELITE_DASH_SPEED * dT
+			} else if e.elite_step > 0 {
+				e.elite_step -= 1
+				side: f32 = e.elite_step % 2 == 0 ? 1.0 : -1.0
 				perp := raylib.Vector2{-dir.y, dir.x}
-				hop := dir + perp * rand.float32_range(-0.45, 0.45)
-				e.position += raylib.Vector2Normalize(hop) * ELITE_BLINK_DISTANCE
-				e.ability_timer = ELITE_BLINK_COOLDOWN
-				e.flash = 0.18
-				play(sounds.dash, 1.25)
+				e.charge_dir = raylib.Vector2Normalize(dir + perp * ELITE_DASH_ZIGZAG * side)
+				e.state_timer = ELITE_DASH_TIME
+				e.flash = 0.12
+				play(sounds.dash, 1.3)
 			} else {
-				e.position += dir * e.speed * 0.25 * dT
+				// Stalk slowly between bursts, then let the next burst rip.
+				e.ability_timer -= dT
+				e.position += dir * e.speed * 0.30 * dT
+				if e.ability_timer <= 0 {
+					e.elite_step = ELITE_DASH_COUNT
+					e.ability_timer = ELITE_DASH_CYCLE
+				}
 			}
 		} else {
 			// Fast, with a little zig-zag so they're harder to line up.
@@ -483,7 +499,7 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 	}
 }
 
-// Center of the nearest *other* enemy within `radius`, used by the Devourer to
+// Center of the nearest *fellow grunt* within `radius`, used by the Devourer to
 // home in on a meal.
 nearest_other_enemy :: proc(e: ^enemy, radius: f32) -> (raylib.Vector2, bool) {
 	ec := e.position + e.size * 0.5
@@ -491,7 +507,7 @@ nearest_other_enemy :: proc(e: ^enemy, radius: f32) -> (raylib.Vector2, bool) {
 	best_d := radius
 	found := false
 	for other in enemies {
-		if other.id == e.id {
+		if other.id == e.id || other.elite || other.kind != .GRUNT {
 			continue
 		}
 		oc := other.position + other.size * 0.5
@@ -521,7 +537,7 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 		best := -1
 		best_d: f32 = ELITE_DEVOUR_RANGE
 		for j in 0 ..< len(enemies) {
-			if j == i || enemies[j].elite {
+			if j == i || enemies[j].elite || enemies[j].kind != .GRUNT {
 				continue
 			}
 			oc := enemies[j].position + enemies[j].size * 0.5
