@@ -1,3 +1,14 @@
-x 2026-10-13 2026-10-12 Make spawn cards generate random cards from list +roguelike @spawn_cards
-x 2026-10-13 2026-10-12 Add more upgrades @upgrades +roguelike
-x 2026-10-13 2026-10-12 Work on Skill Selection Screen +roguelike @skill-select
+x 2026-10-14 2026-10-12 Add more enemy types +roguelike @enemies
+x 2026-10-14 2026-10-13 Work on better enemy AI +roguelike @enemies
+x 2026-10-14 2026-10-13 Add more gun types +roguelike @guns
+x 2026-10-14 2026-10-13 Work on main menu +roguelike @main-menu
+x 2026-10-14 2026-10-13 Add ammo mechanics +roguelike @ammo
+x 2026-10-14 2026-10-13 Add ammo drops +roguelike @ammo @drops
+x 2026-10-14 2026-10-13 Add health drops +roguelike @drops
+x 2026-10-14 2026-10-13 Add kicks/melee +roguelike @combat
+x 2026-10-14 2026-10-13 Add secondary weapon slot +roguelike @guns @combat
+x 2026-10-14 2026-10-13 Add walls +roguelike @environment @levels
+x 2026-10-14 2026-10-13 Add explosive barrels +roguelike @combat @environment
+x 2026-10-14 2026-10-14 Add floor texture +roguelike @levels @environment
+x 2026-10-14 2026-10-13 Add trees +roguelike @environment
+x 2026-10-14 2026-10-13 Add secondary weapon slot +roguelike @guns @combat

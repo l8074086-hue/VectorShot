@@ -31,3 +31,16 @@ Install odin and raylib with their respective installation instructions.
 
 ## Running the game
 then you can either just `just run` or `odin run .` it's the same either way, I only have the justfile for convenience and also because I'm more comfortable typing it.
+
+## Building for Windows
+The Linux build produces an ELF binary, so it won't run on Windows. To get a `.exe` you have two options:
+
+- **On Windows** (easiest): install Odin + raylib, then `odin build .` in the project folder.
+- **Cross-compiling** from Linux/macOS: `just build-windows`, which runs
+  `odin build . -target:windows_amd64 -out:roguelike.exe`. This needs the Windows
+  raylib libs (the ones shipped with this Odin install are Git-LFS stubs you must
+  fetch first) and an LLVM/`lld-link` linker, since Odin cannot cross-link to
+  Windows on its own yet. On this specific environment, cross-linking is not
+  feasible due to missing MSVC C runtime import libs; building on Windows is
+  strongly recommended.
+
