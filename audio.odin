@@ -10,6 +10,9 @@ import "vendor:raylib"
 
 SAMPLE_RATE :: 44100
 
+// Master gain applied to every sound at play time. One knob for the whole mix.
+MASTER_VOLUME :: 0.5
+
 Synth_Wave :: enum {
 	SINE,
 	SQUARE,
@@ -115,13 +118,34 @@ synth_build :: proc(p: Synth_Params) -> []u8 {
 }
 
 // Render params into a playable raylib sound.
-synth :: proc(p: Synth_Params) -> raylib.Sound {
-	buf := synth_build(p)
-	defer delete(buf)
+load_buf :: proc(buf: []u8) -> raylib.Sound {
 	wave := raylib.LoadWaveFromMemory(".wav", raw_data(buf), i32(len(buf)))
 	sound := raylib.LoadSoundFromWave(wave)
 	raylib.UnloadWave(wave)
 	return sound
+}
+
+synth :: proc(p: Synth_Params) -> raylib.Sound {
+	buf := synth_build(p)
+	defer delete(buf)
+	return load_buf(buf)
+}
+
+// Like synth, but smooths the samples with a one-pole lowpass. `cutoff` is 0..1
+// (lower = darker); it turns raw white-noise bursts into soft whooshes/rumbles.
+synth_soft :: proc(p: Synth_Params, cutoff: f32) -> raylib.Sound {
+	buf := synth_build(p)
+	defer delete(buf)
+	y: f32 = 0
+	for i in 0 ..< (len(buf) - 44) / 2 {
+		off := 44 + i * 2
+		x := f32(i16(u16(buf[off]) | (u16(buf[off + 1]) << 8)))
+		y += cutoff * (x - y)
+		v := u16(i16(clamp(y, -32768, 32767)))
+		buf[off + 0] = u8(v & 0xff)
+		buf[off + 1] = u8((v >> 8) & 0xff)
+	}
+	return load_buf(buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +182,7 @@ play :: proc(s: raylib.Sound, pitch := f32(1)) {
 	if !audio_ready {
 		return
 	}
+	raylib.SetSoundVolume(s, MASTER_VOLUME)
 	raylib.SetSoundPitch(s, pitch)
 	raylib.PlaySound(s)
 }
@@ -184,7 +209,7 @@ audio_init :: proc() {
 
 	// Actions and feedback.
 	sounds.kick = synth({.NOISE, 140, 50, 0.18, 0.7, 0.002, 14, 0.5})
-	sounds.dash = synth({.NOISE, 200, 900, 0.16, 0.4, 0.01, 10, 1.0})
+	sounds.dash = synth_soft({.NOISE, 0, 0, 0.15, 0.4, 0.012, 11, 1.0}, 0.18)
 	sounds.reload = synth({.SQUARE, 300, 220, 0.08, 0.35, 0.002, 25, 0.5})
 	sounds.hit = synth({.SQUARE, 700, 500, 0.05, 0.3, 0.001, 40, 0.3})
 	sounds.enemy_die = synth({.SAW, 500, 120, 0.22, 0.5, 0.002, 12, 0.3})
