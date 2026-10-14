@@ -1,8 +1,3 @@
-(C) 2026-10-13 Add a shop system +roguelike @shop
-(A) 2026-10-13 Add a skills system +roguelike @skills
-(C) 2026-10-13 Add currency +roguelike @shop @drops
 (A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
 (A) 2026-10-13 Add roles +roguelike @combat @characters
-(C) 2026-10-13 Add a shop system +roguelike @shop
-(B) 2026-10-13 Work on main menu +roguelike @main-menu
 (E) 2026-10-13 Add sounds +roguelike @sounds

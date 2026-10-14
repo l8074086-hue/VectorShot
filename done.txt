@@ -9,6 +9,8 @@ x 2026-10-14 2026-10-13 Add kicks/melee +roguelike @combat
 x 2026-10-14 2026-10-13 Add secondary weapon slot +roguelike @guns @combat
 x 2026-10-14 2026-10-13 Add walls +roguelike @environment @levels
 x 2026-10-14 2026-10-13 Add explosive barrels +roguelike @combat @environment
-x 2026-10-14 2026-10-14 Add floor texture +roguelike @levels @environment
+x 2026-10-14 2026-10-13 Add floor texture +roguelike @levels @environment
 x 2026-10-14 2026-10-13 Add trees +roguelike @environment
-x 2026-10-14 2026-10-13 Add secondary weapon slot +roguelike @guns @combat
+x 2026-10-14 2026-10-13 Add a shop system +roguelike @shop
+x 2026-10-14 2026-10-13 Add currency +roguelike @shop @drops
+x 2026-10-14 2026-10-13 Add a skills system +roguelike @skills
