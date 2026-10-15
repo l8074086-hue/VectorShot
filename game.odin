@@ -45,14 +45,22 @@ BUD_UNHAPPY_DAMAGE_MULT :: 0.5
 BUD_UNHAPPY_SPEED_MULT :: 0.5
 // Bud's Fists combo: press E again within this window to chain the next strike.
 BUD_COMBO_WINDOW :: 0.55
-// Navy's "Take Aim": standing still (no move input) gives complete accuracy.
-// The sliding window smooths it so a single frame of movement doesn't yank aim.
+// Navy's "Take Aim": no move input at all gives complete accuracy (spread 0).
+// Synergy: Navy <-> BLINK. His redeploy blink goes further, comes back sooner,
+// and instantly finishes a reload so he lands topped up.
+NAVY_BLINK_DISTANCE_MULT :: 1.50
+NAVY_BLINK_CD_MULT :: 0.75
 // RR's "Adaptation": his strongest stat gets a reinforcing bonus. Recomputed
 // live, so his playstyle tracks whatever the run has invested in.
 RR_ADAPT_OFFENSE :: 0.20 // +20% damage (guns + melee)
 RR_ADAPT_MOBILITY :: 0.15 // +15% move speed
 RR_ADAPT_RESILIENCE :: 0.20 // -20% damage taken
 RR_ADAPT_PRECISION :: 0.40 // -40% spread
+// Synergy: RR <-> BURST. The all-rounder's dash comes back sooner, and for a
+// short "Second Wind" it amplifies whichever Adaptation he is currently on.
+RR_BURST_CD_MULT :: 0.75
+RR_SURGE_TIME :: 1.60
+RR_SURGE_EXTRA :: 0.50 // surge makes the active adaptation 50% stronger
 EXPLOSION_RADIUS :: 130
 EXPLOSION_DAMAGE :: 6
 EXPLOSION_TIME :: 0.35
@@ -183,6 +191,7 @@ character: Character = .RR
 moving: bool = false // is the player giving move input this frame?
 traceur_charge: f32 = 0 // Traceur's Heart 0..1 (built by attacking)
 rr_adaptation: RR_Adaptation = .OFFENSE // RR's Adaptation, recomputed each frame
+rr_surge: f32 = 0 // RR's Second Wind timer (dashing amplifies his adaptation)
 
 // Progression.
 wave: i32 = 1
@@ -242,6 +251,7 @@ start_run :: proc(stats: Run_Stats) {
 	combo_index = 0
 	combo_timer = 0
 	traceur_charge = 0
+	rr_surge = 0
 	moving = false
 	DASH_SPEED = stats.dash_speed
 	DASH_DURATION = stats.dash_duration
@@ -354,7 +364,7 @@ character_move_speed :: proc() -> f32 {
 		speed *= 1 + TRACEUR_MAX_BONUS * clamp(traceur_charge, 0, 1)
 	}
 	if character == .RR && rr_adaptation == .MOBILITY {
-		speed *= 1 + RR_ADAPT_MOBILITY
+		speed *= 1 + RR_ADAPT_MOBILITY * rr_adapt_scale()
 	}
 	return speed
 }
@@ -415,7 +425,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2) {
 	cs := CHARACTERS[character]
 	dmg := stats.damage * cs.melee_damage_mult + bonus_damage
 	if character == .RR && rr_adaptation == .OFFENSE {
-		dmg *= 1 + RR_ADAPT_OFFENSE
+		dmg *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
 	}
 	reach := stats.reach * cs.melee_range_mult
 	knock := stats.knockback * cs.melee_knock_mult
@@ -478,6 +488,15 @@ update_rr_adaptation :: proc() {
 	}
 }
 
+// Scale applied to whichever Adaptation bonus is active: 1 normally, larger for
+// a moment after RR's BURST dash (his "Second Wind" synergy).
+rr_adapt_scale :: proc() -> f32 {
+	if character == .RR && rr_surge > 0 {
+		return 1 + RR_SURGE_EXTRA
+	}
+	return 1
+}
+
 // The single funnel for player damage. BUD's "Guard Up" blunts hits arriving
 // from the direction he's facing (aim); RR's Resilience adaptation blunts all.
 apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
@@ -490,7 +509,7 @@ apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
 		}
 	}
 	if character == .RR && rr_adaptation == .RESILIENCE {
-		dmg *= 1 - RR_ADAPT_RESILIENCE
+		dmg *= 1 - min(RR_ADAPT_RESILIENCE * rr_adapt_scale(), 1)
 	}
 	health -= dmg
 }
@@ -506,6 +525,15 @@ precision_is_useful :: proc() -> bool {
 refill_weapon_ammo :: proc(w: ^weapon) {
 	w.ammo = w.ammo_cap
 	w.mag = w.mag_cap
+	w.reload = 0
+}
+
+// Finish a reload immediately (Navy's blink synergy). Consumes reserve ammo the
+// same way a normal completed reload would.
+instant_reload :: proc(w: ^weapon) {
+	refill := min(w.mag_cap - w.mag, w.ammo)
+	w.mag += refill
+	w.ammo -= refill
 	w.reload = 0
 }
 
@@ -1557,7 +1585,15 @@ start_loadout :: proc(
 		if dash == .IMPACT {
 			stats.dash_damage *= BUD_IMPACT_DAMAGE_MULT
 		}
-	case .RR, .NAVY:
+	case .RR:
+		if dash == .BURST {
+			stats.dash_cooldown *= RR_BURST_CD_MULT
+		}
+	case .NAVY:
+		if dash == .BLINK {
+			stats.dash_distance *= NAVY_BLINK_DISTANCE_MULT
+			stats.dash_cooldown *= NAVY_BLINK_CD_MULT
+		}
 	}
 
 	switch utility {

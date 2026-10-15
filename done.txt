@@ -28,3 +28,4 @@ x 2026-10-15 2026-10-15 Add character passives: Guard Up, Take Aim, Traceur's He
 x 2026-10-15 2026-10-15 Give every melee a distinct swing flash that matches its hitbox +roguelike @combat @art
 x 2026-10-15 2026-10-15 Add Bud's Fists combo melee (jab/hook/elbow) +roguelike @combat @characters
 x 2026-10-15 2026-10-15 Add character/dash synergies (Tracer+Slide, Bud+Impact) +roguelike @combat @balance
+x 2026-10-15 2026-10-15 Add Navy+Blink and RR+Burst dash synergies +roguelike @combat @balance

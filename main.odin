@@ -470,6 +470,9 @@ main :: proc() {
 			if character == .TRACER {
 				traceur_charge = max(traceur_charge - TRACEUR_DECAY * dT, 0)
 			}
+			if rr_surge > 0 {
+				rr_surge = max(rr_surge - dT, 0)
+			}
 			if combo_timer > 0 {
 				combo_timer -= dT
 				if combo_timer <= 0 {
@@ -578,7 +581,7 @@ main :: proc() {
 					}
 					// RR's Adaptation can reinforce precision instead.
 					if character == .RR && rr_adaptation == .PRECISION {
-						spread *= 1 - RR_ADAPT_PRECISION
+						spread *= 1 - min(RR_ADAPT_PRECISION * rr_adapt_scale(), 1)
 					}
 					// Bud's Unhappy passive halves his accuracy with any gun.
 					unhappy := bud_unhappy()
@@ -606,7 +609,7 @@ main :: proc() {
 							damage *= BUD_UNHAPPY_DAMAGE_MULT
 						}
 						if character == .RR && rr_adaptation == .OFFENSE {
-							damage *= 1 + RR_ADAPT_OFFENSE
+							damage *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
 						}
 						append(
 							&bullets,
@@ -661,6 +664,15 @@ main :: proc() {
 				// sliding straight into a fight keeps her at top speed.
 				if character == .TRACER && dash_kind == .SLIDE {
 					traceur_charge = 1
+				}
+				// Synergy: Navy's BLINK finishes his reload so he lands topped up.
+				if character == .NAVY && dash_kind == .BLINK {
+					instant_reload(active_weapon())
+				}
+				// Synergy: RR's BURST grants a "Second Wind" that amplifies his
+				// current Adaptation for a moment.
+				if character == .RR && dash_kind == .BURST {
+					rr_surge = RR_SURGE_TIME
 				}
 				if dash_blink {
 					position += raylib.Vector2Normalize(last_dir) * dash_distance
@@ -1104,13 +1116,24 @@ main :: proc() {
 				raylib.DrawRectangle(220, 74, i32(120 * clamp(traceur_charge, 0, 1)), 8, raylib.GOLD)
 				raylib.DrawRectangleLines(220, 74, 120, 8, raylib.GRAY)
 			} else if character == .RR {
-				raylib.DrawText(
-					raylib.TextFormat("ADAPT: %s", rr_adaptation_name()),
-					220,
-					72,
-					14,
-					raylib.SKYBLUE,
-				)
+				name := string(rr_adaptation_name())
+				if rr_surge > 0 {
+					raylib.DrawText(
+						raylib.TextFormat("ADAPT: %s [SURGE]", name),
+						220,
+						72,
+						14,
+						raylib.GOLD,
+					)
+				} else {
+					raylib.DrawText(
+						raylib.TextFormat("ADAPT: %s", name),
+						220,
+						72,
+						14,
+						raylib.SKYBLUE,
+					)
+				}
 			}
 			controls := character == .BUD ? cstring("WASD move   MOUSE aim   SPACE fire/swing   Q swap   E fists   SHIFT dash   R reload   ` console") : cstring("WASD move   MOUSE aim   SPACE fire/swing   Q swap   E kick   SHIFT dash   R reload   ` console")
 			raylib.DrawText(controls, 10, 576, 15, raylib.GRAY)
