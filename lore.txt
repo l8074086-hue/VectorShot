@@ -1,0 +1,56 @@
+VectorPlane — Lore Notes
+========================
+
+(Working design doc. Captures the world as written so it doesn't get lost while
+we keep building. Anything marked [open] is a hook we haven't nailed down yet.)
+
+The world
+---------
+VectorPlane is a geometric world — another universe made of clean shapes,
+angles and vectors rather than organic matter. It is not a metaphor for Earth;
+it is a real place you can fall into.
+
+The Crimson Star
+----------------
+The death of the Crimson Star is the inciting event. When it died it started
+corrupting VectorPlane, and that corruption is still spreading.
+
+The Falling
+-----------
+Humans from Earth began to fall into VectorPlane after the Crimson Star died.
+A fallen human arrives as a geometric manifestation of their personality and
+drive — the shape you end up as *is* who you are.
+
+  RR      - NATIVE of VectorPlane (did not fall through). His kit is
+            "Adaptation": he has no imposed human shape to be stuck in.
+  TRACER  - human, fell from Earth. Fast, sharp, restless -> a TRIANGLE.
+  BUD     - human, fell from Earth. Solid, stubborn, immovable -> a CIRCLE.
+  NAVY    - human, fell from Earth. Disciplined, ordered, military -> a SQUARE.
+
+(RR and Navy both render as squares in code; in-world that reads as RR being the
+native baseline shape and Navy's being a human's rigid, squared-away form.)
+
+Corruption and enemies
+----------------------
+The corruption of the Crimson Star is what twists the world's creatures:
+
+  ELITES   - crystalized variants of ordinary enemies; the shard they carry is a
+             sliver of the dead Crimson Star. Already implemented.
+  CULTISTS - the tier ABOVE the elites. Bosses. Servants/worshippers of the
+             Crimson Star's corruption. NOT YET IMPLEMENTED.
+
+Arenas
+------
+GRASSLAND -> CANYON -> RUINS -> GLACIER
+[open] Tentative read: a journey inward, either toward the impact/corruption or
+outward from it. Ordering is currently just content variety; can be given
+meaning later.
+
+Ideas / hooks (not built yet)
+-----------------------------
+- Intro blurb + a lore line on the character select ("RR — NATIVE OF
+  VECTORPLANE" vs "TRACER — FELL FROM EARTH").
+- Results-screen flavor tying the run to the corruption.
+- Cultist boss tier: spawn cadence above elites, boss HP bar, signature attack,
+  and a themed drop.
+- Maybe let the arenas form a real progression instead of a flat selector.
