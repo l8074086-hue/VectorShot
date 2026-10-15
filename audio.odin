@@ -203,11 +203,18 @@ audio_init :: proc() {
 	sounds.primary[.RIFLE] = synth({.SQUARE, 400, 180, 0.12, 0.5, 0.001, 18, 0.35})
 	sounds.primary[.MINIGUN] = synth({.SQUARE, 460, 220, 0.05, 0.32, 0.001, 40, 0.4})
 	sounds.primary[.CANNON] = synth({.SAW, 160, 40, 0.34, 0.85, 0.001, 8, 0.5})
+	// Melee primaries: short swung thunks (the stat block pitches them further).
+	sounds.primary[.KNIFE] = synth({.NOISE, 900, 400, 0.08, 0.5, 0.001, 30, 0.6})
+	sounds.primary[.BATON] = synth({.SQUARE, 220, 90, 0.14, 0.6, 0.002, 16, 0.5})
+	sounds.primary[.HAMMER] = synth({.SAW, 130, 45, 0.22, 0.8, 0.002, 10, 0.7})
+	sounds.primary[.SPEAR] = synth({.NOISE, 1400, 600, 0.07, 0.45, 0.001, 34, 0.7})
 
 	sounds.secondary[.PISTOL] = synth({.SQUARE, 440, 200, 0.10, 0.45, 0.001, 20, 0.3})
 	sounds.secondary[.REVOLVER] = synth({.SAW, 300, 90, 0.22, 0.65, 0.001, 12, 0.4})
 	sounds.secondary[.DUAL] = synth({.SQUARE, 500, 260, 0.07, 0.38, 0.001, 26, 0.25})
 	sounds.secondary[.SAWED] = synth({.NOISE, 380, 120, 0.2, 0.75, 0.001, 13, 0.85})
+	sounds.secondary[.KNIFE] = synth({.NOISE, 900, 400, 0.08, 0.5, 0.001, 30, 0.6})
+	sounds.secondary[.BATON] = synth({.SQUARE, 220, 90, 0.14, 0.6, 0.002, 16, 0.5})
 
 	// Actions and feedback.
 	sounds.kick = synth({.NOISE, 140, 50, 0.18, 0.7, 0.002, 14, 0.5})

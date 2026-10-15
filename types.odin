@@ -10,11 +10,13 @@ GameState :: enum {
 }
 
 SkillSlotState :: enum {
-	MAIN_SCREEN,
-	SKILL_ONE,
-	SKILL_TWO,
-	SKILL_THREE,
-	SKILL_FOUR,
+	MAIN,
+	CHARACTER,
+	GUN,
+	DASH,
+	UTILITY,
+	SECONDARY,
+	ARENA,
 }
 
 BULLET_MAX_HITS :: 8
@@ -154,6 +156,8 @@ explosion :: struct {
 	life: f32,
 }
 
+// Primary-slot weapons. The list mixes guns and melee blades; Weapon_Stats.class
+// says which, and everything (select screen, firing, HUD) treats them uniformly.
 Gun :: enum {
 	SNIPER,
 	SHOTGUN,
@@ -161,14 +165,20 @@ Gun :: enum {
 	RIFLE,
 	MINIGUN,
 	CANNON,
+	KNIFE,
+	BATON,
+	HAMMER,
+	SPEAR,
 }
 
-// Secondary weapons are their own set of sidearms (not the primary guns).
+// Secondary-slot weapons: the sidearm pool, which also mixes guns and melee.
 Secondary :: enum {
 	PISTOL,
 	REVOLVER,
 	DUAL,
 	SAWED,
+	KNIFE,
+	BATON,
 }
 
 Dash_Kind :: enum {
@@ -183,21 +193,119 @@ Utility :: enum {
 	VITALITY,
 	SWIFT,
 	FORTUNE,
+	TRIGGER,
+	DEADEYE,
+	SCOUT,
+	PACKRAT,
 }
 
-Gun_Stats :: struct {
+// Each arena is a distinct wall/prop layout plus a color theme. Chosen on the
+// loadout screen and rebuilt at the start of every run.
+Arena_Kind :: enum {
+	GRASSLAND,
+	CANYON,
+	RUINS,
+	GLACIER,
+}
+
+Arena_Stats :: struct {
+	name:        cstring,
+	desc:        cstring,
+	floor_dark:  raylib.Color,
+	floor_light: raylib.Color,
+	wall:        raylib.Color,
+	cover:       raylib.Color, // tree/boulder body
+	cover_top:   raylib.Color, // tree/boulder highlight
+}
+
+// What a weapon slot actually is. Guns spend ammo and fire bullets; melee
+// weapons swing an arc and are always ready.
+Weapon_Class :: enum {
+	GUN,
+	MELEE,
+}
+
+// The hitbox *and* the drawn flash of a melee swing. The two always share the
+// same geometry, so what you see is exactly what you hit.
+//   SECTOR - a wedge: `reach` long, `arc` is the half-angle in radians.
+//   THRUST - a rectangle: `reach` long, `arc` is the half-width in px.
+//   BLAST  - a circle centred `reach` ahead of you, radius `arc` (px).
+Melee_Shape :: enum {
+	SECTOR,
+	THRUST,
+	BLAST,
+}
+
+// RR's Adaptation picks whichever of these he has invested in most.
+RR_Adaptation :: enum {
+	OFFENSE,
+	MOBILITY,
+	RESILIENCE,
+	PRECISION,
+}
+
+// One entry in a weapon pool (primary or secondary). Guns fill the ballistic
+// fields; melee weapons leave those at zero and fill `reach`/`arc`/`knockback`.
+// `damage`, `cooldown` and `weight` apply to both.
+Weapon_Stats :: struct {
+	class:             Weapon_Class,
 	name:              cstring,
 	desc:              cstring,
-	bullet_speed:      f32,
 	damage:            f32,
+	cooldown:          f32, // seconds between shots/swings
+	// How heavy the weapon feels. Only TRACER is affected (heavy weapons drag her
+	// move speed down), so it is a design knob rather than a universal stat.
+	weight:            f32,
+	// Gun fields (class == .GUN).
+	bullet_speed:      f32,
 	projectiles:       i32,
 	spread:            f32, // total fan arc / base inaccuracy in radians
-	cooldown:          f32, // seconds between shots
 	pierce:            i32, // enemies each shot passes through
 	ammo_capacity:     i32, // max reserve ammo (outside the mag)
 	magazine_capacity: i32, // shots per magazine
 	bullet_size:       raylib.Vector2,
 	min_spread:        f32, // PRECISION cannot tighten below this
+	// Melee fields (class == .MELEE).
+	shape:             Melee_Shape, // hitbox + flash geometry (see Melee_Shape)
+	reach:             f32, // how far the swing reaches (px)
+	arc:               f32, // half-angle (rad) or half-width/radius (px), by shape
+	knockback:         f32, // instant shove applied to anything hit
+	sound_pitch:       f32, // pitch applied when playing the swing sound
+	flash_color:       raylib.Color, // colour of the drawn swing flash
+}
+
+// Body silhouette used to draw each main character (and their select-screen
+// icon). A darker `outline` is stamped behind every shape.
+Body_Shape :: enum {
+	SQUARE,
+	TRIANGLE,
+	CIRCLE,
+}
+
+Character :: enum {
+	RR,
+	TRACER,
+	BUD,
+	NAVY,
+}
+
+// A playable main character. `speed`/`max_health` are the pre-utility base, and
+// the melee multipliers scale any melee weapon (and the universal kick).
+Character_Stats :: struct {
+	name:              cstring,
+	desc:              cstring,
+	color:             raylib.Color,
+	outline:           raylib.Color, // darker shade, drawn as a border
+	shape:             Body_Shape,
+	speed:             f32,
+	max_health:        f32,
+	melee_damage_mult: f32,
+	melee_range_mult:  f32,
+	melee_knock_mult:  f32,
+	ammo_mult:         f32, // scales both weapons' reserve capacity
+	reload_mult:       f32, // scales RELOAD_TIME (<1 reloads faster)
+	passive:           cstring, // short passive name, shown on the HUD/select
+	passive_desc:      cstring, // one-line explanation
 }
 
 Dash_Stats :: struct {
@@ -218,6 +326,7 @@ Utility_Stats :: struct {
 
 // Per-run stats derived from the chosen loadout. Cards upgrade these afterward.
 Run_Stats :: struct {
+	character:     Character,
 	speed:         f32,
 	primary:       Gun,
 	secondary:     Secondary,
@@ -227,8 +336,31 @@ Run_Stats :: struct {
 	dash_blink:    bool,
 	dash_distance: f32,
 	dash_damages:  bool,
+	dash_damage:   f32, // damage per second dealt by a damaging dash
+	reload_time:   f32,
 	max_health:    f32,
 	card_choices:  int,
+	// Bonuses folded in from the chosen utility so they look like early upgrades.
+	bonus_damage:  f32, // starts the ATTACK bonus above zero
+	spread_cut:    f32, // starts the PRECISION bonus above zero
+	ammo_mult:     f32, // scales both weapons' reserve capacity (1.0 = normal)
+}
+
+// Snapshot of a finished run, shown on the results screen. Captured at death so
+// it survives the teardown that returns to the main menu.
+Run_Result :: struct {
+	arena:        Arena_Kind,
+	character:    Character,
+	gun:          Gun,
+	secondary:    Secondary,
+	dash:         Dash_Kind,
+	utility:      Utility,
+	wave_reached: i32,
+	kills:        i32,
+	elite_kills:  i32,
+	coins_earned: i32,
+	coins_spent:  i32,
+	time:         f32,
 }
 
 // Runtime ammo/reload state for one weapon slot.

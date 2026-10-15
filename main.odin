@@ -40,6 +40,19 @@ main :: proc() {
 	for !raylib.WindowShouldClose() {
 		dT := raylib.GetFrameTime()
 
+		// Debug console: only meaningful during a run. Toggle with ` and, while
+		// open, freeze the world (dT = 0) and sip its input instead.
+		if state != .PLAYING {
+			console_close()
+		}
+		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.GRAVE) {
+			console_toggle()
+		}
+		if console_open {
+			dT = 0
+			console_update()
+		}
+
 		// Fit the 800x600 canvas into the (possibly fullscreen) window, keeping
 		// the aspect ratio and centering it with letterbox bars.
 		screen_w := f32(raylib.GetScreenWidth())
@@ -58,7 +71,7 @@ main :: proc() {
 		case .MAIN_MENU:
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 				play(sounds.ui_select)
-				skill_state = .MAIN_SCREEN
+				skill_state = .MAIN
 				state = .SKILL_SELECT
 			}
 			raylib.BeginTextureMode(target)
@@ -89,55 +102,136 @@ main :: proc() {
 				play(sounds.ui_select)
 			}
 			#partial switch skill_state {
-			case .MAIN_SCREEN:
+			case .MAIN:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ONE) {
-					skill_state = .SKILL_ONE
+					skill_state = .CHARACTER
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.TWO) {
-					skill_state = .SKILL_TWO
+					skill_state = .GUN
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.THREE) {
-					skill_state = .SKILL_THREE
+					skill_state = .DASH
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.FOUR) {
-					skill_state = .SKILL_FOUR
+					skill_state = .UTILITY
+				} else if raylib.IsKeyPressed(raylib.KeyboardKey.FIVE) {
+					skill_state = .SECONDARY
+				} else if raylib.IsKeyPressed(raylib.KeyboardKey.SIX) {
+					skill_state = .ARENA
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 					// Apply the chosen loadout and start a fresh run.
-					start_run(start_loadout(gun, secondary_kind, dash_kind, utility))
+					start_run(
+						start_loadout(character, gun, secondary_kind, dash_kind, utility),
+					)
 				}
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
-				draw_centered(cstring("SKILL SELECT"), 60, 50, raylib.WHITE)
+				draw_centered(cstring("SKILL SELECT"), 50, 50, raylib.WHITE)
 				draw_centered(
-					raylib.TextFormat("1)  GUN        %s", string(GUNS[gun].name)),
-					160,
-					30,
+					raylib.TextFormat("1)  CHARACTER  %s", string(CHARACTERS[character].name)),
+					120,
+					28,
+					raylib.RAYWHITE,
+				)
+				draw_centered(
+					raylib.TextFormat("2)  PRIMARY    %s", string(GUNS[gun].name)),
+					162,
+					28,
 					raylib.YELLOW,
 				)
 				draw_centered(
-					raylib.TextFormat("2)  DASH       %s", string(DASHES[dash_kind].name)),
-					220,
-					30,
+					raylib.TextFormat("3)  DASH       %s", string(DASHES[dash_kind].name)),
+					204,
+					28,
 					raylib.SKYBLUE,
 				)
 				draw_centered(
-					raylib.TextFormat("3)  UTILITY    %s", string(UTILITIES[utility].name)),
-					280,
-					30,
+					raylib.TextFormat("4)  UTILITY    %s", string(UTILITIES[utility].name)),
+					246,
+					28,
 					raylib.GREEN,
 				)
 				draw_centered(
-					raylib.TextFormat("4)  SECONDARY  %s", string(SECONDARIES[secondary_kind].name)),
-					340,
-					30,
+					raylib.TextFormat("5)  SECONDARY  %s", string(SECONDARIES[secondary_kind].name)),
+					288,
+					28,
 					raylib.ORANGE,
 				)
 				draw_centered(
-					cstring("Press 1 / 2 / 3 / 4 to change a slot"),
+					raylib.TextFormat("6)  ARENA      %s", string(ARENAS[arena].name)),
+					330,
+					28,
+					raylib.VIOLET,
+				)
+				draw_centered(
+					cstring("Press 1 - 6 to change a slot"),
 					420,
 					22,
 					raylib.RAYWHITE,
 				)
-				draw_centered(cstring("Press ENTER to start"), 456, 22, raylib.GRAY)
+				draw_centered(cstring("Press ENTER to start"), 452, 22, raylib.GRAY)
 				raylib.EndTextureMode()
-			case .SKILL_ONE:
+			case .CHARACTER:
+				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+					character = Character((int(character) + 1) % len(CHARACTERS))
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+					character = Character(
+						(int(character) - 1 + len(CHARACTERS)) % len(CHARACTERS),
+					)
+				}
+				for key, idx in NUMBER_KEYS {
+					if idx < len(CHARACTERS) && raylib.IsKeyPressed(key) {
+						character = Character(idx)
+					}
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+					skill_state = .MAIN
+				}
+				raylib.BeginTextureMode(target)
+				raylib.ClearBackground(raylib.BLACK)
+				draw_centered(cstring("SELECT CHARACTER"), 44, 40, raylib.WHITE)
+				for ch in Character {
+					selected := character == ch
+					color := selected ? raylib.RAYWHITE : raylib.DARKGRAY
+					y := 100 + i32(ch) * 112
+					draw_character_icon(ch, {140, f32(y) + 20}, 20)
+					draw_centered(
+						raylib.TextFormat("%i)  %s", int(ch) + 1, string(CHARACTERS[ch].name)),
+						y,
+						28,
+						color,
+					)
+					draw_centered(CHARACTERS[ch].desc, y + 28, 17, raylib.GRAY)
+					draw_centered(
+						raylib.TextFormat(
+							"PASSIVE: %s - %s",
+							string(CHARACTERS[ch].passive),
+							string(CHARACTERS[ch].passive_desc),
+						),
+						y + 48,
+						14,
+						selected ? raylib.SKYBLUE : raylib.DARKGRAY,
+					)
+					draw_centered(
+						raylib.TextFormat(
+							"SPD %i   HP %i   MELEE x%.2f",
+							int(CHARACTERS[ch].speed),
+							int(CHARACTERS[ch].max_health),
+							CHARACTERS[ch].melee_damage_mult,
+						),
+						y + 70,
+						15,
+						raylib.DARKGRAY,
+					)
+				}
+				draw_centered(
+					cstring("UP/DOWN or 1-9 to pick, ENTER to go back"),
+					564,
+					22,
+					raylib.GRAY,
+				)
+				raylib.EndTextureMode()
+			case .GUN:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 					gun = Gun((int(gun) + 1) % len(GUNS))
@@ -152,30 +246,36 @@ main :: proc() {
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					skill_state = .MAIN_SCREEN
+					skill_state = .MAIN
 				}
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
-				draw_centered(cstring("SELECT GUN"), 60, 40, raylib.WHITE)
+				draw_centered(cstring("SELECT PRIMARY"), 40, 36, raylib.WHITE)
 				for g in Gun {
 					color := gun == g ? raylib.YELLOW : raylib.DARKGRAY
-					y := 110 + i32(g) * 60
+					y := 92 + i32(g) * 48
+					tag := GUNS[g].class == .MELEE ? cstring("MELEE") : cstring("GUN")
 					draw_centered(
-						raylib.TextFormat("%i)  %s", int(g) + 1, string(GUNS[g].name)),
+						raylib.TextFormat(
+							"%i)  %s   [%s]",
+							int(g) + 1,
+							string(GUNS[g].name),
+							string(tag),
+						),
 						y,
-						28,
+						24,
 						color,
 					)
-					draw_centered(GUNS[g].desc, y + 30, 18, raylib.GRAY)
+					draw_centered(GUNS[g].desc, y + 22, 16, raylib.GRAY)
 				}
 				draw_centered(
 					cstring("UP/DOWN or 1-9 to pick, ENTER to go back"),
-					510,
-					22,
+					572,
+					20,
 					raylib.GRAY,
 				)
 				raylib.EndTextureMode()
-			case .SKILL_TWO:
+			case .DASH:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 					dash_kind = Dash_Kind((int(dash_kind) + 1) % len(DASHES))
@@ -190,7 +290,7 @@ main :: proc() {
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					skill_state = .MAIN_SCREEN
+					skill_state = .MAIN
 				}
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
@@ -213,7 +313,7 @@ main :: proc() {
 					raylib.GRAY,
 				)
 				raylib.EndTextureMode()
-			case .SKILL_THREE:
+			case .UTILITY:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 					utility = Utility((int(utility) + 1) % len(UTILITIES))
@@ -228,21 +328,21 @@ main :: proc() {
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					skill_state = .MAIN_SCREEN
+					skill_state = .MAIN
 				}
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
 				draw_centered(cstring("SELECT UTILITY"), 60, 40, raylib.WHITE)
 				for u in Utility {
 					color := utility == u ? raylib.GREEN : raylib.DARKGRAY
-					y := 160 + i32(u) * 90
+					y := 110 + i32(u) * 52
 					draw_centered(
 						raylib.TextFormat("%i)  %s", int(u) + 1, string(UTILITIES[u].name)),
 						y,
-						32,
+						26,
 						color,
 					)
-					draw_centered(UTILITIES[u].desc, y + 36, 20, raylib.GRAY)
+					draw_centered(UTILITIES[u].desc, y + 24, 16, raylib.GRAY)
 				}
 				draw_centered(
 					cstring("UP/DOWN or 1-9 to pick, ENTER to go back"),
@@ -251,7 +351,7 @@ main :: proc() {
 					raylib.GRAY,
 				)
 				raylib.EndTextureMode()
-			case .SKILL_FOUR:
+			case .SECONDARY:
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 					secondary_kind = Secondary((int(secondary_kind) + 1) % len(SECONDARIES))
@@ -268,21 +368,68 @@ main :: proc() {
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					skill_state = .MAIN_SCREEN
+					skill_state = .MAIN
 				}
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
-				draw_centered(cstring("SELECT SECONDARY"), 60, 40, raylib.WHITE)
+				draw_centered(cstring("SELECT SECONDARY"), 44, 36, raylib.WHITE)
 				for s in Secondary {
 					color := secondary_kind == s ? raylib.ORANGE : raylib.DARKGRAY
-					y := 140 + i32(s) * 80
+					y := 108 + i32(s) * 72
+					tag := SECONDARIES[s].class == .MELEE ? cstring("MELEE") : cstring("GUN")
 					draw_centered(
-						raylib.TextFormat("%i)  %s", int(s) + 1, string(SECONDARIES[s].name)),
+						raylib.TextFormat(
+							"%i)  %s   [%s]",
+							int(s) + 1,
+							string(SECONDARIES[s].name),
+							string(tag),
+						),
+						y,
+						26,
+						color,
+					)
+					draw_centered(SECONDARIES[s].desc, y + 26, 16, raylib.GRAY)
+				}
+				draw_centered(
+					cstring("UP/DOWN or 1-9 to pick, ENTER to go back"),
+					560,
+					20,
+					raylib.GRAY,
+				)
+				raylib.EndTextureMode()
+			case .ARENA:
+				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+					arena = Arena_Kind((int(arena) + 1) % len(ARENAS))
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+					arena = Arena_Kind((int(arena) - 1 + len(ARENAS)) % len(ARENAS))
+				}
+				for key, idx in NUMBER_KEYS {
+					if idx < len(ARENAS) && raylib.IsKeyPressed(key) {
+						arena = Arena_Kind(idx)
+					}
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+					skill_state = .MAIN
+				}
+				raylib.BeginTextureMode(target)
+				raylib.ClearBackground(raylib.BLACK)
+				draw_centered(cstring("SELECT ARENA"), 60, 40, raylib.WHITE)
+				for a in Arena_Kind {
+					color := arena == a ? raylib.VIOLET : raylib.DARKGRAY
+					y := 140 + i32(a) * 80
+					// Little palette swatch so the theme is visible before picking.
+					raylib.DrawRectangle(120, y + 4, 34, 34, ARENAS[a].floor_dark)
+					raylib.DrawRectangleLines(120, y + 4, 34, 34, ARENAS[a].wall)
+					draw_centered(
+						raylib.TextFormat("%i)  %s", int(a) + 1, string(ARENAS[a].name)),
 						y,
 						28,
 						color,
 					)
-					draw_centered(SECONDARIES[s].desc, y + 30, 18, raylib.GRAY)
+					draw_centered(ARENAS[a].desc, y + 30, 18, raylib.GRAY)
 				}
 				draw_centered(
 					cstring("UP/DOWN or 1-9 to pick, ENTER to go back"),
@@ -296,6 +443,8 @@ main :: proc() {
 			camera.target = position + size * 0.5
 			camera.offset = {400, 300}
 			camera.zoom = 1
+			// Count active play time for the results screen.
+			run_time += dT
 			// Aim at the cursor: convert the canvas-space mouse back through the
 			// camera into world space, then face that way. Firing and kicking use
 			// aim_dir, so you no longer shoot wherever you happen to be moving.
@@ -304,21 +453,35 @@ main :: proc() {
 			if raylib.Vector2Length(to_mouse) > 0.01 {
 				aim_dir = raylib.Vector2Normalize(to_mouse)
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.Q) {
+			if world_key_pressed(raylib.KeyboardKey.Q) {
 				active_slot = 1 - active_slot
 				play(sounds.ui_move)
 			}
 			dir := raylib.Vector2(0)
-			if raylib.IsKeyDown(raylib.KeyboardKey.A) {dir.x -= 1}
-			if raylib.IsKeyDown(raylib.KeyboardKey.D) {dir.x += 1}
-			if raylib.IsKeyDown(raylib.KeyboardKey.W) {dir.y -= 1}
-			if raylib.IsKeyDown(raylib.KeyboardKey.S) {dir.y += 1}
+			if world_key_down(raylib.KeyboardKey.A) {dir.x -= 1}
+			if world_key_down(raylib.KeyboardKey.D) {dir.x += 1}
+			if world_key_down(raylib.KeyboardKey.W) {dir.y -= 1}
+			if world_key_down(raylib.KeyboardKey.S) {dir.y += 1}
+			moving = dir != raylib.Vector2(0) || dash_timer > 0
+			// Character passives: RR re-picks his adaptation live, Tracer's Heart
+			// winds down when she isn't attacking, and Bud's combo closes if he
+			// doesn't follow up in time.
+			update_rr_adaptation()
+			if character == .TRACER {
+				traceur_charge = max(traceur_charge - TRACEUR_DECAY * dT, 0)
+			}
+			if combo_timer > 0 {
+				combo_timer -= dT
+				if combo_timer <= 0 {
+					combo_index = 0
+				}
+			}
 
-			if raylib.IsKeyPressed(raylib.KeyboardKey.F1) {
+			if world_key_pressed(raylib.KeyboardKey.F1) {
 				debug_mode = !debug_mode
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.F2) {
-				skill_state = .MAIN_SCREEN
+			if world_key_pressed(raylib.KeyboardKey.F2) {
+				skill_state = .MAIN
 				state = GameState.SKILL_SELECT
 			}
 			if dash_timer > 0 {
@@ -338,8 +501,17 @@ main :: proc() {
 						}
 						if raylib.CheckCollisionRecs(impact_rect, er) {
 							ec := enemies[i].position + enemies[i].size * 0.5
-							apply_enemy_damage(&enemies[i], 30 * dT, position + size * 0.5 - ec)
+							apply_enemy_damage(&enemies[i], dash_damage * dT, position + size * 0.5 - ec)
+							// Bud's IMPACT synergy: his dash sends enemies flying.
+							if character == .BUD && dash_kind == .IMPACT {
+								away := ec - (position + size * 0.5)
+								if raylib.Vector2Length(away) > 0.01 {
+									enemies[i].position +=
+										raylib.Vector2Normalize(away) * BUD_IMPACT_KNOCK * dT
+								}
+							}
 							if enemies[i].hp <= 0 {
+								count_kill(enemies[i].elite)
 								try_spawn_health_drop(enemies[i].position, &drops)
 								try_spawn_ammo_drop(enemies[i].position, &drops)
 								unordered_remove(&enemies, i)
@@ -354,7 +526,7 @@ main :: proc() {
 							barrels[i].size.y,
 						}
 						if raylib.CheckCollisionRecs(impact_rect, br) {
-							barrels[i].hp -= 30 * dT
+							barrels[i].hp -= dash_damage * dT
 						}
 					}
 				}
@@ -373,7 +545,7 @@ main :: proc() {
 			}
 			if dir != raylib.Vector2(0) && dash_timer <= 0 {
 				last_dir = dir
-				position += raylib.Vector2Normalize(dir) * SPEED * dT
+				position += raylib.Vector2Normalize(dir) * character_move_speed() * dT
 			}
 			if dash_cooldown > 0 {
 				dash_cooldown -= dT
@@ -384,98 +556,112 @@ main :: proc() {
 			weapon_tick(&secondary, dT)
 			w := active_weapon()
 			ws := active_stats()
-			if raylib.IsKeyDown(raylib.KeyboardKey.SPACE) &&
-			   w.cooldown <= 0 &&
-			   w.mag > 0 &&
-			   w.reload <= 0 {
-				center := position + size * 0.5 - ws.bullet_size * 0.5
-				shots := ws.projectiles + bonus_projectiles
-				// The shot pattern comes from the weapon, but ATTACK/PROJECTILE/
-				// PIERCE/PRECISION cards feed in on top, so both slots benefit.
-				spread := max(ws.min_spread, ws.spread - spread_cut)
-				// Fan shots across the gun's arc. Guns with no base spread (e.g. the
-				// sniper) get an even default fan if cards add extra projectiles.
-				arc := spread
-				if shots > 1 && ws.spread <= 0 {
-					arc = 0.12 * f32(shots - 1)
-				}
-				for k in 0 ..< shots {
-					offset: f32 = 0
-					if shots > 1 {
-						offset = (f32(k) / f32(shots - 1) - 0.5) * arc
+			if world_key_down(raylib.KeyboardKey.SPACE) && w.cooldown <= 0 {
+				if ws.class == .MELEE {
+					// Melee weapon in the active slot: swing it (no ammo).
+					if active_slot == 0 {
+						play(sounds.primary[gun], ws.sound_pitch)
+					} else {
+						play(sounds.secondary[secondary_kind], ws.sound_pitch)
 					}
-					// Random inaccuracy on top of the fan so single-shot guns like
-					// the SMG/MINIGUN spray a little. Precision cards shrink this.
-					offset += rand.float32_range(-spread, spread) * 0.5
-					shot_dir := raylib.Vector2Rotate(aim_dir, offset)
-					append(
-						&bullets,
-						bullet {
-							position = center,
-							size = ws.bullet_size,
-							velocity = shot_dir * ws.bullet_speed,
-							damage = ws.damage + bonus_damage,
-							pierce = ws.pierce + bonus_pierce,
-						},
-					)
-				}
-				w.cooldown = ws.cooldown
-				w.mag -= 1
-				if active_slot == 0 {
-					play(sounds.primary[gun], rand.float32_range(0.94, 1.06))
-				} else {
-					play(sounds.secondary[secondary_kind], rand.float32_range(0.94, 1.06))
+					melee_swing(ws, aim_dir)
+					w.cooldown = ws.cooldown
+				} else if w.mag > 0 && w.reload <= 0 {
+					center := position + size * 0.5 - ws.bullet_size * 0.5
+					shots := ws.projectiles + bonus_projectiles
+					// The shot pattern comes from the weapon, but ATTACK/PROJECTILE/
+					// PIERCE/PRECISION cards feed in on top, so both slots benefit.
+					spread := max(ws.min_spread, ws.spread - spread_cut)
+					// Navy's Take Aim: standing still gives complete accuracy.
+					if character == .NAVY && !moving {
+						spread = 0
+					}
+					// RR's Adaptation can reinforce precision instead.
+					if character == .RR && rr_adaptation == .PRECISION {
+						spread *= 1 - RR_ADAPT_PRECISION
+					}
+					// Bud's Unhappy passive halves his accuracy with any gun.
+					unhappy := bud_unhappy()
+					if unhappy {
+						spread = max(spread * BUD_UNHAPPY_SPREAD_MULT, BUD_UNHAPPY_MIN_SPREAD)
+					}
+					// Fan shots across the gun's arc. Guns with no base spread (e.g. the
+					// sniper) get an even default fan if cards add extra projectiles.
+					arc := spread
+					if shots > 1 && ws.spread <= 0 {
+						arc = 0.12 * f32(shots - 1)
+					}
+					note_attack()
+					for k in 0 ..< shots {
+						offset: f32 = 0
+						if shots > 1 {
+							offset = (f32(k) / f32(shots - 1) - 0.5) * arc
+						}
+						// Random inaccuracy on top of the fan so single-shot guns like
+						// the SMG/MINIGUN spray a little. Precision cards shrink this.
+						offset += rand.float32_range(-spread, spread) * 0.5
+						shot_dir := raylib.Vector2Rotate(aim_dir, offset)
+						damage := ws.damage + bonus_damage
+						if unhappy {
+							damage *= BUD_UNHAPPY_DAMAGE_MULT
+						}
+						if character == .RR && rr_adaptation == .OFFENSE {
+							damage *= 1 + RR_ADAPT_OFFENSE
+						}
+						append(
+							&bullets,
+							bullet {
+								position = center,
+								size = ws.bullet_size,
+								velocity = shot_dir * ws.bullet_speed,
+								damage = damage,
+								pierce = ws.pierce + bonus_pierce,
+							},
+						)
+					}
+					w.cooldown = ws.cooldown
+					w.mag -= 1
+					if active_slot == 0 {
+						play(sounds.primary[gun], rand.float32_range(0.94, 1.06))
+					} else {
+						play(sounds.secondary[secondary_kind], rand.float32_range(0.94, 1.06))
+					}
 				}
 			}
 			// Manual reload: R (only if you have something to load).
-			if raylib.IsKeyPressed(raylib.KeyboardKey.R) &&
+			if world_key_pressed(raylib.KeyboardKey.R) &&
 			   w.reload <= 0 &&
 			   w.mag < w.mag_cap &&
 			   w.ammo > 0 {
-				w.reload = RELOAD_TIME
+				w.reload = reload_time
 				play(sounds.reload)
 			}
 			// Auto-reload when the mag runs dry.
 			if w.mag <= 0 && w.ammo > 0 && w.reload <= 0 {
-				w.reload = RELOAD_TIME
+				w.reload = reload_time
 				play(sounds.reload)
 			}
-			// Melee kick: free (no ammo), an arc in the facing direction that shoves
-			// enemies back hard.
+			// Universal kick: every character can always do this, whatever they
+			// have equipped. Character melee multipliers scale KICK's stats.
 			if melee_cooldown > 0 {
 				melee_cooldown -= dT
 			}
 			if melee_flash > 0 {
 				melee_flash -= dT
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.E) && melee_cooldown <= 0 {
-				melee_cooldown = MELEE_COOLDOWN_MAX
-				play(sounds.kick)
-				melee_flash = 0.15
-				player_c := position + size * 0.5
-				for i := len(enemies) - 1; i >= 0; i -= 1 {
-					e_c := enemies[i].position + enemies[i].size * 0.5
-					to := e_c - player_c
-					dist := raylib.Vector2Length(to)
-					if dist > MELEE_RANGE || dist < 1 {
-						continue
-					}
-					if raylib.Vector2Angle(last_dir, raylib.Vector2Normalize(to)) > MELEE_ARC {
-						continue
-					}
-					melee_hit := apply_enemy_damage(&enemies[i], MELEE_DAMAGE, player_c - e_c)
-					if melee_hit != .DAMAGE {
-						play_enemy_hit(melee_hit)
-					}
-					enemies[i].position += raylib.Vector2Normalize(to) * MELEE_KNOCKBACK
-					if enemies[i].hp <= 0 {
-						spawn_kill_rewards(enemies[i].position, enemies[i].elite)
-						unordered_remove(&enemies, i)
-					}
-				}
+			if world_key_pressed(raylib.KeyboardKey.E) && melee_cooldown <= 0 {
+				swing := unarmed_stats()
+				melee_cooldown = swing.cooldown
+				play(sounds.kick, swing.sound_pitch)
+				melee_swing(swing, aim_dir)
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT_SHIFT) && dash_cooldown <= 0 {
+			if world_key_pressed(raylib.KeyboardKey.LEFT_SHIFT) && dash_cooldown <= 0 {
 				play(sounds.dash)
+				// Synergy: a Tracer SLIDE instantly refills Traceur's Heart, so
+				// sliding straight into a fight keeps her at top speed.
+				if character == .TRACER && dash_kind == .SLIDE {
+					traceur_charge = 1
+				}
 				if dash_blink {
 					position += raylib.Vector2Normalize(last_dir) * dash_distance
 					inv_timer = 0.20
@@ -488,18 +674,18 @@ main :: proc() {
 			}
 			// Keep the player out of walls/props after all this frame's moves.
 			resolve_obstacles(&position, size)
-			if raylib.IsKeyPressed(raylib.KeyboardKey.F) {
+			if world_key_pressed(raylib.KeyboardKey.F) {
 				clear(&cards)
 				spawn_cards(&cards, card_choices)
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.G) {
+			if world_key_pressed(raylib.KeyboardKey.G) {
 				pop(&cards)
 			}
-			if raylib.IsKeyPressed(raylib.KeyboardKey.I) && !debug_mode {
+			if world_key_pressed(raylib.KeyboardKey.I) && !debug_mode {
 				new_wave(&enemies, wave)
 				wave += 1
 			}
-			if raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT) {
+			if !console_open && raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT) {
 				for i := len(cards) - 1; i >= 0; i -= 1 {
 					card_rect := raylib.Rectangle {
 						cards[i].position.x,
@@ -623,12 +809,12 @@ main :: proc() {
 				}
 				if raylib.CheckCollisionRecs(player_rect, enemy_rect) {
 					if inv_timer <= 0 {
-						health -= enemies[i].damage
+						apply_player_damage(enemies[i].damage, enemies[i].position + enemies[i].size * 0.5)
 						inv_timer = 0.5
 						play(sounds.player_hurt)
 					}
 					if health <= 0 {
-						state = .GAME_OVER
+						game_over()
 					}
 				}
 			}
@@ -657,7 +843,7 @@ main :: proc() {
 				}
 				if raylib.CheckCollisionRecs({bp.x, bp.y, bs.x, bs.y}, player_rect) {
 					if inv_timer <= 0 {
-						health -= b.damage
+						apply_player_damage(b.damage, b.position)
 						inv_timer = 0.5
 						play(sounds.player_hurt)
 					}
@@ -666,8 +852,7 @@ main :: proc() {
 			}
 
 			if health <= 0 {
-				state = .GAME_OVER
-				play(sounds.game_over)
+				game_over()
 			}
 
 			for i := len(drops) - 1; i >= 0; i -= 1 {
@@ -696,13 +881,14 @@ main :: proc() {
 						play(sounds.ammo)
 					case .CURRENCY:
 						currency += i32(drops[i].amount)
+						run_coins_earned += i32(drops[i].amount)
 						play(sounds.coin, rand.float32_range(0.97, 1.03))
 					}
 					unordered_remove(&drops, i)
 				}
 			}
 
-			if len(enemies) == 0 && len(cards) == 0 {
+			if !console_open && len(enemies) == 0 && len(cards) == 0 {
 				// Every 5th cleared wave opens the shop instead of a card pick.
 				// (`wave` is the *next* wave, so wave-1 is the one just cleared.)
 				if wave > 1 && (wave - 1) % 5 == 0 {
@@ -718,25 +904,27 @@ main :: proc() {
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
 			raylib.BeginMode2D(camera)
-			// Floor (checkerboard over the arena).
+			// Floor (checkerboard over the arena, tinted by the chosen arena).
+			pal := ARENAS[arena]
+			trunk := raylib.Color{pal.cover.r / 3, pal.cover.g / 3, pal.cover.b / 3, 255}
 			tile: f32 = 40
 			for ty := f32(0); ty < ARENA_H; ty += tile {
 				for tx := f32(0); tx < ARENA_W; tx += tile {
 					dark := (int(tx / tile) + int(ty / tile)) % 2 == 0
-					tint := dark ? raylib.Color{26, 26, 32, 255} : raylib.Color{33, 33, 40, 255}
+					tint := dark ? pal.floor_dark : pal.floor_light
 					raylib.DrawRectangleV({tx, ty}, {tile, tile}, tint)
 				}
 			}
 			// Walls.
 			for w in walls {
-				raylib.DrawRectangleRec(w, raylib.Color{66, 66, 76, 255})
+				raylib.DrawRectangleRec(w, pal.wall)
 			}
-			// Trees.
+			// Trees / boulders (round static cover).
 			for t in trees {
 				c := t.pos + t.size * 0.5
-				raylib.DrawRectangleV({c.x - 6, c.y - 2}, {12, 20}, raylib.DARKBROWN)
-				raylib.DrawCircleV({c.x, c.y}, 22, raylib.DARKGREEN)
-				raylib.DrawCircleV({c.x - 7, c.y - 7}, 13, raylib.GREEN)
+				raylib.DrawRectangleV({c.x - 6, c.y - 2}, {12, 20}, trunk)
+				raylib.DrawCircleV({c.x, c.y}, 22, pal.cover)
+				raylib.DrawCircleV({c.x - 7, c.y - 7}, 13, pal.cover_top)
 			}
 			// Barrels.
 			for b in barrels {
@@ -827,25 +1015,9 @@ main :: proc() {
 			for b in enemy_bullets {
 				raylib.DrawRectangleV(b.position, b.size, raylib.MAGENTA)
 			}
-			// Player.
-			raylib.DrawRectangleV(position, size, raylib.RED)
-			if melee_flash > 0 {
-				pc := position + size * 0.5
-				// The kick is a wedge (radius + half-angle), so draw that exact
-				// wedge instead of an approximating box — this lines the flash up
-				// with what the kick really hits.
-				angle := math.atan2_f32(last_dir.y, last_dir.x) * raylib.RAD2DEG
-				arc_deg := f32(MELEE_ARC) * raylib.RAD2DEG
-				fade := u8(200 * (melee_flash / 0.15))
-				raylib.DrawCircleSector(
-					pc,
-					f32(MELEE_RANGE),
-					angle - arc_deg,
-					angle + arc_deg,
-					20,
-					raylib.Color{255, 255, 255, fade},
-				)
-			}
+			// Player (shape + darker outline come from the chosen character).
+			draw_player()
+			draw_melee_flash()
 			// Expanding blast rings.
 			for x in explosions {
 				f := x.life / EXPLOSION_TIME
@@ -889,30 +1061,63 @@ main :: proc() {
 			// Active weapon + ammo, with the other slot shown for reference.
 			weapon_name := active_slot == 0 ? string(GUNS[gun].name) : string(SECONDARIES[secondary_kind].name)
 			other_name := active_slot == 0 ? string(SECONDARIES[secondary_kind].name) : string(GUNS[gun].name)
-			raylib.DrawText(
-				raylib.TextFormat("[%s] %i / %i", weapon_name, int(w.mag), int(w.ammo)),
-				560,
-				10,
-				20,
-				raylib.WHITE,
-			)
+			if active_stats().class == .MELEE {
+				raylib.DrawText(
+					raylib.TextFormat("[%s] MELEE", weapon_name),
+					560,
+					10,
+					20,
+					raylib.WHITE,
+				)
+			} else {
+				raylib.DrawText(
+					raylib.TextFormat("[%s] %i / %i", weapon_name, int(w.mag), int(w.ammo)),
+					560,
+					10,
+					20,
+					raylib.WHITE,
+				)
+			}
 			raylib.DrawText(raylib.TextFormat("Q: %s", other_name), 560, 34, 16, raylib.GRAY)
 			if w.reload > 0 {
 				raylib.DrawText(cstring("RELOADING"), 560, 54, 18, raylib.ORANGE)
 			}
 			raylib.DrawText(raylib.TextFormat("$ %i", int(currency)), 10, 34, 20, raylib.GOLD)
 			raylib.DrawText(
-				cstring(
-					"WASD move   MOUSE aim   SPACE shoot   Q swap   E kick   SHIFT dash   R reload",
-				),
-				10,
-				576,
-				15,
-				raylib.GRAY,
+				raylib.TextFormat("%s", string(CHARACTERS[character].name)),
+				220,
+				34,
+				20,
+				CHARACTERS[character].color,
 			)
+			// Passive readout: its name, plus live state for the ones that build up.
+			raylib.DrawText(
+				raylib.TextFormat("%s", string(CHARACTERS[character].passive)),
+				220,
+				56,
+				14,
+				raylib.LIGHTGRAY,
+			)
+			if character == .TRACER {
+				// Traceur's Heart charge bar.
+				raylib.DrawRectangle(220, 74, 120, 8, raylib.DARKGRAY)
+				raylib.DrawRectangle(220, 74, i32(120 * clamp(traceur_charge, 0, 1)), 8, raylib.GOLD)
+				raylib.DrawRectangleLines(220, 74, 120, 8, raylib.GRAY)
+			} else if character == .RR {
+				raylib.DrawText(
+					raylib.TextFormat("ADAPT: %s", rr_adaptation_name()),
+					220,
+					72,
+					14,
+					raylib.SKYBLUE,
+				)
+			}
+			controls := character == .BUD ? cstring("WASD move   MOUSE aim   SPACE fire/swing   Q swap   E fists   SHIFT dash   R reload   ` console") : cstring("WASD move   MOUSE aim   SPACE fire/swing   Q swap   E kick   SHIFT dash   R reload   ` console")
+			raylib.DrawText(controls, 10, 576, 15, raylib.GRAY)
 			if debug_mode {
 				raylib.DrawText("DEBUG", 220, 10, 20, raylib.ORANGE)
 			}
+			console_draw()
 			raylib.EndTextureMode()
 
 		case .SHOP:
@@ -1015,15 +1220,64 @@ main :: proc() {
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 				play(sounds.ui_select)
 				end_run()
+			} else if raylib.IsKeyPressed(raylib.KeyboardKey.R) {
+				// Replay the exact loadout that just ended.
+				play(sounds.ui_select)
+				start_run(
+					start_loadout(
+						result.character,
+						result.gun,
+						result.secondary,
+						result.dash,
+						result.utility,
+					),
+				)
 			}
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
-			game_over := cstring("GAME OVER")
-			gw := raylib.MeasureText(game_over, 60)
-			raylib.DrawText(game_over, 400 - gw / 2, 200, 60, raylib.RED)
-			prompt := cstring("Press ENTER to restart")
-			pw := raylib.MeasureText(prompt, 25)
-			raylib.DrawText(prompt, 400 - pw / 2, 300, 25, raylib.GRAY)
+			draw_centered(cstring("RUN OVER"), 40, 52, raylib.RED)
+			draw_centered(
+				raylib.TextFormat(
+					"CHARACTER %s    ARENA %s",
+					string(CHARACTERS[result.character].name),
+					string(ARENAS[result.arena].name),
+				),
+				108,
+				22,
+				raylib.VIOLET,
+			)
+			draw_centered(
+				raylib.TextFormat(
+					"PRIMARY %s    SECONDARY %s",
+					string(GUNS[result.gun].name),
+					string(SECONDARIES[result.secondary].name),
+				),
+				138,
+				18,
+				raylib.DARKGRAY,
+			)
+			draw_centered(
+				raylib.TextFormat(
+					"DASH %s    UTILITY %s",
+					string(DASHES[result.dash].name),
+					string(UTILITIES[result.utility].name),
+				),
+				162,
+				18,
+				raylib.DARKGRAY,
+			)
+			draw_stat(cstring("WAVE REACHED"), raylib.TextFormat("%i", result.wave_reached), 214)
+			draw_stat(cstring("ENEMIES SLAIN"), raylib.TextFormat("%i", result.kills), 248)
+			draw_stat(cstring("ELITES SLAIN"), raylib.TextFormat("%i", result.elite_kills), 282)
+			draw_stat(cstring("COINS EARNED"), raylib.TextFormat("%i", result.coins_earned), 316)
+			draw_stat(cstring("COINS SPENT"), raylib.TextFormat("%i", result.coins_spent), 350)
+			draw_stat(
+				cstring("TIME SURVIVED"),
+				raylib.TextFormat("%i:%02i", int(result.time) / 60, int(result.time) % 60),
+				384,
+			)
+			draw_centered(cstring("ENTER   MAIN MENU"), 480, 24, raylib.GRAY)
+			draw_centered(cstring("R   RETRY SAME LOADOUT"), 512, 22, raylib.DARKGRAY)
 			raylib.EndTextureMode()
 		}
 

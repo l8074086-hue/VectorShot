@@ -11,11 +11,48 @@ ARENA_W :: 1600
 ARENA_H :: 1200
 WALL_THICK :: 40
 RELOAD_TIME :: 1.0
-MELEE_COOLDOWN_MAX :: 0.4
-MELEE_DAMAGE :: 2
-MELEE_RANGE :: 92 // how far the kick reaches (px)
-MELEE_ARC :: 0.7 // half-angle of the swing (radians)
-MELEE_KNOCKBACK :: 100 // instant shove applied to anything kicked
+MELEE_FLASH_TIME :: 0.15 // how long the swing arc is shown after a melee hit
+BASE_DASH_DAMAGE :: 30 // damage per second dealt by a damaging dash
+
+// Characters. Every main character has a signature passive; the numeric knobs
+// for each live here, and the dash "synergies" are folded in by start_loadout.
+TRACER_WEIGHT_PENALTY :: 0.14 // move speed lost per point of active-weapon weight
+TRACER_MIN_SPEED_MULT :: 0.55 // Tracer never drops below this fraction of SPEED
+// Traceur's Heart: every attack spins her up, and her speed decays when idle.
+TRACEUR_PER_ATTACK :: 0.12 // charge added per shot/swing (0..1)
+TRACEUR_DECAY :: 0.35 // charge lost per second while not attacking
+TRACEUR_MAX_BONUS :: 0.50 // speed bonus at full charge (+50% of her speed stat)
+// Synergy: Tracer <-> SLIDE. Sliding is her signature; it's faster, cheaper and
+// refreshes Traceur's Heart so a slide into a fight keeps her momentum.
+TRACER_SLIDE_SPEED_MULT :: 1.35
+TRACER_SLIDE_CD_MULT :: 0.75
+TRACER_SLIDE_TIME_MULT :: 1.30 // slides linger longer (more distance + damage)
+TRACER_PHASE_DURATION_MULT :: 1.70
+TRACER_PHASE_CD_MULT :: 0.80
+// Synergy: Bud <-> IMPACT. His impact dash hits far harder and knocks enemies
+// flying, turning a dash into his main engage tool.
+BUD_IMPACT_DAMAGE_MULT :: 2.40
+BUD_IMPACT_KNOCK :: 1100 // px/s shove applied to enemies a Bud impact hits
+// Bud's "Guard Up" passive: he takes less damage from whatever he faces. Face
+// an incoming hit (aim that way) and it is blunted.
+BUD_GUARD_ARC :: 0.95 // half-angle of the guard cone around his facing
+BUD_GUARD_REDUCTION :: 0.25 // damage shaved off hits arriving inside it
+// Bud's "Unhappy" passive: holding a gun (not a melee weapon) leaves him
+// miserable, halving his accuracy, attack power and move speed.
+BUD_UNHAPPY_SPREAD_MULT :: 2.0 // accuracy halved -> spread doubled
+BUD_UNHAPPY_MIN_SPREAD :: 0.14 // floor so even pinpoint guns lose accuracy
+BUD_UNHAPPY_DAMAGE_MULT :: 0.5
+BUD_UNHAPPY_SPEED_MULT :: 0.5
+// Bud's Fists combo: press E again within this window to chain the next strike.
+BUD_COMBO_WINDOW :: 0.55
+// Navy's "Take Aim": standing still (no move input) gives complete accuracy.
+// The sliding window smooths it so a single frame of movement doesn't yank aim.
+// RR's "Adaptation": his strongest stat gets a reinforcing bonus. Recomputed
+// live, so his playstyle tracks whatever the run has invested in.
+RR_ADAPT_OFFENSE :: 0.20 // +20% damage (guns + melee)
+RR_ADAPT_MOBILITY :: 0.15 // +15% move speed
+RR_ADAPT_RESILIENCE :: 0.20 // -20% damage taken
+RR_ADAPT_PRECISION :: 0.40 // -40% spread
 EXPLOSION_RADIUS :: 130
 EXPLOSION_DAMAGE :: 6
 EXPLOSION_TIME :: 0.35
@@ -46,7 +83,10 @@ ELITE_SIZE_MULT :: 1.3
 // Crystalized-elite behaviors. Every elite is a corrupted variant with its own
 // trick: GRUNT devours grunts, RUNNER zig-zag dashes, TANK wears directional
 // crystal plates, RANGED throws boomerang shards, CHARGER phases through terrain.
-ELITE_DEVOUR_RANGE :: 48 // GRUNT: how close a grunt must be to be eaten
+// Must exceed `separate_enemies`' minimum spacing or a meal is unreachable: a
+// Devourer is ELITE_SIZE_MULT grunts wide, so it can only ever get
+// (65 + 50) / 2 = 57.5px from a grunt's center. This leaves a little slack.
+ELITE_DEVOUR_RANGE :: 84 // GRUNT: how close a grunt must be to be eaten
 ELITE_DEVOUR_HEAL :: 0.20 // fraction of max hp restored per meal
 ELITE_DEVOUR_COOLDOWN :: 3.0 // seconds between meals
 ELITE_DEVOUR_LURE :: 160 // GRUNT drifts toward a grunt within this range
@@ -65,6 +105,15 @@ SHOP_OFFER_COUNT :: 3
 SHOP_MAX_REROLLS :: 2
 SHOP_REROLL_BASE_COST :: 15
 
+// Starting utilities picked on the loadout screen. These are the raw bonuses
+// `start_loadout` folds into Run_Stats.
+UTIL_MAX_HEALTH :: 25
+UTIL_SPEED :: 50
+UTIL_DAMAGE :: 1
+UTIL_SPREAD_CUT :: 0.2
+UTIL_DASH_CD_MULT :: 0.7 // SCOUT multiplies dash cooldown by this
+UTIL_AMMO_MULT :: 1.5 // PACKRAT scales both weapons' reserve capacity
+
 // ---------------------------------------------------------------------------
 // Run state
 //
@@ -74,7 +123,7 @@ SHOP_REROLL_BASE_COST :: 15
 
 state: GameState = .MAIN_MENU
 debug_mode: bool = false
-skill_state: SkillSlotState = .MAIN_SCREEN
+skill_state: SkillSlotState = .MAIN
 
 // Player.
 position: raylib.Vector2 = {50, 50}
@@ -92,6 +141,7 @@ secondary_kind: Secondary = .PISTOL
 primary: weapon
 secondary: weapon
 active_slot: int = 0 // 0 = primary, 1 = secondary
+ammo_mult: f32 = 1 // reserve-capacity scale from the chosen utility
 
 // Card upgrades. These apply to whichever weapon is active at fire time.
 bonus_damage: f32 = 0
@@ -99,9 +149,20 @@ bonus_projectiles: i32 = 0
 bonus_pierce: i32 = 0
 spread_cut: f32 = 0
 
-// Melee.
+// Melee. Swing stats come from the active weapon, the KICK, or Bud's FISTS;
+// `melee_cooldown` is the universal swing timer. The flash fields remember the
+// last swing (direction + shape + size + colour) so the drawn flash uses the
+// exact same geometry the hit test did.
 melee_cooldown: f32 = 0
 melee_flash: f32 = 0
+melee_flash_range: f32 = 92
+melee_flash_arc: f32 = 0.7
+melee_flash_dir: raylib.Vector2 = {0, -1}
+melee_flash_shape: Melee_Shape = .SECTOR
+melee_flash_color: raylib.Color = {255, 255, 255, 255}
+// Bud's Fists combo: which strike is next, and how long the chain stays open.
+combo_index: int = 0
+combo_timer: f32 = 0
 
 // Dash.
 dash_kind: Dash_Kind = .BURST
@@ -113,12 +174,30 @@ dash_cooldown_max: f32 = 0.5
 dash_blink: bool = false
 dash_distance: f32 = 0
 dash_damages: bool = false
+dash_damage: f32 = BASE_DASH_DAMAGE
+reload_time: f32 = RELOAD_TIME // Navy reloads faster; set from Run_Stats
+
+// Chosen main character. Drives the body silhouette, melee scaling, and traits.
+character: Character = .RR
+// Per-character passive state.
+moving: bool = false // is the player giving move input this frame?
+traceur_charge: f32 = 0 // Traceur's Heart 0..1 (built by attacking)
+rr_adaptation: RR_Adaptation = .OFFENSE // RR's Adaptation, recomputed each frame
 
 // Progression.
 wave: i32 = 1
 card_choices: int = 3
 utility: Utility = .VITALITY
 currency: i32 = 0
+arena: Arena_Kind = .GRASSLAND
+
+// Per-run tallies, surfaced on the results screen and reset by start_run.
+run_time: f32 = 0
+run_kills: i32 = 0
+run_elite_kills: i32 = 0
+run_coins_earned: i32 = 0
+run_coins_spent: i32 = 0
+result: Run_Result
 
 // Shop.
 shop_items: [dynamic]shop_item
@@ -144,15 +223,26 @@ start_run :: proc(stats: Run_Stats) {
 	SPEED = stats.speed
 	gun = stats.primary
 	secondary_kind = stats.secondary
+	ammo_mult = stats.ammo_mult
 	weapon_init(&primary, GUNS[stats.primary])
 	weapon_init(&secondary, SECONDARIES[stats.secondary])
 	active_slot = 0
-	bonus_damage = 0
+	bonus_damage = stats.bonus_damage
 	bonus_projectiles = 0
 	bonus_pierce = 0
-	spread_cut = 0
+	spread_cut = stats.spread_cut
+	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
+	melee_flash_range = KICK.reach
+	melee_flash_arc = KICK.arc
+	melee_flash_dir = {0, -1}
+	melee_flash_shape = KICK.shape
+	melee_flash_color = KICK.flash_color
+	combo_index = 0
+	combo_timer = 0
+	traceur_charge = 0
+	moving = false
 	DASH_SPEED = stats.dash_speed
 	DASH_DURATION = stats.dash_duration
 	dash_cooldown = 0
@@ -160,6 +250,8 @@ start_run :: proc(stats: Run_Stats) {
 	dash_blink = stats.dash_blink
 	dash_distance = stats.dash_distance
 	dash_damages = stats.dash_damages
+	dash_damage = stats.dash_damage
+	reload_time = stats.reload_time
 	dash_timer = 0
 	inv_timer = 0
 	max_health = stats.max_health
@@ -169,18 +261,67 @@ start_run :: proc(stats: Run_Stats) {
 	currency = 0
 	shop_selected = 0
 	shop_rerolls_used = 0
+	reset_run_stats()
 	last_dir = {0, -1}
 	aim_dir = {0, -1}
 	clear_run_entities()
-	build_arena()
+	build_arena(arena)
+	update_rr_adaptation()
 	state = .PLAYING
 }
 
-// Give a weapon slot its starting mag/reserve from its stat block.
-weapon_init :: proc(w: ^weapon, g: Gun_Stats) {
+// Zero the per-run tallies shown on the results screen.
+reset_run_stats :: proc() {
+	run_time = 0
+	run_kills = 0
+	run_elite_kills = 0
+	run_coins_earned = 0
+	run_coins_spent = 0
+}
+
+// Record that an enemy died. Elite kills are tracked separately for the results.
+count_kill :: proc(elite: bool) {
+	run_kills += 1
+	if elite {
+		run_elite_kills += 1
+	}
+}
+
+// Snapshot the finished run for the results screen.
+finalize_result :: proc() {
+	result = Run_Result {
+		arena        = arena,
+		character    = character,
+		gun          = gun,
+		secondary    = secondary_kind,
+		dash         = dash_kind,
+		utility      = utility,
+		wave_reached = max(wave - 1, 1),
+		kills        = run_kills,
+		elite_kills  = run_elite_kills,
+		coins_earned = run_coins_earned,
+		coins_spent  = run_coins_spent,
+		time         = run_time,
+	}
+}
+
+// Transition into the results screen once, capturing the run. Safe to call from
+// several collision checks in the same frame.
+game_over :: proc() {
+	if state == .GAME_OVER {
+		return
+	}
+	finalize_result()
+	state = .GAME_OVER
+	play(sounds.game_over)
+}
+
+// Give a weapon slot its starting mag/reserve from its stat block. Melee
+// weapons have no capacity, so this leaves them empty and always "ready".
+weapon_init :: proc(w: ^weapon, g: Weapon_Stats) {
 	w.mag = g.magazine_capacity
-	w.ammo = g.ammo_capacity
-	w.ammo_cap = g.ammo_capacity
+	w.ammo = i32(f32(g.ammo_capacity) * ammo_mult)
+	w.ammo_cap = w.ammo
 	w.mag_cap = g.magazine_capacity
 	w.reload = 0
 	w.cooldown = 0
@@ -190,8 +331,168 @@ active_weapon :: proc() -> ^weapon {
 	return active_slot == 1 ? &secondary : &primary
 }
 
-active_stats :: proc() -> Gun_Stats {
+active_stats :: proc() -> Weapon_Stats {
 	return active_slot == 1 ? SECONDARIES[secondary_kind] : GUNS[gun]
+}
+
+// Bud's "Unhappy": holding a gun (rather than a melee weapon) sours him.
+bud_unhappy :: proc() -> bool {
+	return character == .BUD && active_stats().class == .GUN
+}
+
+// Movement speed after every character trait and passive. TRACER is dragged
+// down by heavy weapons but spun up by Traceur's Heart; BUD is slowed while
+// stuck holding a gun; RR's Adaptation can add mobility.
+character_move_speed :: proc() -> f32 {
+	speed := SPEED
+	if character == .BUD && bud_unhappy() {
+		speed *= BUD_UNHAPPY_SPEED_MULT
+	}
+	if character == .TRACER {
+		w := active_stats().weight
+		speed *= clamp(1 - w * TRACER_WEIGHT_PENALTY, TRACER_MIN_SPEED_MULT, 1)
+		speed *= 1 + TRACEUR_MAX_BONUS * clamp(traceur_charge, 0, 1)
+	}
+	if character == .RR && rr_adaptation == .MOBILITY {
+		speed *= 1 + RR_ADAPT_MOBILITY
+	}
+	return speed
+}
+
+// One melee hitbox test shared by the swing and (conceptually) the flash, so the
+// drawn shape can never drift from what actually gets hit. `reach`/`arc` mean
+// whatever `shape` says they mean (see Melee_Shape).
+melee_shape_hits :: proc(
+	origin, dir: raylib.Vector2,
+	reach, arc: f32,
+	shape: Melee_Shape,
+	target: raylib.Vector2,
+) -> bool {
+	to := target - origin
+	switch shape {
+	case .SECTOR:
+		dist := raylib.Vector2Length(to)
+		return dist > 0.01 && dist <= reach && raylib.Vector2Angle(dir, to) <= arc
+	case .THRUST:
+		along := raylib.Vector2DotProduct(to, dir)
+		if along < 0 || along > reach {
+			return false
+		}
+		perp := abs(raylib.Vector2CrossProduct(dir, to)) // dir is unit length
+		return perp <= arc
+	case .BLAST:
+		center := origin + dir * reach
+		return raylib.Vector2Length(target - center) <= arc
+	}
+	return false
+}
+
+// Every attack (shot or swing) spins up Tracer's Heart. Other characters ignore
+// it, so callers can note attacks unconditionally.
+note_attack :: proc() {
+	if character == .TRACER {
+		traceur_charge = clamp(traceur_charge + TRACEUR_PER_ATTACK, 0, 1)
+	}
+}
+
+// The unarmed attack: Bud throws the next Fists strike (advancing the combo),
+// everyone else kicks. Returns the stats for this swing; the caller owns the
+// cooldown timer and the swing itself.
+unarmed_stats :: proc() -> Weapon_Stats {
+	if character != .BUD {
+		return KICK
+	}
+	stats := FISTS[combo_index]
+	combo_index = (combo_index + 1) % len(FISTS)
+	combo_timer = BUD_COMBO_WINDOW
+	return stats
+}
+
+// Swing a melee weapon (the universal KICK, one of Bud's FISTS, or a weapon in a
+// slot) toward `dir`: damage and shove every enemy its hitbox covers. Records the
+// exact geometry so the flash can draw what was hit, and feeds Traceur's Heart.
+melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2) {
+	cs := CHARACTERS[character]
+	dmg := stats.damage * cs.melee_damage_mult + bonus_damage
+	if character == .RR && rr_adaptation == .OFFENSE {
+		dmg *= 1 + RR_ADAPT_OFFENSE
+	}
+	reach := stats.reach * cs.melee_range_mult
+	knock := stats.knockback * cs.melee_knock_mult
+	melee_flash_range = reach
+	melee_flash_arc = stats.arc
+	melee_flash_dir = dir
+	melee_flash_shape = stats.shape
+	melee_flash_color = stats.flash_color
+	melee_flash = MELEE_FLASH_TIME
+	note_attack()
+	player_c := position + size * 0.5
+	for i := len(enemies) - 1; i >= 0; i -= 1 {
+		e_c := enemies[i].position + enemies[i].size * 0.5
+		if !melee_shape_hits(player_c, dir, reach, stats.arc, stats.shape, e_c) {
+			continue
+		}
+		to := e_c - player_c
+		hit := apply_enemy_damage(&enemies[i], dmg, player_c - e_c)
+		if hit != .DAMAGE {
+			play_enemy_hit(hit)
+		}
+		if raylib.Vector2Length(to) > 0.01 {
+			enemies[i].position += raylib.Vector2Normalize(to) * knock
+		}
+		if enemies[i].hp <= 0 {
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+			unordered_remove(&enemies, i)
+		}
+	}
+}
+
+// Pick RR's Adaptation from whichever stat the run has invested in most. Called
+// every frame so it tracks the build live; ties resolve to the earlier mode.
+update_rr_adaptation :: proc() {
+	if character != .RR {
+		return
+	}
+	base := CHARACTERS[.RR]
+	offense := clamp(bonus_damage / f32(MAX_BONUS_DAMAGE), 0, 1)
+	mobility := clamp(
+		(SPEED - base.speed) / max(MAX_SPEED - base.speed, 1),
+		0,
+		1,
+	)
+	resilience := clamp((max_health - base.max_health) / base.max_health, 0, 1)
+	precision := clamp(spread_cut / 0.40, 0, 1)
+	best := offense
+	rr_adaptation = .OFFENSE
+	if mobility > best {
+		best = mobility
+		rr_adaptation = .MOBILITY
+	}
+	if resilience > best {
+		best = resilience
+		rr_adaptation = .RESILIENCE
+	}
+	if precision > best {
+		best = precision
+		rr_adaptation = .PRECISION
+	}
+}
+
+// The single funnel for player damage. BUD's "Guard Up" blunts hits arriving
+// from the direction he's facing (aim); RR's Resilience adaptation blunts all.
+apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
+	dmg := amount
+	if character == .BUD {
+		to := from - (position + size * 0.5)
+		if raylib.Vector2Length(to) > 0.01 &&
+		   raylib.Vector2Angle(aim_dir, raylib.Vector2Normalize(to)) < BUD_GUARD_ARC {
+			dmg *= 1 - BUD_GUARD_REDUCTION
+		}
+	}
+	if character == .RR && rr_adaptation == .RESILIENCE {
+		dmg *= 1 - RR_ADAPT_RESILIENCE
+	}
+	health -= dmg
 }
 
 // PRECISION is only a useful offer while the active weapon still has spread to
@@ -310,64 +611,109 @@ random_spawn_pos :: proc(sz: raylib.Vector2) -> raylib.Vector2 {
 	return raylib.Vector2{f32(ARENA_W) * 0.5, f32(WALL_THICK) + 40}
 }
 
+// Per-wave stat multipliers, shared by normal wave spawns and console spawns so
+// a hand-spawned enemy is tuned to the current difficulty.
+enemy_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
+	hp = 1 + ENEMY_HP_PER_WAVE * f32(wave - 1)
+	dmg = 1 + ENEMY_DMG_PER_WAVE * f32(wave - 1)
+	spd = min(1 + ENEMY_SPEED_PER_WAVE * f32(wave - 1), f32(ENEMY_SPEED_CAP))
+	return
+}
+
+// Build and append one enemy at `pos`. Used by both the wave spawner and the
+// debug console's `spawn` command.
+spawn_enemy_at :: proc(kind: Enemy_Kind, elite: bool, wave: i32, pos: raylib.Vector2) {
+	hp_scale, dmg_scale, spd_scale := enemy_scales(wave)
+	s := ENEMIES[kind]
+	sz := s.size
+	hp := s.hp * hp_scale
+	damage := s.damage * dmg_scale
+	speed := s.speed * spd_scale
+	if elite {
+		sz *= ELITE_SIZE_MULT
+		hp *= ELITE_HP_MULT
+		damage *= ELITE_DMG_MULT
+		speed *= ELITE_SPEED_MULT
+	}
+	if elite && kind == .GRUNT {
+		// Devourers are as bulky as a tank so they survive long enough to feed.
+		hp = ENEMIES[.TANK].hp * hp_scale
+	}
+
+	en := enemy {
+		position = pos,
+		size = sz,
+		velocity = {0, 0},
+		attacking = false,
+		color = s.color,
+		damage = damage,
+		hp = hp,
+		max_hp = hp,
+		id = next_enemy_id,
+		speed = speed,
+		kind = kind,
+		state = .CHASE,
+		elite = elite,
+		plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
+	}
+	if elite && kind == .TANK {
+		// Spread the plates evenly, with a random base so every Bulwark
+		// presents its weak sides differently.
+		base := rand.float32() * 2 * math.PI
+		for k in 0 ..< ELITE_TANK_PLATES {
+			ang := base + f32(k) * (2 * math.PI / f32(ELITE_TANK_PLATES))
+			en.plate_dir[k] = {math.cos_f32(ang), math.sin_f32(ang)}
+			en.plate_live[k] = true
+		}
+	}
+	append(&enemies, en)
+	next_enemy_id += 1
+}
+
+// Spawn just outside the player so a console-spawned enemy is immediately
+// visible. Falls back to the normal random ring if that spot is inside cover.
+spawn_enemy_near_player :: proc(kind: Enemy_Kind, elite: bool, wave: i32) {
+	s := ENEMIES[kind]
+	sz := s.size
+	if elite {
+		sz *= ELITE_SIZE_MULT
+	}
+	ang := rand.float32() * 2 * math.PI
+	pc := position + size * 0.5
+	p := pc + raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * 150 - sz * 0.5
+	p.x = clamp(p.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - sz.x)
+	p.y = clamp(p.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - sz.y)
+	if box_blocked(p, sz) {
+		p = random_spawn_pos(sz)
+	}
+	spawn_enemy_at(kind, elite, wave, p)
+}
+
 spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
-	hp_scale := 1 + ENEMY_HP_PER_WAVE * f32(wave - 1)
-	dmg_scale := 1 + ENEMY_DMG_PER_WAVE * f32(wave - 1)
-	spd_scale := min(1 + ENEMY_SPEED_PER_WAVE * f32(wave - 1), f32(ENEMY_SPEED_CAP))
 	elite_chance := min(
 		ELITE_BASE_CHANCE + ELITE_CHANCE_PER_WAVE * f32(wave - 1),
 		f32(ELITE_CHANCE_CAP),
 	)
-
 	for _ in 0 ..< num {
 		kind := pick_enemy_kind(wave)
-		s := ENEMIES[kind]
 		elite := wave >= 2 && rand.float32() < elite_chance
-
-		sz := s.size
-		hp := s.hp * hp_scale
-		damage := s.damage * dmg_scale
-		speed := s.speed * spd_scale
+		sz := ENEMIES[kind].size
 		if elite {
 			sz *= ELITE_SIZE_MULT
-			hp *= ELITE_HP_MULT
-			damage *= ELITE_DMG_MULT
-			speed *= ELITE_SPEED_MULT
 		}
-		if elite && kind == .GRUNT {
-			// Devourers are as bulky as a tank so they survive long enough to feed.
-			hp = ENEMIES[.TANK].hp * hp_scale
-		}
-
-		en := enemy {
-			position = random_spawn_pos(sz),
-			size = sz,
-			velocity = {0, 0},
-			attacking = false,
-			color = s.color,
-			damage = damage,
-			hp = hp,
-			max_hp = hp,
-			id = next_enemy_id,
-			speed = speed,
-			kind = kind,
-			state = .CHASE,
-			elite = elite,
-			plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
-		}
-		if elite && kind == .TANK {
-			// Spread the plates evenly, with a random base so every Bulwark
-			// presents its weak sides differently.
-			base := rand.float32() * 2 * math.PI
-			for k in 0 ..< ELITE_TANK_PLATES {
-				ang := base + f32(k) * (2 * math.PI / f32(ELITE_TANK_PLATES))
-				en.plate_dir[k] = {math.cos_f32(ang), math.sin_f32(ang)}
-				en.plate_live[k] = true
-			}
-		}
-		append(enemies, en)
-		next_enemy_id += 1
+		spawn_enemy_at(kind, elite, wave, random_spawn_pos(sz))
 	}
+}
+
+// Drop a pickup just outside the player (debug console `item` command).
+spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
+	sz: raylib.Vector2 = kind == .CURRENCY ? {10, 10} : {12, 12}
+	ang := rand.float32() * 2 * math.PI
+	pc := position + size * 0.5
+	p := pc + raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * 110 - sz * 0.5
+	p.x = clamp(p.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - sz.x)
+	p.y = clamp(p.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - sz.y)
+	append(&drops, drop{position = p, size = sz, kind = kind, amount = amount, life = 8.0})
 }
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
@@ -659,53 +1005,140 @@ bullet_register_hit :: proc(b: ^bullet, id: i32) {
 // Environment
 // ---------------------------------------------------------------------------
 
-build_arena :: proc() {
+build_arena :: proc(kind: Arena_Kind) {
 	clear(&walls)
 	clear(&barrels)
 	clear(&trees)
 
 	t := f32(WALL_THICK)
-	// Border.
+	// Border is shared by every layout.
 	append(&walls, raylib.Rectangle{0, 0, ARENA_W, t})
 	append(&walls, raylib.Rectangle{0, ARENA_H - t, ARENA_W, t})
 	append(&walls, raylib.Rectangle{0, 0, t, ARENA_H})
 	append(&walls, raylib.Rectangle{ARENA_W - t, 0, t, ARENA_H})
 
-	// Interior cover.
-	append(&walls, raylib.Rectangle{300, 220, 220, 40})
-	append(&walls, raylib.Rectangle{1080, 220, 220, 40})
-	append(&walls, raylib.Rectangle{300, 940, 220, 40})
-	append(&walls, raylib.Rectangle{1080, 940, 220, 40})
-	append(&walls, raylib.Rectangle{760, 260, 80, 220})
-	append(&walls, raylib.Rectangle{760, 720, 80, 220})
-	append(&walls, raylib.Rectangle{480, 560, 220, 80})
-	append(&walls, raylib.Rectangle{900, 560, 220, 80})
+	// Interior cover differs per arena. The center of every layout is left open
+	// so the player always spawns with room to move.
+	switch kind {
+	case .GRASSLAND:
+		rects := [?]raylib.Rectangle {
+			{300, 220, 220, 40},
+			{1080, 220, 220, 40},
+			{300, 940, 220, 40},
+			{1080, 940, 220, 40},
+			{760, 260, 80, 220},
+			{760, 720, 80, 220},
+			{480, 560, 220, 80},
+			{900, 560, 220, 80},
+		}
+		spots := [?]raylib.Vector2 {
+			{250, 600},
+			{1350, 600},
+			{800, 190},
+			{800, 1010},
+			{560, 380},
+			{1040, 380},
+			{560, 820},
+			{1040, 820},
+		}
+		barrel_spots := [?]raylib.Vector2 {
+			{600, 300},
+			{1000, 300},
+			{600, 900},
+			{1000, 900},
+			{400, 600},
+			{1200, 600},
+		}
+		add_walls(rects[:])
+		add_trees(spots[:])
+		add_barrels(barrel_spots[:])
 
-	// Trees: round static cover.
-	tree_spots := [?]raylib.Vector2 {
-		{250, 600},
-		{1350, 600},
-		{800, 190},
-		{800, 1010},
-		{560, 380},
-		{1040, 380},
-		{560, 820},
-		{1040, 820},
+	case .CANYON:
+		rects := [?]raylib.Rectangle {
+			{220, 300, 560, 44},
+			{820, 300, 560, 44},
+			{220, 880, 560, 44},
+			{820, 880, 560, 44},
+			{520, 450, 44, 300},
+			{1036, 450, 44, 300},
+		}
+		spots := [?]raylib.Vector2{{250, 200}, {1350, 200}, {250, 1000}, {1350, 1000}}
+		barrel_spots := [?]raylib.Vector2 {
+			{400, 420},
+			{1200, 420},
+			{400, 780},
+			{1200, 780},
+			{800, 340},
+			{800, 860},
+			{600, 620},
+			{1000, 620},
+		}
+		add_walls(rects[:])
+		add_trees(spots[:])
+		add_barrels(barrel_spots[:])
+
+	case .RUINS:
+		rects := [?]raylib.Rectangle {
+			{285, 285, 70, 70},
+			{765, 285, 70, 70},
+			{1245, 285, 70, 70},
+			{285, 565, 70, 70},
+			{1245, 565, 70, 70},
+			{285, 845, 70, 70},
+			{765, 845, 70, 70},
+			{1245, 845, 70, 70},
+		}
+		spots := [?]raylib.Vector2{{540, 300}, {1060, 300}, {540, 900}, {1060, 900}}
+		barrel_spots := [?]raylib.Vector2{{800, 320}, {800, 880}, {520, 600}, {1080, 600}}
+		add_walls(rects[:])
+		add_trees(spots[:])
+		add_barrels(barrel_spots[:])
+
+	case .GLACIER:
+		rects := [?]raylib.Rectangle {
+			{300, 500, 300, 44},
+			{1000, 500, 300, 44},
+			{300, 656, 300, 44},
+			{1000, 656, 300, 44},
+			{760, 190, 80, 180},
+			{760, 830, 80, 180},
+		}
+		spots := [?]raylib.Vector2 {
+			{240, 260},
+			{1360, 260},
+			{240, 940},
+			{1360, 940},
+			{560, 300},
+			{1040, 300},
+			{560, 900},
+			{1040, 900},
+			{420, 420},
+			{1180, 420},
+			{420, 780},
+			{1180, 780},
+		}
+		barrel_spots := [?]raylib.Vector2{{800, 260}, {800, 940}}
+		add_walls(rects[:])
+		add_trees(spots[:])
+		add_barrels(barrel_spots[:])
 	}
-	for p in tree_spots {
+}
+
+// Small helpers for build_arena so each layout is just a list of placements.
+add_walls :: proc(rects: []raylib.Rectangle) {
+	for r in rects {
+		append(&walls, r)
+	}
+}
+
+add_trees :: proc(spots: []raylib.Vector2) {
+	for p in spots {
 		append(&trees, tree{pos = {p.x - 22, p.y - 22}, size = {44, 44}})
 	}
+}
 
-	// Explosive barrels.
-	barrel_spots := [?]raylib.Vector2 {
-		{600, 300},
-		{1000, 300},
-		{600, 900},
-		{1000, 900},
-		{400, 600},
-		{1200, 600},
-	}
-	for p in barrel_spots {
+add_barrels :: proc(spots: []raylib.Vector2) {
+	for p in spots {
 		append(&barrels, barrel{pos = {p.x - 16, p.y - 16}, size = {32, 32}, hp = 6})
 	}
 }
@@ -835,6 +1268,7 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // Standard rewards for killing something. Call right before removing an enemy.
 // Elites leave a guaranteed pile of coins on top of the usual rolls.
 spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
+	count_kill(elite)
 	play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
 	if elite {
 		append(
@@ -1004,6 +1438,7 @@ try_shop_reroll :: proc() -> bool {
 		return false
 	}
 	currency -= cost
+	run_coins_spent += cost
 	shop_rerolls_used += 1
 	shop_selected = 0
 	stock_shop()
@@ -1020,6 +1455,7 @@ buy_shop_item :: proc(idx: int) -> bool {
 		return false
 	}
 	currency -= it.cost
+	run_coins_spent += it.cost
 	switch it.kind {
 	case .AMMO:
 		refill_weapon_ammo(&primary)
@@ -1078,14 +1514,17 @@ spawn_cards :: proc(cards: ^[dynamic]card, count := 3) {
 // ---------------------------------------------------------------------------
 
 start_loadout :: proc(
+	character: Character,
 	primary: Gun,
 	secondary: Secondary,
 	dash: Dash_Kind,
 	utility: Utility,
 ) -> Run_Stats {
+	cs := CHARACTERS[character]
 	d := DASHES[dash]
 	stats := Run_Stats {
-		speed         = 200,
+		character     = character,
+		speed         = cs.speed,
 		primary       = primary,
 		secondary     = secondary,
 		dash_speed    = d.speed,
@@ -1094,17 +1533,48 @@ start_loadout :: proc(
 		dash_blink    = d.blink,
 		dash_distance = d.distance,
 		dash_damages  = d.damages,
-		max_health    = 100,
+		dash_damage   = BASE_DASH_DAMAGE,
+		reload_time   = RELOAD_TIME * cs.reload_mult,
+		max_health    = cs.max_health,
 		card_choices  = 3,
+		ammo_mult     = cs.ammo_mult,
+	}
+
+	// Dash affinity: a character's signature dash gets a little extra.
+	switch character {
+	case .TRACER:
+		switch dash {
+		case .SLIDE:
+			stats.dash_speed *= TRACER_SLIDE_SPEED_MULT
+			stats.dash_cooldown *= TRACER_SLIDE_CD_MULT
+			stats.dash_duration *= TRACER_SLIDE_TIME_MULT
+		case .PHASE:
+			stats.dash_duration *= TRACER_PHASE_DURATION_MULT
+			stats.dash_cooldown *= TRACER_PHASE_CD_MULT
+		case .BURST, .BLINK, .IMPACT:
+		}
+	case .BUD:
+		if dash == .IMPACT {
+			stats.dash_damage *= BUD_IMPACT_DAMAGE_MULT
+		}
+	case .RR, .NAVY:
 	}
 
 	switch utility {
 	case .VITALITY:
-		stats.max_health += 25
+		stats.max_health += UTIL_MAX_HEALTH
 	case .SWIFT:
-		stats.speed += 50
+		stats.speed += UTIL_SPEED
 	case .FORTUNE:
 		stats.card_choices += 1
+	case .TRIGGER:
+		stats.bonus_damage += UTIL_DAMAGE
+	case .DEADEYE:
+		stats.spread_cut += UTIL_SPREAD_CUT
+	case .SCOUT:
+		stats.dash_cooldown *= UTIL_DASH_CD_MULT
+	case .PACKRAT:
+		stats.ammo_mult *= UTIL_AMMO_MULT
 	}
 	return stats
 }
@@ -1119,6 +1589,110 @@ NUMBER_KEYS := [9]raylib.KeyboardKey{.ONE, .TWO, .THREE, .FOUR, .FIVE, .SIX, .SE
 draw_centered :: proc(text: cstring, y, size: i32, color: raylib.Color) {
 	width := raylib.MeasureText(text, size)
 	raylib.DrawText(text, 400 - width / 2, y, size, color)
+}
+
+// Human-readable name for RR's current Adaptation, shown on the HUD.
+rr_adaptation_name :: proc() -> cstring {
+	switch rr_adaptation {
+	case .OFFENSE:
+		return "OFFENSE"
+	case .MOBILITY:
+		return "MOBILITY"
+	case .RESILIENCE:
+		return "RESILIENCE"
+	case .PRECISION:
+		return "PRECISION"
+	}
+	return "OFFENSE"
+}
+
+// Draw the last melee swing using the *same* geometry the hit test used, so the
+// flash can never disagree with the hitbox. Must be called inside the world
+// camera's 2D mode. Each shape gets its own look, so no two melee weapons read
+// the same on screen.
+draw_melee_flash :: proc() {
+	if melee_flash <= 0 {
+		return
+	}
+	t := clamp(melee_flash / MELEE_FLASH_TIME, 0, 1)
+	pc := position + size * 0.5
+	col := melee_flash_color
+	col.a = u8(f32(col.a) * t)
+	angle := math.atan2_f32(melee_flash_dir.y, melee_flash_dir.x) * raylib.RAD2DEG
+	switch melee_flash_shape {
+	case .SECTOR:
+		arc_deg := melee_flash_arc * raylib.RAD2DEG
+		raylib.DrawCircleSector(
+			pc,
+			melee_flash_range,
+			angle - arc_deg,
+			angle + arc_deg,
+			24,
+			col,
+		)
+	case .THRUST:
+		// A thin blade: a rectangle running from the body along the swing.
+		rec := raylib.Rectangle{pc.x, pc.y, melee_flash_range, melee_flash_arc * 2}
+		raylib.DrawRectanglePro(rec, {0, melee_flash_arc}, angle, col)
+		tip := pc + melee_flash_dir * melee_flash_range
+		raylib.DrawCircleV(tip, melee_flash_arc, raylib.Color{col.r, col.g, col.b, col.a})
+	case .BLAST:
+		// A smash: a ring that contracts onto the impact point ahead of you.
+		center := pc + melee_flash_dir * melee_flash_range
+		radius := melee_flash_arc * (1.4 - 0.4 * t)
+		raylib.DrawCircleV(center, radius, col)
+		raylib.DrawCircleLinesV(center, radius, raylib.WHITE)
+	}
+}
+
+// Draw a main character's body: a darker outline shape behind the body color.
+// `center` is the body center and `half` its half-extents.
+draw_character_body :: proc(cs: Character_Stats, center: raylib.Vector2, half: raylib.Vector2) {
+	inflate: f32 = 3
+	switch cs.shape {
+	case .SQUARE:
+		raylib.DrawRectangleV(
+			center - half - raylib.Vector2{inflate, inflate},
+			half * 2 + raylib.Vector2{inflate, inflate} * 2,
+			cs.outline,
+		)
+		raylib.DrawRectangleV(center - half, half * 2, cs.color)
+	case .CIRCLE:
+		raylib.DrawCircleV(center, half.x + inflate, cs.outline)
+		raylib.DrawCircleV(center, half.x, cs.color)
+	case .TRIANGLE:
+		// Outline triangle first, then the body triangle inset by `inflate`.
+		raylib.DrawTriangle(
+			{center.x, center.y - half.y - inflate},
+			{center.x - half.x - inflate, center.y + half.y + inflate},
+			{center.x + half.x + inflate, center.y + half.y + inflate},
+			cs.outline,
+		)
+		raylib.DrawTriangle(
+			{center.x, center.y - half.y},
+			{center.x - half.x, center.y + half.y},
+			{center.x + half.x, center.y + half.y},
+			cs.color,
+		)
+	}
+}
+
+// The player's in-world body, using the currently chosen character.
+draw_player :: proc() {
+	draw_character_body(CHARACTERS[character], position + size * 0.5, size * 0.5)
+}
+
+// A small character portrait for the select screen.
+draw_character_icon :: proc(ch: Character, center: raylib.Vector2, r: f32) {
+	draw_character_body(CHARACTERS[ch], center, {r, r})
+}
+
+// One results-screen row: label on the left, value right-aligned, both centered
+// around the 800px canvas so the table reads cleanly.
+draw_stat :: proc(label: cstring, value: cstring, y: i32) {
+	raylib.DrawText(label, 280, y, 22, raylib.GRAY)
+	vw := raylib.MeasureText(value, 22)
+	raylib.DrawText(value, 520 - vw, y, 22, raylib.WHITE)
 }
 
 // A floating crystal shard marks a crystalized (elite) enemy. `phase` staggers

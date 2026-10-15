@@ -1,5 +1,4 @@
 (A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
-(A) 2026-10-13 Add roles +roguelike @combat @characters
 (B) 2026-10-14 Add a relic / passive-item system +roguelike @items
 (B) 2026-10-14 Add status effects (burn/freeze/poison/shock) +roguelike @combat @content
 (B) 2026-10-14 Add elemental ammo types +roguelike @guns @combat
@@ -7,7 +6,6 @@
 (B) 2026-10-14 Add a minimap +roguelike @ui @levels
 (B) 2026-10-14 Add controller support +roguelike @input @ui
 (C) 2026-10-14 Add throwable grenades +roguelike @combat @items
-(C) 2026-10-14 Add melee weapons +roguelike @combat @guns
 (C) 2026-10-14 Add deployable turrets +roguelike @combat @items
 (C) 2026-10-14 Add weapon attachments +roguelike @guns @items
 (C) 2026-10-14 Add risk/reward curses +roguelike @items @balance
@@ -20,7 +18,6 @@
 (C) 2026-10-14 Add damage numbers +roguelike @ui @combat
 (C) 2026-10-14 Add seeded runs +roguelike @systems
 (C) 2026-10-14 Add extra game modes +roguelike @systems
-(D) 2026-10-14 Add multiple arenas/themes +roguelike @levels @art
 (D) 2026-10-14 Add colorblind / accessibility options +roguelike @ui @accessibility
 (D) 2026-10-14 Add achievements +roguelike @meta
 (D) 2026-10-14 Add a local leaderboard +roguelike @meta @score

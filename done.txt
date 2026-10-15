@@ -17,3 +17,14 @@ x 2026-10-14 2026-10-13 Add a skills system +roguelike @skills
 x 2026-10-14 2026-10-13 Add sounds +roguelike @sounds
 x 2026-10-14 2026-10-14 Add elite enemy variants +roguelike @enemies @combat
 x 2026-10-14 2026-10-14 Balance runs: upgrade caps, enemy scaling, shop rework +roguelike @balance @shop @enemies
+x 2026-10-14 2026-10-14 Add more loadout utilities (damage, spread, dash CD, ammo) +roguelike @balance @combat
+x 2026-10-14 2026-10-14 Add multiple arenas/themes with an arena selector +roguelike @levels @art @main-menu
+x 2026-10-14 2026-10-14 Add a post-run results screen +roguelike @ui @score
+x 2026-10-14 2026-10-14 Add a debug command panel (spawn/set/gun) +roguelike @debug @ui
+x 2026-10-15 2026-10-13 Add playable characters (RR/Tracer/Bud/Navy) with traits and outlines +roguelike @combat @characters
+x 2026-10-15 2026-10-14 Add melee weapons to the primary/secondary pools + a universal kick +roguelike @combat @guns
+x 2026-10-15 2026-10-15 Add Bud's Unhappy passive: gun halves accuracy/attack/speed +roguelike @combat @characters
+x 2026-10-15 2026-10-15 Add character passives: Guard Up, Take Aim, Traceur's Heart, Adaptation +roguelike @combat @characters
+x 2026-10-15 2026-10-15 Give every melee a distinct swing flash that matches its hitbox +roguelike @combat @art
+x 2026-10-15 2026-10-15 Add Bud's Fists combo melee (jab/hook/elbow) +roguelike @combat @characters
+x 2026-10-15 2026-10-15 Add character/dash synergies (Tracer+Slide, Bud+Impact) +roguelike @combat @balance
