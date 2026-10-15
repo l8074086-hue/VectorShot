@@ -2,15 +2,25 @@ package main
 import "vendor:raylib"
 
 // Every upgrade that can be offered between waves. Effects are applied in
-// `main` by matching `name`, so keep the names in sync with that switch.
+// `apply_upgrade` by matching `name`, so keep the names in sync with that switch.
+// The description is what the card shows under its title.
 CARD_POOL :: [?]card_definition {
-	{"DASH", "UPGRADE"},
-	{"ATTACK", "UPGRADE"},
-	{"SPEED", "UPGRADE"},
-	{"HEALTH", "UPGRADE"},
-	{"PROJECTILE", "UPGRADE"},
-	{"PRECISION", "UPGRADE"},
-	{"PIERCE", "UPGRADE"},
+	{"DASH", "STRONGER DASH"},
+	{"ATTACK", "+1 DAMAGE"},
+	{"SPEED", "+50 MOVE SPEED"},
+	{"HEALTH", "+25 MAX HP"},
+	{"PROJECTILE", "+1 PROJECTILE"},
+	{"PRECISION", "-20% SPREAD"},
+	{"PIERCE", "+1 PIERCE"},
+	{"MELEE", "+1.5 MELEE DMG"},
+	{"SWING", "+15% SWING SPD"},
+	{"REACH", "+12% MELEE REACH"},
+	{"KNOCK", "+60 KNOCKBACK"},
+	{"LIFESTEAL", "+2 HP PER KILL"},
+	{"RELOAD", "-15% RELOAD"},
+	{"DASHCD", "-15% DASH CD"},
+	{"MAG", "+25% MAG SIZE"},
+	{"AMMO", "+25% RESERVE"},
 }
 
 // Possible shop offers. Each visit draws a few distinct entries from here, so
@@ -23,12 +33,22 @@ SHOP_POOL :: [?]shop_definition {
 	{"TOUGHEN UP", "+25 MAX HP", 25, .MAX_HP, "", .COMMON},
 	{"SHARPSHOOTER", "+1 DAMAGE", 25, .UPGRADE, "ATTACK", .COMMON},
 	{"LIGHT FEET", "+50 SPEED", 25, .UPGRADE, "SPEED", .COMMON},
+	// Melee line: lets a blades/fists build keep pace with gun builds.
+	{"HEAVY HANDS", "+1.5 MELEE DMG", 30, .UPGRADE, "MELEE", .COMMON},
+	{"LONG REACH", "+12% MELEE REACH", 30, .UPGRADE, "REACH", .COMMON},
+	{"BIG SHOVE", "+60 KNOCKBACK", 30, .UPGRADE, "KNOCK", .COMMON},
+	{"BANDOLIER", "+25% RESERVE AMMO", 30, .UPGRADE, "AMMO", .COMMON},
 	// RARE
 	{"TIGHT GROUPS", "-20% SPREAD", 35, .UPGRADE, "PRECISION", .RARE},
 	{"EXTENDED DASH", "STRONGER DASH", 35, .UPGRADE, "DASH", .RARE},
+	{"QUICK SWING", "+15% SWING SPEED", 35, .UPGRADE, "SWING", .RARE},
+	{"FAST HANDS", "-15% RELOAD TIME", 35, .UPGRADE, "RELOAD", .RARE},
+	{"SLIPPERY", "-15% DASH COOLDOWN", 35, .UPGRADE, "DASHCD", .RARE},
+	{"EXTENDED MAG", "+25% MAGAZINE", 35, .UPGRADE, "MAG", .RARE},
 	{"HOT LOAD", "+1 PIERCE", 40, .UPGRADE, "PIERCE", .RARE},
 	// EPIC
 	{"MYSTERY CRATE", "RANDOM UPGRADE", 50, .UPGRADE, "RANDOM", .EPIC},
+	{"VAMPIRISM", "+2 HP PER KILL", 45, .UPGRADE, "LIFESTEAL", .EPIC},
 	{"DOUBLE TAP", "+1 PROJECTILE", 60, .UPGRADE, "PROJECTILE", .EPIC},
 }
 

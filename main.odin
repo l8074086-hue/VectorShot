@@ -568,7 +568,7 @@ main :: proc() {
 						play(sounds.secondary[secondary_kind], ws.sound_pitch)
 					}
 					melee_swing(ws, aim_dir)
-					w.cooldown = ws.cooldown
+					w.cooldown = swing_cooldown(ws)
 				} else if w.mag > 0 && w.reload <= 0 {
 					center := position + size * 0.5 - ws.bullet_size * 0.5
 					shots := ws.projectiles + bonus_projectiles
@@ -654,7 +654,7 @@ main :: proc() {
 			}
 			if world_key_pressed(raylib.KeyboardKey.E) && melee_cooldown <= 0 {
 				swing := unarmed_stats()
-				melee_cooldown = swing.cooldown
+				melee_cooldown = swing_cooldown(swing)
 				play(sounds.kick, swing.sound_pitch)
 				melee_swing(swing, aim_dir)
 			}
@@ -1045,25 +1045,32 @@ main :: proc() {
 				c.hover = raylib.CheckCollisionRecs(mouse, card_rect)
 				color := c.hover ? raylib.VIOLET : raylib.DARKPURPLE
 				raylib.DrawRectangleV(c.position, c.size, color)
-				padding: i32 = 10
-				fs: i32 = 25
-				for fs > 6 && raylib.MeasureText(c.name, fs) > i32(c.size.x) - padding * 2 {
-					fs -= 1
+				x := i32(c.position.x)
+				y := i32(c.position.y)
+				w := i32(c.size.x)
+				// Title, auto-shrunk and centred to fit the card.
+				title_fs: i32 = 22
+				for title_fs > 6 && raylib.MeasureText(c.name, title_fs) > w - 16 {
+					title_fs -= 1
 				}
-				raylib.DrawText(
-					c.name,
-					i32(c.position.x) + padding,
-					i32(c.position.y) + padding,
-					fs,
-					raylib.BLACK,
-				)
+				title_w := raylib.MeasureText(c.name, title_fs)
+				raylib.DrawText(c.name, x + (w - title_w) / 2, y + 16, title_fs, raylib.BLACK)
+				// Effect line under it, also shrunk to fit.
+				desc_fs: i32 = 13
+				for desc_fs > 6 && raylib.MeasureText(c.description, desc_fs) > w - 12 {
+					desc_fs -= 1
+				}
+				desc_w := raylib.MeasureText(c.description, desc_fs)
 				raylib.DrawText(
 					c.description,
-					i32(c.position.x),
-					i32(c.position.y) + 30,
-					25,
+					x + (w - desc_w) / 2,
+					y + 78,
+					desc_fs,
 					raylib.BLACK,
 				)
+				if c.hover {
+					raylib.DrawRectangleLinesEx(card_rect, 2, raylib.WHITE)
+				}
 			}
 			raylib.DrawRectangleV(mousePos, {5, 5}, raylib.GREEN)
 			raylib.DrawRectangle(10, 10, 200, 20, raylib.RED)

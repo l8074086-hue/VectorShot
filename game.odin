@@ -22,15 +22,16 @@ TRACER_MIN_SPEED_MULT :: 0.55 // Tracer never drops below this fraction of SPEED
 TRACEUR_PER_ATTACK :: 0.12 // charge added per shot/swing (0..1)
 TRACEUR_DECAY :: 0.35 // charge lost per second while not attacking
 TRACEUR_MAX_BONUS :: 0.50 // speed bonus at full charge (+50% of her speed stat)
-// Synergy: Tracer <-> SLIDE. Sliding is her signature; it's faster, cheaper and
-// refreshes Traceur's Heart so a slide into a fight keeps her momentum.
+// Synergy: Tracer <-> SLIDE ("Power Slide"). Sliding is her signature; it's
+// faster, cheaper and refreshes Traceur's Heart so a slide into a fight keeps
+// her momentum.
 TRACER_SLIDE_SPEED_MULT :: 1.35
 TRACER_SLIDE_CD_MULT :: 0.75
 TRACER_SLIDE_TIME_MULT :: 1.30 // slides linger longer (more distance + damage)
 TRACER_PHASE_DURATION_MULT :: 1.70
 TRACER_PHASE_CD_MULT :: 0.80
-// Synergy: Bud <-> IMPACT. His impact dash hits far harder and knocks enemies
-// flying, turning a dash into his main engage tool.
+// Synergy: Bud <-> IMPACT ("Meteor"). His impact dash hits far harder and knocks
+// enemies flying, turning a dash into his main engage tool.
 BUD_IMPACT_DAMAGE_MULT :: 2.40
 BUD_IMPACT_KNOCK :: 1100 // px/s shove applied to enemies a Bud impact hits
 // Bud's "Guard Up" passive: he takes less damage from whatever he faces. Face
@@ -71,6 +72,17 @@ MAX_SPEED :: 450
 MAX_BONUS_DAMAGE :: 6
 MAX_BONUS_PROJECTILES :: 4
 MAX_BONUS_PIERCE :: 3
+// Melee / handling ups. Melee has its own damage, swing speed, reach and knock
+// so a fists-and-blades build can scale without touching guns.
+MAX_BONUS_MELEE_DAMAGE :: 8
+MIN_MELEE_CD_MULT :: 0.40 // swing speed cap (lower = faster)
+MAX_MELEE_RANGE_MULT :: 2.0
+MAX_BONUS_MELEE_KNOCK :: 400
+MIN_RELOAD_MULT :: 0.35 // reload time cap as a fraction of base
+MIN_DASH_CD_MULT :: 0.40
+MAX_MAG_MULT :: 3.0
+MAX_AMMO_MULT :: 4.0
+MAX_LIFESTEAL :: 12
 
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
@@ -157,6 +169,15 @@ bonus_projectiles: i32 = 0
 bonus_pierce: i32 = 0
 spread_cut: f32 = 0
 
+// Melee / handling upgrades, fed by their own cards and shop offers.
+bonus_melee_damage: f32 = 0 // extra damage on every melee swing
+melee_speed_mult: f32 = 1 // multiplies swing cooldowns (lower = faster)
+melee_range_mult: f32 = 1 // multiplies melee reach
+bonus_melee_knock: f32 = 0 // extra shove on melee hits
+lifesteal: f32 = 0 // HP healed per enemy killed
+mag_mult: f32 = 1 // magazine-size scale (applied live to both slots)
+ammo_growth_mult: f32 = 1 // reserve-ammo scale (applied live to both slots)
+
 // Melee. Swing stats come from the active weapon, the KICK, or Bud's FISTS;
 // `melee_cooldown` is the universal swing timer. The flash fields remember the
 // last swing (direction + shape + size + colour) so the drawn flash uses the
@@ -179,11 +200,13 @@ DASH_SPEED: f32 = 800
 DASH_DURATION: f32 = 0.15
 dash_cooldown: f32 = 0
 dash_cooldown_max: f32 = 0.5
+dash_cooldown_base: f32 = 0.5 // post-synergy cooldown, floor for DASHCD cards
 dash_blink: bool = false
 dash_distance: f32 = 0
 dash_damages: bool = false
 dash_damage: f32 = BASE_DASH_DAMAGE
 reload_time: f32 = RELOAD_TIME // Navy reloads faster; set from Run_Stats
+reload_time_base: f32 = RELOAD_TIME // RELOAD card floors against this
 
 // Chosen main character. Drives the body silhouette, melee scaling, and traits.
 character: Character = .RR
@@ -240,6 +263,13 @@ start_run :: proc(stats: Run_Stats) {
 	bonus_projectiles = 0
 	bonus_pierce = 0
 	spread_cut = stats.spread_cut
+	bonus_melee_damage = 0
+	melee_speed_mult = 1
+	melee_range_mult = 1
+	bonus_melee_knock = 0
+	lifesteal = 0
+	mag_mult = 1
+	ammo_growth_mult = 1
 	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
@@ -257,11 +287,13 @@ start_run :: proc(stats: Run_Stats) {
 	DASH_DURATION = stats.dash_duration
 	dash_cooldown = 0
 	dash_cooldown_max = stats.dash_cooldown
+	dash_cooldown_base = stats.dash_cooldown
 	dash_blink = stats.dash_blink
 	dash_distance = stats.dash_distance
 	dash_damages = stats.dash_damages
 	dash_damage = stats.dash_damage
 	reload_time = stats.reload_time
+	reload_time_base = stats.reload_time
 	dash_timer = 0
 	inv_timer = 0
 	max_health = stats.max_health
@@ -418,17 +450,22 @@ unarmed_stats :: proc() -> Weapon_Stats {
 	return stats
 }
 
+// Cooldown for a melee swing, after the SWING-speed card's multiplier.
+swing_cooldown :: proc(stats: Weapon_Stats) -> f32 {
+	return stats.cooldown * melee_speed_mult
+}
+
 // Swing a melee weapon (the universal KICK, one of Bud's FISTS, or a weapon in a
 // slot) toward `dir`: damage and shove every enemy its hitbox covers. Records the
 // exact geometry so the flash can draw what was hit, and feeds Traceur's Heart.
 melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2) {
 	cs := CHARACTERS[character]
-	dmg := stats.damage * cs.melee_damage_mult + bonus_damage
+	dmg := (stats.damage + bonus_melee_damage) * cs.melee_damage_mult + bonus_damage
 	if character == .RR && rr_adaptation == .OFFENSE {
 		dmg *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
 	}
-	reach := stats.reach * cs.melee_range_mult
-	knock := stats.knockback * cs.melee_knock_mult
+	reach := stats.reach * cs.melee_range_mult * melee_range_mult
+	knock := (stats.knockback + bonus_melee_knock) * cs.melee_knock_mult
 	melee_flash_range = reach
 	melee_flash_arc = stats.arc
 	melee_flash_dir = dir
@@ -535,6 +572,27 @@ instant_reload :: proc(w: ^weapon) {
 	w.mag += refill
 	w.ammo -= refill
 	w.reload = 0
+}
+
+// EXTENDED MAG: grow a slot's magazine (melee slots have no mag, so no-op) and
+// hand the player the extra rounds immediately.
+grow_magazine :: proc(w: ^weapon, factor: f32) {
+	if w.mag_cap <= 0 {
+		return
+	}
+	grown := i32(f32(w.mag_cap) * factor)
+	w.mag += grown - w.mag_cap
+	w.mag_cap = grown
+}
+
+// BANDOLIER: grow a slot's reserve ammo the same way.
+grow_ammo :: proc(w: ^weapon, factor: f32) {
+	if w.ammo_cap <= 0 {
+		return
+	}
+	grown := i32(f32(w.ammo_cap) * factor)
+	w.ammo += grown - w.ammo_cap
+	w.ammo_cap = grown
 }
 
 // Advance one weapon's fire cooldown + reload. Ticked for *both* slots so
@@ -1297,6 +1355,10 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // Elites leave a guaranteed pile of coins on top of the usual rolls.
 spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
 	count_kill(elite)
+	// Vampirism: every kill heals a little, capped by max health.
+	if lifesteal > 0 {
+		health = min(health + lifesteal, max_health)
+	}
 	play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
 	if elite {
 		append(
@@ -1341,6 +1403,31 @@ apply_upgrade :: proc(name: cstring) {
 		spread_cut += 0.2
 	} else if name == "PIERCE" {
 		bonus_pierce = min(bonus_pierce + 1, MAX_BONUS_PIERCE)
+	} else if name == "MELEE" {
+		bonus_melee_damage = min(bonus_melee_damage + 1.5, f32(MAX_BONUS_MELEE_DAMAGE))
+	} else if name == "SWING" {
+		melee_speed_mult = max(melee_speed_mult * 0.85, MIN_MELEE_CD_MULT)
+	} else if name == "REACH" {
+		melee_range_mult = min(melee_range_mult + 0.12, MAX_MELEE_RANGE_MULT)
+	} else if name == "KNOCK" {
+		bonus_melee_knock = min(bonus_melee_knock + 60, f32(MAX_BONUS_MELEE_KNOCK))
+	} else if name == "LIFESTEAL" {
+		lifesteal = min(lifesteal + 2, f32(MAX_LIFESTEAL))
+	} else if name == "RELOAD" {
+		reload_time = max(reload_time * 0.85, reload_time_base * MIN_RELOAD_MULT)
+	} else if name == "DASHCD" {
+		dash_cooldown_max = max(
+			dash_cooldown_max * 0.85,
+			dash_cooldown_base * MIN_DASH_CD_MULT,
+		)
+	} else if name == "MAG" {
+		mag_mult = min(mag_mult * 1.25, MAX_MAG_MULT)
+		grow_magazine(&primary, 1.25)
+		grow_magazine(&secondary, 1.25)
+	} else if name == "AMMO" {
+		ammo_growth_mult = min(ammo_growth_mult * 1.25, MAX_AMMO_MULT)
+		grow_ammo(&primary, 1.25)
+		grow_ammo(&secondary, 1.25)
 	}
 }
 
@@ -1358,6 +1445,24 @@ upgrade_is_useful :: proc(name: cstring) -> bool {
 		return bonus_pierce < MAX_BONUS_PIERCE
 	case "PRECISION":
 		return precision_is_useful()
+	case "MELEE":
+		return bonus_melee_damage < f32(MAX_BONUS_MELEE_DAMAGE)
+	case "SWING":
+		return melee_speed_mult > MIN_MELEE_CD_MULT
+	case "REACH":
+		return melee_range_mult < MAX_MELEE_RANGE_MULT
+	case "KNOCK":
+		return bonus_melee_knock < f32(MAX_BONUS_MELEE_KNOCK)
+	case "LIFESTEAL":
+		return lifesteal < f32(MAX_LIFESTEAL)
+	case "RELOAD":
+		return reload_time > reload_time_base * MIN_RELOAD_MULT
+	case "DASHCD":
+		return dash_cooldown_max > dash_cooldown_base * MIN_DASH_CD_MULT
+	case "MAG":
+		return mag_mult < MAX_MAG_MULT
+	case "AMMO":
+		return ammo_growth_mult < MAX_AMMO_MULT
 	}
 	return true // HEALTH, DASH, etc. always have room
 }
