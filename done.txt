@@ -51,3 +51,4 @@ x 2026-10-16 2026-10-16 Add floating damage numbers +roguelike @ui @combat
 x 2026-10-16 2026-10-16 Add screen shake with an intensity slider +roguelike @polish @accessibility
 x 2026-10-16 2026-10-16 Add blood spray on enemy hits +roguelike @polish @combat
 x 2026-10-16 2026-10-16 Add a master volume / mute option +roguelike @sounds @ui
+x 2026-10-17 2026-10-17 Rewrite tutorial texts to match real mechanics + make steps actionable missions +roguelike @ui @content

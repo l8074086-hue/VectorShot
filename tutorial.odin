@@ -64,7 +64,7 @@ BASIC_STEPS := [?]Tutorial_Step {
 	{"Press R to manually reload. It also auto-reloads when the magazine runs dry", .RELOAD, 0},
 	{"Press SHIFT to dash. You are invulnerable during it, but it has a cooldown", .DASH, 0},
 	{"Press E or RMB to kick - free, no ammo, and knocks enemies back", .KICK, 0},
-	{"Enemies drop ammo and health when killed. Walk over a pickup to collect it", .PICKUP, 0},
+	{"Kills drop coins - finish a dummy and walk over the loot to collect it", .PICKUP, 0},
 	{"Basics complete. Clear the room and head into a real run!", .NONE, 3.5},
 }
 
@@ -77,7 +77,7 @@ MEDIUM_STEPS := [?]Tutorial_Step {
 	{"BURN and POISON deal damage over time. FREEZE slows enemies. SHOCK stuns them", .NONE, 5.0},
 	{"The FORTUNE utility gives you more card choices. Other utilities stack with your build", .NONE, 5.0},
 	{"Every 5th wave opens a SHOP. Spend coins on ammo, health, upgrades and rerolls", .NONE, 5.0},
-	{"Coins drop from kills. ELITE enemies (bigger, corrupted variants) drop far more", .NONE, 5.0},
+	{"The SHOCKED dummy is stunned - kill it and walk over its coins to collect", .PICKUP, 0},
 	{"E/RMB = kick, SHIFT = dash. Clear waves, upgrade, survive. Good luck!", .NONE, 4.0},
 }
 
@@ -184,6 +184,21 @@ tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
 		secondary = .PISTOL
 		dash = .BURST
 		util = .VITALITY
+	} else {
+		// The advanced scripts teach each character's signature dash synergy,
+		// so pin it -- the text would be a lie on any other dash. Navy's muzzle
+		// volley also needs a real firearm in the primary slot.
+		switch c {
+		case .RR:
+			dash = .BURST
+		case .TRACER:
+			dash = .SLIDE
+		case .BUD:
+			dash = .IMPACT
+		case .NAVY:
+			dash = .BLINK
+			primary = .RIFLE
+		}
 	}
 	stats := start_loadout(c, primary, secondary, dash, util)
 	start_run(stats)
@@ -211,6 +226,12 @@ spawn_tutorial_dummies :: proc() {
 			e.hp = 60
 			e.max_hp = 60
 			e.speed = 0
+			// One dummy wears a permanent SHOCK so the lessons can show a live
+			// status effect (and it stays put, stunned, while you farm it).
+			if i == 1 {
+				e.effects = {.Shock}
+				e.effect_timer[.Shock] = 9999
+			}
 		}
 	}
 }

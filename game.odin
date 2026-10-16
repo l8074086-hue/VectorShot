@@ -2133,8 +2133,14 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // Standard rewards for killing something. Call right before removing an enemy.
 // Elites leave a guaranteed pile of coins on top of the usual rolls.
 spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
-	// Practice dummies yield nothing (and must not skew run stats).
+	// Practice dummies must not skew run stats, but they still drop a small
+	// coin pile so the loot lesson is something you actually kill and collect.
 	if tutorial_mode {
+		play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
+		append(
+			&drops,
+			drop{position = pos, size = {10, 10}, kind = .CURRENCY, amount = f32(rand.int_range(2, 5)), life = 8.0},
+		)
 		return
 	}
 	count_kill(elite)
