@@ -10,8 +10,9 @@ import "vendor:raylib"
 
 SAMPLE_RATE :: 44100
 
-// Master gain applied to every sound at play time. One knob for the whole mix.
-MASTER_VOLUME :: 0.5
+// Default master gain now lives in settings.odin (settings.master_volume); the
+// mixer reads it through effective_volume() at play time so the volume slider
+// and mute take effect immediately.
 
 Synth_Wave :: enum {
 	SINE,
@@ -184,7 +185,7 @@ play :: proc(s: raylib.Sound, pitch := f32(1)) {
 	if !audio_ready {
 		return
 	}
-	raylib.SetSoundVolume(s, MASTER_VOLUME)
+	raylib.SetSoundVolume(s, effective_volume())
 	raylib.SetSoundPitch(s, pitch)
 	raylib.PlaySound(s)
 }

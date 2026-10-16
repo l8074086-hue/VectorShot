@@ -3,10 +3,22 @@ import "vendor:raylib"
 
 GameState :: enum {
 	MAIN_MENU,
+	DIFFICULTY,
+	TUTORIAL_SELECT,
+	TUTORIAL,
+	SETTINGS,
 	SKILL_SELECT,
 	PLAYING,
 	SHOP,
 	GAME_OVER,
+}
+
+// Official difficulty. EASY turns on the same assists GF mode (Ctrl+G) toggles
+// mid-run; HARD keeps the baseline rules but hits harder and moves faster.
+Difficulty :: enum {
+	EASY,
+	NORMAL,
+	HARD,
 }
 
 SkillSlotState :: enum {
@@ -20,6 +32,18 @@ SkillSlotState :: enum {
 }
 
 BULLET_MAX_HITS :: 8
+
+// Status effects carried by enemies and projectiles. A set (rather than a
+// list of names) so membership tests are cheap, copies are value-semantics,
+// and there's no allocation to manage.
+Status_Effect :: enum {
+	Burn,
+	Freeze,
+	Poison,
+	Shock,
+}
+
+Status_Set :: bit_set[Status_Effect]
 
 bullet :: struct {
 	position:  raylib.Vector2,
@@ -35,6 +59,11 @@ bullet :: struct {
 	returning: bool,
 	traveled:  f32,
 	max_range: f32,
+	// Effects this shot applies to whatever it hits.
+	effects:   Status_Set,
+	// RR's Second Wind blade wind: a thrown crescent, drawn as an arc instead
+	// of a box.
+	wind:      bool,
 }
 
 card :: struct {
@@ -84,6 +113,19 @@ enemy :: struct {
 	// remains the armored body shrugs off hp damage.
 	plate_dir:     [ELITE_TANK_PLATES]raylib.Vector2,
 	plate_live:    [ELITE_TANK_PLATES]bool,
+	// Active status effects on this enemy, plus how many seconds each has left.
+	// The set is the source of truth for "is it active"; the timer array is
+	// indexed by effect and only meaningful while the matching bit is set.
+	effects:       Status_Set,
+	effect_timer:  [Status_Effect]f32,
+	// Tracer's Phase Claws: PHASE marks stack from her light hits and her REND
+	// finisher consumes them for a burst. `phase_time` counts down to a decay if
+	// the enemy is left alone, so the marks have to be spent, not banked.
+	phase_marks:   i32,
+	phase_time:    f32,
+	// Practice dummy (tutorial arenas): holds still, never attacks, and drops
+	// nothing when destroyed.
+	training:      bool,
 }
 
 Enemy_Kind :: enum {
@@ -96,7 +138,7 @@ Enemy_Kind :: enum {
 
 // What a hit on an enemy actually did, so callers can pick the right feedback.
 Enemy_Hit :: enum {
-	DAMAGE,  // hp was reduced
+	DAMAGE, // hp was reduced
 	BLOCKED, // a Bulwark's armored body absorbed it (plates still intact)
 	SHATTER, // a Bulwark crystal plate broke off
 }
@@ -121,6 +163,8 @@ Enemy_Stats :: struct {
 	preferred_range: f32, // RANGED tries to hover at this distance
 	fire_rate:       f32, // seconds between RANGED shots
 	charge_speed:    f32, // CHARGER dash speed
+	// Status effects this enemy's hits inflict (and, for now, none are set).
+	effects:         Status_Set,
 }
 
 Drop_Kind :: enum {
@@ -152,8 +196,32 @@ tree :: struct {
 
 // Purely visual blast marker shown after a barrel pops.
 explosion :: struct {
-	pos:  raylib.Vector2,
-	life: f32,
+	pos:      raylib.Vector2,
+	life:     f32,
+	max_life: f32,
+	radius:   f32,
+	color:    raylib.Color,
+}
+
+// Floating damage number (enemy hp lost), drifting up and fading out. Purely
+// informational, gated by the damage-numbers setting.
+damage_number :: struct {
+	pos:   raylib.Vector2,
+	vel:   raylib.Vector2,
+	life:  f32,
+	value: f32,
+	color: raylib.Color,
+}
+
+// A blood droplet/burst: flies out from an enemy hit, settles and fades. Used
+// as both spray and floor splatter, gated by the blood setting.
+blood_drop :: struct {
+	pos:      raylib.Vector2,
+	vel:      raylib.Vector2,
+	life:     f32,
+	max_life: f32,
+	size:     f32,
+	color:    raylib.Color,
 }
 
 // Primary-slot weapons. The list mixes guns and melee blades; Weapon_Stats.class
@@ -225,6 +293,35 @@ Weapon_Class :: enum {
 	MELEE,
 }
 
+// How a *held* gun is drawn in the player's hands. `AUTO` falls back to a plain
+// pistol. Melee weapons ignore this and draw from their swing shape instead, so
+// a knife, baton, hammer and spear each already read differently.
+Weapon_Look :: enum {
+	AUTO,
+	// Guns.
+	PISTOL,
+	REVOLVER,
+	DUAL,
+	SMG,
+	RIFLE,
+	SHOTGUN,
+	MINIGUN,
+	CANNON,
+	SNIPER,
+	// Melee. Each names a hand-built silhouette (see draw_melee_model), so a
+	// knife, spear, baton and hammer all read differently instead of sharing a
+	// generic per-shape stick.
+	DAGGER,
+	SPEAR,
+	BATON,
+	HAMMER,
+	BLADE, // RR's Vector Edge
+	CLAWS, // Tracer's Phase Claws
+	BAYONET, // Navy's Bayonet
+	FISTS, // Bud's Fists
+	BOOT, // the universal kick
+}
+
 // The hitbox *and* the drawn flash of a melee swing. The two always share the
 // same geometry, so what you see is exactly what you hit.
 //   SECTOR - a wedge: `reach` long, `arc` is the half-angle in radians.
@@ -272,6 +369,21 @@ Weapon_Stats :: struct {
 	knockback:         f32, // instant shove applied to anything hit
 	sound_pitch:       f32, // pitch applied when playing the swing sound
 	flash_color:       raylib.Color, // colour of the drawn swing flash
+	// Held silhouette. Guns pick a firearm frame; melee picks a hand-built model
+	// (knife, spear, hammer, ...). AUTO falls back to the generic shape drawing.
+	look:              Weapon_Look,
+	// Signature-strike extras. Both are zero/false for ordinary weapons.
+	lunge:             f32, // forward self-shove applied on the swing (px)
+	charged:           bool, // damage scales with the combo charge (Bud's knee)
+	// Tracer's Phase Claws. A light strike applies this many PHASE marks to each
+	// enemy it hits; a strike with `phase_detonate` instead consumes the marks
+	// on what it hits for bonus damage and splashes a mark onto neighbours.
+	phase_apply:       i32,
+	phase_detonate:    bool,
+	// Navy's Muzzle Thrust. A strike with this fires a point-blank slug out of
+	// the primary gun (slot 0), spending one round; with no loaded firearm in
+	// slot 0 it degrades to a plain strike.
+	muzzle_volley:     bool,
 }
 
 // Body silhouette used to draw each main character (and their select-screen

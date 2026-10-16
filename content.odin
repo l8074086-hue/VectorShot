@@ -21,6 +21,17 @@ CARD_POOL :: [?]card_definition {
 	{"DASHCD", "-15% DASH CD"},
 	{"MAG", "+25% MAG SIZE"},
 	{"AMMO", "+25% RESERVE"},
+	// Status line: infuse attacks with an element, then deepen it. The boost
+	// cards only appear once you actually carry the matching element.
+	{"IGNITE", "ON HIT: BURN"},
+	{"CRYO", "ON HIT: FREEZE"},
+	{"VENOM", "ON HIT: POISON"},
+	{"STATIC", "ON HIT: SHOCK"},
+	{"KINDLING", "+BURN POWER"},
+	{"DEEP FREEZE", "+FREEZE POWER"},
+	{"VIRULENCE", "+POISON POWER"},
+	{"CONDUIT", "+SHOCK POWER"},
+	{"ELEMENTALIST", "+25% STATUS TIME"},
 }
 
 // Possible shop offers. Each visit draws a few distinct entries from here, so
@@ -50,15 +61,64 @@ SHOP_POOL :: [?]shop_definition {
 	{"MYSTERY CRATE", "RANDOM UPGRADE", 50, .UPGRADE, "RANDOM", .EPIC},
 	{"VAMPIRISM", "+2 HP PER KILL", 45, .UPGRADE, "LIFESTEAL", .EPIC},
 	{"DOUBLE TAP", "+1 PROJECTILE", 60, .UPGRADE, "PROJECTILE", .EPIC},
+	// Status line: infusions first, then the boosters (which only stock once
+	// you carry the matching element, via upgrade_is_useful).
+	{"FLAMING ROUNDS", "ATTACKS BURN", 40, .UPGRADE, "IGNITE", .RARE},
+	{"CRYO ROUNDS", "ATTACKS FREEZE", 40, .UPGRADE, "CRYO", .RARE},
+	{"VENOM ROUNDS", "ATTACKS POISON", 40, .UPGRADE, "VENOM", .RARE},
+	{"STATIC ROUNDS", "ATTACKS SHOCK", 40, .UPGRADE, "STATIC", .RARE},
+	{"KINDLING", "+BURN POWER", 35, .UPGRADE, "KINDLING", .COMMON},
+	{"DEEP FREEZE", "+FREEZE POWER", 35, .UPGRADE, "DEEP FREEZE", .COMMON},
+	{"VIRULENCE", "+POISON POWER", 35, .UPGRADE, "VIRULENCE", .COMMON},
+	{"CONDUIT", "+SHOCK POWER", 35, .UPGRADE, "CONDUIT", .COMMON},
+	{"ELEMENTALIST", "+25% STATUS TIME", 45, .UPGRADE, "ELEMENTALIST", .EPIC},
 }
 
 ENEMIES := [Enemy_Kind]Enemy_Stats {
-	// NAME, SIZE, SPEED, DAMAGE, HP, COLOR, RANGED, PREFERRED_RANGE, FIRE_RATE, CHARGE_SPEED
-	.GRUNT   = {"GRUNT", {50, 50}, 80, 10, 2, raylib.BLUE, false, 0, 0, 0},
-	.RUNNER  = {"RUNNER", {30, 30}, 150, 6, 1, raylib.ORANGE, false, 0, 0, 0},
-	.TANK    = {"TANK", {80, 80}, 45, 20, 8, raylib.DARKGREEN, false, 0, 0, 0},
-	.RANGED  = {"SHOOTER", {36, 36}, 75, 8, 3, raylib.VIOLET, true, 280, 1.4, 0},
-	.CHARGER = {"CHARGER", {46, 46}, 95, 14, 4, raylib.MAROON, false, 0, 0, 560},
+	.GRUNT = {
+		name = "GRUNT",
+		size = {50, 50},
+		speed = 80,
+		damage = 10,
+		hp = 2,
+		color = raylib.BLUE,
+	},
+	.RUNNER = {
+		name = "RUNNER",
+		size = {30, 30},
+		speed = 150,
+		damage = 6,
+		hp = 1,
+		color = raylib.ORANGE,
+	},
+	.TANK = {
+		name = "TANK",
+		size = {80, 80},
+		speed = 45,
+		damage = 20,
+		hp = 8,
+		color = raylib.DARKGREEN,
+	},
+	.RANGED = {
+		name = "SHOOTER",
+		size = {36, 36},
+		speed = 75,
+		damage = 8,
+		hp = 3,
+		color = raylib.VIOLET,
+		ranged = true,
+		preferred_range = 280,
+		fire_rate = 1.4,
+	},
+	.CHARGER = {
+		name = "CHARGER",
+		size = {46, 46},
+		speed = 95,
+		damage = 14,
+		hp = 4,
+		color = raylib.MAROON,
+		charge_speed = 560,
+	},
 }
 
 // Primary-slot weapons: guns and melee blades in one pool. Guns fill the
@@ -68,6 +128,7 @@ GUNS := [Gun]Weapon_Stats {
 	.SNIPER = {
 		class = .GUN,
 		name = "SNIPER",
+		look = .SNIPER,
 		desc = "SLOW, HEAVY, PIERCES",
 		damage = 2.0,
 		cooldown = 1.00,
@@ -84,6 +145,7 @@ GUNS := [Gun]Weapon_Stats {
 	.SHOTGUN = {
 		class = .GUN,
 		name = "SHOTGUN",
+		look = .SHOTGUN,
 		desc = "5-PELLET SPREAD",
 		damage = 1.0,
 		cooldown = 0.60,
@@ -100,6 +162,7 @@ GUNS := [Gun]Weapon_Stats {
 	.SMG = {
 		class = .GUN,
 		name = "SMG",
+		look = .SMG,
 		desc = "FAST FIRE, LOW DMG",
 		damage = 0.6,
 		cooldown = 0.07,
@@ -116,6 +179,7 @@ GUNS := [Gun]Weapon_Stats {
 	.RIFLE = {
 		class = .GUN,
 		name = "RIFLE",
+		look = .RIFLE,
 		desc = "BALANCED ALL-ROUNDER",
 		damage = 1.0,
 		cooldown = 0.15,
@@ -132,6 +196,7 @@ GUNS := [Gun]Weapon_Stats {
 	.MINIGUN = {
 		class = .GUN,
 		name = "MINIGUN",
+		look = .MINIGUN,
 		desc = "VERY FAST, WIDE SPREAD",
 		damage = 0.4,
 		cooldown = 0.05,
@@ -148,6 +213,7 @@ GUNS := [Gun]Weapon_Stats {
 	.CANNON = {
 		class = .GUN,
 		name = "CANNON",
+		look = .CANNON,
 		desc = "SLOW, HUGE DMG, PIERCES",
 		damage = 4.0,
 		cooldown = 0.90,
@@ -165,6 +231,7 @@ GUNS := [Gun]Weapon_Stats {
 	.KNIFE = {
 		class = .MELEE,
 		name = "KNIFE",
+		look = .DAGGER,
 		desc = "FAST, SHORT, NARROW THRUST",
 		damage = 1.4,
 		cooldown = 0.22,
@@ -179,6 +246,7 @@ GUNS := [Gun]Weapon_Stats {
 	.BATON = {
 		class = .MELEE,
 		name = "BATON",
+		look = .BATON,
 		desc = "BIG SHOVE, STURDY WING",
 		damage = 2.5,
 		cooldown = 0.45,
@@ -193,6 +261,7 @@ GUNS := [Gun]Weapon_Stats {
 	.HAMMER = {
 		class = .MELEE,
 		name = "HAMMER",
+		look = .HAMMER,
 		desc = "SLOW, HUGE SMASH",
 		damage = 6.0,
 		cooldown = 0.90,
@@ -207,6 +276,7 @@ GUNS := [Gun]Weapon_Stats {
 	.SPEAR = {
 		class = .MELEE,
 		name = "SPEAR",
+		look = .SPEAR,
 		desc = "LONG, TIGHT THRUST",
 		damage = 3.0,
 		cooldown = 0.55,
@@ -225,6 +295,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.PISTOL = {
 		class = .GUN,
 		name = "PISTOL",
+		look = .PISTOL,
 		desc = "STEADY SIDEARM",
 		damage = 0.9,
 		cooldown = 0.22,
@@ -241,6 +312,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.REVOLVER = {
 		class = .GUN,
 		name = "REVOLVER",
+		look = .REVOLVER,
 		desc = "HARD-HITTING, SLOW",
 		damage = 2.2,
 		cooldown = 0.55,
@@ -257,6 +329,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.DUAL = {
 		class = .GUN,
 		name = "DUAL",
+		look = .DUAL,
 		desc = "TWIN SHOTS",
 		damage = 0.7,
 		cooldown = 0.28,
@@ -273,6 +346,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.SAWED = {
 		class = .GUN,
 		name = "SAWED",
+		look = .SHOTGUN,
 		desc = "4-PELLET BLAST",
 		damage = 0.8,
 		cooldown = 0.70,
@@ -289,6 +363,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.KNIFE = {
 		class = .MELEE,
 		name = "KNIFE",
+		look = .DAGGER,
 		desc = "FAST, SHORT, NARROW THRUST",
 		damage = 1.4,
 		cooldown = 0.22,
@@ -303,6 +378,7 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	.BATON = {
 		class = .MELEE,
 		name = "BATON",
+		look = .BATON,
 		desc = "BIG SHOVE, STURDY WING",
 		damage = 2.5,
 		cooldown = 0.45,
@@ -316,74 +392,419 @@ SECONDARIES := [Secondary]Weapon_Stats {
 	},
 }
 
-// Every character can always kick, whatever they have equipped. This is the
-// unarmed swing bound to the E key; character melee multipliers scale it.
+// The universal kick, bound to E for every character: a plain unarmed strike
+// that is always available alongside whatever the active slot does. It shares
+// the melee cooldown with the signature chain, so swings never overlap.
 KICK: Weapon_Stats = {
-	class = .MELEE,
-	name = "KICK",
-	damage = 2.0,
-	cooldown = 0.40,
-	shape = .SECTOR,
-	reach = 92,
-	arc = 0.70,
-	knockback = 100,
+	class       = .MELEE,
+	name        = "KICK",
+	look        = .BOOT,
+	damage      = 2.0,
+	cooldown    = 0.40,
+	shape       = .SECTOR,
+	reach       = 92,
+	arc         = 0.70,
+	knockback   = 100,
 	sound_pitch = 1.00,
 	flash_color = {255, 255, 255, 255},
 }
 
-// Bud's signature unarmed attack: a three-hit combo that replaces the kick. Each
-// press lands the next strike and the chain advances (jab -> hook -> elbow),
-// resetting if he waits too long. Same authoring as any melee weapon.
-FISTS := [3]Weapon_Stats {
-	// RIGHT JAB: quick, short, straight.
-	{
-		class = .MELEE,
-		name = "JAB",
-		desc = "QUICK STRAIGHT",
-		damage = 1.2,
-		cooldown = 0.16,
-		shape = .THRUST,
-		reach = 66,
-		arc = 7,
-		knockback = 30,
-		sound_pitch = 1.35,
-		flash_color = {255, 235, 210, 255},
+// Signature weapons. Every character has their own melee weapon on the third
+// Q slot (SPACE throws it), authored as a short combo the same way Bud's Fists
+// were. Each press lands the
+// next strike and advances the chain (wrapping at the end); waiting too long
+// resets to the first. A strike with `charged` scales with the charge built up
+// while it is armed (see KNEE_CHARGE_* in game.odin).
+SIGNATURE_LEN :: 4
+
+// `#partial`: RR is deliberately absent here -- his Vector Edge reshapes to his
+// Adaptation and lives in RR_EDGE below, resolved at runtime by signature_at in
+// game.odin. signature_at never reads SIGNATURES[.RR], so that key stays zero.
+SIGNATURES := #partial [Character][SIGNATURE_LEN]Weapon_Stats {
+	// Tracer: phase claws. The two lights deal no damage at all -- they exist
+	// purely to stack PHASE marks, and REND carries the whole combo's damage
+	// plus the heal on a marked kill. That keeps the killing blow (and the
+	// lifesteal) on REND instead of a light stealing it, and concentrates the
+	// burst where the player can see it. REND also splashes marks through a
+	// crowd. It spins up Traceur's Heart almost immediately.
+	.TRACER = {
+		{
+			class = .MELEE,
+			name = "CLAW",
+			desc = "APPLIES MARK",
+			damage = 0.0,
+			cooldown = 0.12,
+			shape = .THRUST,
+			reach = 80,
+			arc = 6,
+			knockback = 25,
+			sound_pitch = 1.45,
+			flash_color = {200, 255, 200, 255},
+			phase_apply = 2,
+		},
+		{
+			class = .MELEE,
+			name = "CROSS",
+			desc = "APPLIES MARK",
+			damage = 0.0,
+			cooldown = 0.12,
+			shape = .THRUST,
+			reach = 80,
+			arc = 6,
+			knockback = 25,
+			sound_pitch = 1.50,
+			flash_color = {200, 255, 200, 255},
+			phase_apply = 2,
+		},
+		{
+			class = .MELEE,
+			name = "REND",
+			desc = "MARK DETONATOR",
+			damage = 1.0,
+			cooldown = 0.20,
+			shape = .SECTOR,
+			reach = 96,
+			arc = 0.80,
+			knockback = 70,
+			sound_pitch = 1.20,
+			flash_color = {170, 255, 170, 255},
+			phase_detonate = true,
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 3)
 	},
-	// LEFT HOOK: wider, heavier, curves in.
-	{
-		class = .MELEE,
-		name = "HOOK",
-		desc = "WIDE SWING",
-		damage = 2.2,
-		cooldown = 0.22,
-		shape = .SECTOR,
-		reach = 84,
-		arc = 0.95,
-		knockback = 90,
-		sound_pitch = 1.05,
-		flash_color = {255, 205, 150, 255},
+	// Bud, the fist fighter: jab, hook, elbow, then the lunging FLYING KNEE.
+	.BUD = {
+		{
+			class = .MELEE,
+			name = "JAB",
+			desc = "QUICK STRAIGHT",
+			damage = 1.2,
+			cooldown = 0.16,
+			shape = .THRUST,
+			reach = 66,
+			arc = 7,
+			knockback = 30,
+			sound_pitch = 1.35,
+			flash_color = {255, 235, 210, 255},
+		},
+		{
+			class = .MELEE,
+			name = "HOOK",
+			desc = "WIDE SWING",
+			damage = 2.2,
+			cooldown = 0.22,
+			shape = .SECTOR,
+			reach = 84,
+			arc = 0.95,
+			knockback = 90,
+			sound_pitch = 1.05,
+			flash_color = {255, 205, 150, 255},
+		},
+		{
+			class = .MELEE,
+			name = "ELBOW",
+			desc = "FINISHING SMASH",
+			damage = 4.2,
+			cooldown = 0.34,
+			shape = .BLAST,
+			reach = 60,
+			arc = 42,
+			knockback = 240,
+			sound_pitch = 0.75,
+			flash_color = {255, 120, 90, 255},
+		},
+		{
+			class = .MELEE,
+			name = "KNEE",
+			desc = "CHARGED FINISHER",
+			damage = 5.5,
+			cooldown = 0.55,
+			shape = .THRUST,
+			reach = 92,
+			arc = 16,
+			knockback = 340,
+			sound_pitch = 0.62,
+			flash_color = {255, 80, 60, 255},
+			lunge = 110,
+			charged = true,
+		},
 	},
-	// RIGHT FLYING ELBOW: the finisher, an explosive smash.
-	{
-		class = .MELEE,
-		name = "ELBOW",
-		desc = "FINISHING SMASH",
-		damage = 4.2,
-		cooldown = 0.34,
-		shape = .BLAST,
-		reach = 60,
-		arc = 42,
-		knockback = 240,
-		sound_pitch = 0.75,
-		flash_color = {255, 120, 90, 255},
+	// Navy: a disciplined bayonet. Long, thin, precise thrusts; the second is a
+	// committed lunge that closes the distance.
+	.NAVY = {
+		{
+			class = .MELEE,
+			name = "THRUST",
+			desc = "PRECISE STAB",
+			damage = 1.8,
+			cooldown = 0.24,
+			shape = .THRUST,
+			reach = 92,
+			arc = 6,
+			knockback = 60,
+			sound_pitch = 1.55,
+			flash_color = {180, 200, 255, 255},
+		},
+		{
+			class = .MELEE,
+			name = "LUNGE",
+			desc = "STAB + POINT-BLANK",
+			damage = 3.0,
+			cooldown = 0.40,
+			shape = .THRUST,
+			reach = 128,
+			arc = 6,
+			knockback = 120,
+			sound_pitch = 1.30,
+			flash_color = {150, 180, 255, 255},
+			lunge = 46,
+			muzzle_volley = true,
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 2)
+		{}, // unused slot
 	},
+}
+
+// RR's Vector Edge is not a fixed combo -- it reshapes itself to his current
+// Adaptation (see update_rr_adaptation in game.odin). Whichever stat his build
+// has invested in most decides how the blade fights, so the same press does a
+// different thing as he adapts. No ladder uses `charged` (that stays Bud's
+// exclusive); MOBILITY and RESILIENCE reach for `lunge` instead, and PRECISION
+// is all long thin thrusts -- the opposite of Bud's short fists.
+RR_EDGE := [RR_Adaptation][SIGNATURE_LEN]Weapon_Stats {
+	// OFFENSE: the default blade -- cut, sweep, then a heavy shock smash.
+	.OFFENSE = {
+		{
+			class = .MELEE,
+			name = "SLICE",
+			desc = "QUICK CUT",
+			damage = 2.0,
+			cooldown = 0.16,
+			shape = .THRUST,
+			reach = 84,
+			arc = 9,
+			knockback = 40,
+			sound_pitch = 1.30,
+			flash_color = {255, 180, 180, 255},
+		},
+		{
+			class = .MELEE,
+			name = "ARC",
+			desc = "WIDE SWEEP",
+			damage = 3.0,
+			cooldown = 0.22,
+			shape = .SECTOR,
+			reach = 96,
+			arc = 0.85,
+			knockback = 110,
+			sound_pitch = 1.00,
+			flash_color = {255, 130, 130, 255},
+		},
+		{
+			class = .MELEE,
+			name = "PULSE",
+			desc = "SHOCK FINISHER",
+			damage = 5.0,
+			cooldown = 0.32,
+			shape = .BLAST,
+			reach = 66,
+			arc = 48,
+			knockback = 230,
+			sound_pitch = 0.80,
+			flash_color = {255, 90, 90, 255},
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 3)
+	},
+	// MOBILITY: two very fast flicks, then a lunging stab that closes distance.
+	.MOBILITY = {
+		{
+			class = .MELEE,
+			name = "FLICK",
+			desc = "RAPID CUT",
+			damage = 1.2,
+			cooldown = 0.10,
+			shape = .THRUST,
+			reach = 70,
+			arc = 7,
+			knockback = 30,
+			sound_pitch = 1.45,
+			flash_color = {190, 255, 255, 255},
+		},
+		{
+			class = .MELEE,
+			name = "FLICK",
+			desc = "RAPID CUT",
+			damage = 1.2,
+			cooldown = 0.10,
+			shape = .THRUST,
+			reach = 70,
+			arc = 7,
+			knockback = 30,
+			sound_pitch = 1.50,
+			flash_color = {190, 255, 255, 255},
+		},
+		{
+			class = .MELEE,
+			name = "GAPCUT",
+			desc = "CLOSING STAB",
+			damage = 2.4,
+			cooldown = 0.24,
+			shape = .THRUST,
+			reach = 112,
+			arc = 13,
+			knockback = 150,
+			sound_pitch = 1.18,
+			flash_color = {140, 230, 255, 255},
+			lunge = 72,
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 3)
+	},
+	// RESILIENCE: slow, wide sweeps with huge shove, so the blade controls the
+	// space around him and keeps him safe.
+	.RESILIENCE = {
+		{
+			class = .MELEE,
+			name = "SWEEP",
+			desc = "WIDE GUARD",
+			damage = 2.0,
+			cooldown = 0.30,
+			shape = .SECTOR,
+			reach = 92,
+			arc = 0.85,
+			knockback = 150,
+			sound_pitch = 0.95,
+			flash_color = {230, 200, 255, 255},
+		},
+		{
+			class = .MELEE,
+			name = "SWEEP",
+			desc = "WIDE GUARD",
+			damage = 2.6,
+			cooldown = 0.34,
+			shape = .SECTOR,
+			reach = 98,
+			arc = 0.95,
+			knockback = 180,
+			sound_pitch = 0.90,
+			flash_color = {220, 180, 255, 255},
+		},
+		{
+			class = .MELEE,
+			name = "BULWARK",
+			desc = "KNOCKBACK SLAM",
+			damage = 4.2,
+			cooldown = 0.50,
+			shape = .BLAST,
+			reach = 70,
+			arc = 52,
+			knockback = 360,
+			sound_pitch = 0.70,
+			flash_color = {200, 150, 255, 255},
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 3)
+	},
+	// PRECISION: long, needle-thin thrusts -- the opposite of Bud's short fists.
+	.PRECISION = {
+		{
+			class = .MELEE,
+			name = "PIERCE",
+			desc = "THIN THRUST",
+			damage = 1.8,
+			cooldown = 0.20,
+			shape = .THRUST,
+			reach = 112,
+			arc = 5,
+			knockback = 30,
+			sound_pitch = 1.60,
+			flash_color = {255, 255, 200, 255},
+		},
+		{
+			class = .MELEE,
+			name = "PIERCE",
+			desc = "THIN THRUST",
+			damage = 1.8,
+			cooldown = 0.20,
+			shape = .THRUST,
+			reach = 112,
+			arc = 5,
+			knockback = 30,
+			sound_pitch = 1.60,
+			flash_color = {255, 255, 200, 255},
+		},
+		{
+			class = .MELEE,
+			name = "LANCE",
+			desc = "LONG FINISHER",
+			damage = 3.4,
+			cooldown = 0.34,
+			shape = .THRUST,
+			reach = 158,
+			arc = 6,
+			knockback = 100,
+			sound_pitch = 1.38,
+			flash_color = {255, 245, 160, 255},
+		},
+		{}, // unused slot (SIGNATURE_COUNT caps the chain at 3)
+	},
+}
+
+// Short flavor name for each Vector Edge form, shown on the HUD so the reshaping
+// reads at a glance.
+RR_EDGE_NAMES := [RR_Adaptation]cstring {
+	.OFFENSE    = "ONSLAUGHT",
+	.MOBILITY   = "FLURRY",
+	.RESILIENCE = "BULWARK",
+	.PRECISION  = "NEEDLE",
+}
+
+// How each Vector Edge form throws a blade wind when RR surges: the damage
+// multiplier over the finisher's own damage, its travel speed, how many enemies
+// it cuts through, and its colour. FLURRY is the fast ladder, so its wind is much
+// weaker -- otherwise the quickest combo would also throw the strongest shot.
+RR_EDGE_WIND := [RR_Adaptation]struct {
+	mult:   f32,
+	speed:  f32,
+	pierce: i32,
+	col:    raylib.Color,
+} {
+	.OFFENSE    = {1.00, 520, 2, {255, 170, 120, 225}},
+	.MOBILITY   = {0.40, 660, 1, {190, 255, 255, 225}},
+	.RESILIENCE = {1.20, 430, 3, {220, 180, 255, 225}},
+	.PRECISION  = {0.90, 720, 2, {255, 250, 190, 225}},
+}
+
+// How many strikes each signature combo actually uses; the rest of the
+// [SIGNATURE_LEN] rows above are left zero.
+SIGNATURE_COUNT := [Character]int {
+	.RR     = 3,
+	.TRACER = 3,
+	.BUD    = 4,
+	.NAVY   = 2,
+}
+
+// Display name for each character's signature weapon (select screen + HUD).
+SIGNATURE_NAMES := [Character]cstring {
+	.RR     = "VECTOR EDGE",
+	.TRACER = "PHASE CLAWS",
+	.BUD    = "FISTS",
+	.NAVY   = "BAYONET",
+}
+
+// The melee model each character's signature weapon draws with. Every strike in
+// a combo shares one silhouette (a Vector Edge is always the same blade), so
+// this is keyed by character rather than by individual strike.
+SIGNATURE_LOOK := [Character]Weapon_Look {
+	.RR     = .BLADE,
+	.TRACER = .CLAWS,
+	.BUD    = .FISTS,
+	.NAVY   = .BAYONET,
 }
 
 // Playable main characters. `speed`/`max_health` are the base before any
 // utility bonus; the melee multipliers scale every melee swing (weapon or kick).
 CHARACTERS := [Character]Character_Stats {
 	// NAME, DESC, COLOR, OUTLINE, SHAPE, SPEED, MAX_HP, MELEE_DMG, MELEE_RANGE, MELEE_KNOCK, AMMO, RELOAD, PASSIVE, PASSIVE_DESC
-	.RR = {
+	.RR     = {
 		"RR",
 		"ALL-ROUNDER",
 		{220, 55, 65, 255},
@@ -415,7 +836,7 @@ CHARACTERS := [Character]Character_Stats {
 		"TRACEUR'S HEART",
 		"ATTACKS BUILD SPEED (MAX +50%)",
 	},
-	.BUD = {
+	.BUD    = {
 		"BUD",
 		"FIST FIGHTER; GUNS MAKE HIM UNHAPPY",
 		{215, 140, 70, 255},
@@ -431,7 +852,7 @@ CHARACTERS := [Character]Character_Stats {
 		"GUARD UP",
 		"BLOCKS HIS FACING; FISTS COMBO",
 	},
-	.NAVY = {
+	.NAVY   = {
 		"NAVY",
 		"OFFICER: AMMO & FAST RELOADS",
 		{40, 60, 130, 255},
@@ -479,7 +900,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		raylib.DARKGREEN,
 		raylib.GREEN,
 	},
-	.CANYON = {
+	.CANYON    = {
 		"CANYON",
 		"LONG SHELVES, TIGHT LANES",
 		{40, 26, 20, 255},
@@ -488,7 +909,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{120, 84, 60, 255},
 		{176, 126, 88, 255},
 	},
-	.RUINS = {
+	.RUINS     = {
 		"RUINS",
 		"PILLAR GRID, OPEN SIGHTLINES",
 		{28, 28, 34, 255},
@@ -497,7 +918,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{104, 100, 94, 255},
 		{144, 138, 130, 255},
 	},
-	.GLACIER = {
+	.GLACIER   = {
 		"GLACIER",
 		"SPARSE WALLS, DENSE BOULDERS",
 		{20, 30, 40, 255},

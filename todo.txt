@@ -1,6 +1,5 @@
 (A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
 (B) 2026-10-14 Add a relic / passive-item system +roguelike @items
-(B) 2026-10-14 Add status effects (burn/freeze/poison/shock) +roguelike @combat @content
 (B) 2026-10-14 Add elemental ammo types +roguelike @guns @combat
 (B) 2026-10-14 Add a combo & score multiplier +roguelike @combat @score
 (B) 2026-10-14 Add a minimap +roguelike @ui @levels
@@ -15,13 +14,9 @@
 (C) 2026-10-14 Add shrines with tradeoffs +roguelike @items @levels
 (C) 2026-10-14 Add rebindable controls +roguelike @input @ui
 (C) 2026-10-14 Add item tooltips +roguelike @ui
-(C) 2026-10-14 Add damage numbers +roguelike @ui @combat
 (C) 2026-10-14 Add seeded runs +roguelike @systems
 (C) 2026-10-14 Add extra game modes +roguelike @systems
 (D) 2026-10-14 Add colorblind / accessibility options +roguelike @ui @accessibility
 (D) 2026-10-14 Add achievements +roguelike @meta
 (D) 2026-10-14 Add a local leaderboard +roguelike @meta @score
-(D) 2026-10-14 Add screen shake +roguelike @polish
-(D) 2026-10-14 Add hit particles & blood +roguelike @polish
 (D) 2026-10-14 Add procedural background music +roguelike @sounds @music
-(D) 2026-10-14 Add a volume / mute option +roguelike @sounds @ui

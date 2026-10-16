@@ -3,3 +3,4 @@ roguelike
 roguelike.exe
 roguelike.pdb
 .build-windows/
+settings.cfg

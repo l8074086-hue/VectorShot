@@ -9,10 +9,39 @@ import "vendor:raylib"
 
 ARENA_W :: 1600
 ARENA_H :: 1200
-WALL_THICK :: 40
+WALL_THICK :: 60
 RELOAD_TIME :: 1.0
 MELEE_FLASH_TIME :: 0.15 // how long the swing arc is shown after a melee hit
+MUZZLE_FLASH_TIME :: 0.045 // how long a gun's muzzle flash lingers after firing
+// Navy's Muzzle Thrust: the bayonet's LUNGE stabs, then fires a point-blank
+// burst -- a rectangle along the strike that carries the primary gun's damage.
+// It spends one round, and with no loaded firearm in slot 0 it is a plain lunge.
+MUZZLE_VOLLEY_REACH :: 70 // how far ahead of Navy the burst box is centred
+MUZZLE_VOLLEY_LENGTH :: 190 // burst box length, along the strike
+MUZZLE_VOLLEY_WIDTH :: 96 // burst box width, across the strike
+MUZZLE_VOLLEY_FLASH_TIME :: 0.12 // the volley's flash lingers longer than a gun's
 BASE_DASH_DAMAGE :: 30 // damage per second dealt by a damaging dash
+
+// GF mode (Ctrl+G) / the EASY difficulty it mirrors.
+GF_AIM_RANGE :: 900 // px within which aim assist looks for a target
+GF_AIM_CONE :: f32(0.35) // radians (~20 deg) a target must sit inside your aim
+GF_DAMAGE_MULT :: f32(0.5) // incoming damage scale while the assist is active
+
+// Difficulty tuning, indexed by Difficulty (EASY, NORMAL, HARD). EASY's assists
+// come from GF_DAMAGE_MULT; these only cover the enemy-side knobs. Kept as
+// package variables so they can be indexed by a runtime difficulty.
+DIFF_ENEMY_DAMAGE := [3]f32{1.0, 1.0, 1.6} // incoming hit scale
+DIFF_ENEMY_SPEED := [3]f32{1.0, 1.0, 1.15} // enemy move-speed scale
+DIFF_SPAWN_MULT := [3]f32{0.75, 1.0, 1.25} // wave size scale
+
+// Hit feedback: floating damage numbers, blood spray, and screen shake. All are
+// gated by the matching setting and capped so a busy wave can't overwhelm.
+DAMAGE_NUMBER_TIME :: 0.7
+DAMAGE_NUMBER_MAX :: 48
+BLOOD_MAX :: 240
+BLOOD_GRAVITY :: 340
+SHAKE_DECAY :: 9.0 // how fast a shake magnitude bleeds off (units/second)
+BLOOD_COLOR :: raylib.Color{158, 22, 22, 255}
 
 // Characters. Every main character has a signature passive; the numeric knobs
 // for each live here, and the dash "synergies" are folded in by start_loadout.
@@ -30,6 +59,21 @@ TRACER_SLIDE_CD_MULT :: 0.75
 TRACER_SLIDE_TIME_MULT :: 1.30 // slides linger longer (more distance + damage)
 TRACER_PHASE_DURATION_MULT :: 1.70
 TRACER_PHASE_CD_MULT :: 0.80
+// Tracer's PHASE CLAWS mechanic: her light strikes stack PHASE marks and the
+// REND finisher consumes them for a burst, splashing a mark onto neighbours. The
+// marks decay if the target is left alone, so the loop is "stay on it, then
+// finish" -- landing both lights is what makes the finisher pay off.
+PHASE_MARK_MAX :: 4
+PHASE_MARK_DECAY :: 1.60 // seconds a mark survives without a fresh hit
+PHASE_MARK_REND_DAMAGE :: 0.6 // bonus REND damage per mark consumed (flat)
+PHASE_MARK_SPLASH_RADIUS :: 70
+PHASE_MARK_SPLASH_DAMAGE :: 0.6
+// REND's detonation visual: a small green burst where the cross was consumed.
+PHASE_BURST_RADIUS :: 44
+PHASE_BURST_TIME :: 0.25
+// Finishing a marked target with REND heals Tracer, so the glass-cannon has a
+// way to sustain the close-range commitment her claws demand.
+PHASE_REND_HEAL :: 8.0
 // Synergy: Bud <-> IMPACT ("Meteor"). His impact dash hits far harder and knocks
 // enemies flying, turning a dash into his main engage tool.
 BUD_IMPACT_DAMAGE_MULT :: 2.40
@@ -44,8 +88,13 @@ BUD_UNHAPPY_SPREAD_MULT :: 2.0 // accuracy halved -> spread doubled
 BUD_UNHAPPY_MIN_SPREAD :: 0.14 // floor so even pinpoint guns lose accuracy
 BUD_UNHAPPY_DAMAGE_MULT :: 0.5
 BUD_UNHAPPY_SPEED_MULT :: 0.5
-// Bud's Fists combo: press E again within this window to chain the next strike.
-BUD_COMBO_WINDOW :: 0.55
+// Signature combos: press E again within this window to chain the next strike
+// (jab -> hook -> elbow -> ...). Waiting resets the chain to the first strike.
+SIGNATURE_COMBO_WINDOW :: 0.55
+// Bud's flying knee is a charged strike: while it is the armed next strike it
+// winds up over this long, and its damage grows with the charge (see `charged`).
+KNEE_CHARGE_TIME :: 0.40
+KNEE_CHARGE_BONUS :: 1.00 // +100% damage at full charge
 // Navy's "Take Aim": no move input at all gives complete accuracy (spread 0).
 // Synergy: Navy <-> BLINK. His redeploy blink goes further, comes back sooner,
 // and instantly finishes a reload so he lands topped up.
@@ -62,6 +111,25 @@ RR_ADAPT_PRECISION :: 0.40 // -40% spread
 RR_BURST_CD_MULT :: 0.75
 RR_SURGE_TIME :: 1.60
 RR_SURGE_EXTRA :: 0.50 // surge makes the active adaptation 50% stronger
+// Neither defense nor precision reaches RR's blade, so two of his forms replace
+// the E kick outright rather than leaving the adaptation bonus dead on melee.
+// RESILIENCE's BULWARK turns E into a held GUARD; PRECISION's NEEDLE turns it
+// into a short blink.
+RR_BLOCK_SPEED_MULT :: 0.45 // the guard drags his move speed down to 45%
+RR_BLOCK_ARC :: 0.75 // radians of "front" the guard covers
+BLOCK_FLASH_TIME :: 0.15 // how long a cancelled hit flares the guard arc
+RR_NEEDLE_BLINK_CD :: 0.60
+RR_NEEDLE_BLINK_DIST :: 70
+RR_NEEDLE_BLINK_INV :: 0.12
+// Per-card stat gains, shared by apply_upgrade and RR's Adaptation scoring so
+// both sides agree on what a single card is worth.
+CARD_ATTACK_DAMAGE :: 1.0
+CARD_SPEED_BONUS :: 50.0
+CARD_HEALTH_BONUS :: 25.0
+CARD_SPREAD_CUT :: 0.2
+// How many of a mode's cards it takes to fully trigger RR's Adaptation. All four
+// are the same, so no mode is cheaper to lock in than another.
+RR_ADAPT_CARDS :: 4
 EXPLOSION_RADIUS :: 130
 EXPLOSION_DAMAGE :: 6
 EXPLOSION_TIME :: 0.35
@@ -83,6 +151,18 @@ MIN_DASH_CD_MULT :: 0.40
 MAX_MAG_MULT :: 3.0
 MAX_AMMO_MULT :: 4.0
 MAX_LIFESTEAL :: 12
+
+// Status effects. Attacks apply whatever set is in `attack_effects` (built by
+// cards); enemies tick each active effect down and suffer it while it lasts.
+BURN_TIME :: 3.0
+BURN_DPS :: 5.0
+POISON_TIME :: 6.0
+POISON_DPS :: 2.5
+FREEZE_TIME :: 2.0
+FREEZE_SLOW :: 0.45 // move-speed multiplier while frozen
+SHOCK_TIME :: 1.2 // stunned (no move, no attack) while shocked
+MAX_STATUS_POWER :: 4.0 // cap on per-element power (damage / slow / stun)
+MAX_STATUS_TIME_MULT :: 2.5 // cap on the global duration multiplier
 
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
@@ -144,6 +224,34 @@ UTIL_AMMO_MULT :: 1.5 // PACKRAT scales both weapons' reserve capacity
 state: GameState = .MAIN_MENU
 debug_mode: bool = false
 skill_state: SkillSlotState = .MAIN
+difficulty: Difficulty = .NORMAL
+
+// Menu navigation state (mouse + keyboard share these selections).
+main_menu_sel: int = 0
+settings_sel: int = 0
+quit_requested: bool = false
+
+// Tutorial state. The select screen picks a tier (and a character for the
+// advanced tier); the tutorial itself walks a list of steps.
+tutorial_select_sel: int = 0
+tutorial_mode: bool = false
+tutorial_kind: Tutorial_Kind = .BASIC
+tutorial_char: Character = .RR
+tutorial_step: int = 0
+tutorial_timer: f32 = 0
+tutorial_flags: Tutorial_Flags
+
+// "GF mode" (Ctrl+G): a hidden comfort toggle for players who aren't used to
+// games. Movement uses newest-key-wins on each axis (so holding W and tapping S
+// moves down instead of cancelling out), and attacks get a little aim assist
+// while incoming damage is reduced. Nothing here is shown on the official
+// menus; the difficulty screen exposes the same assists as presets.
+gf_mode: bool = false
+gf_clock: f32 = 0 // monotonic seconds, used to order direction-key presses
+gf_t_w: f32 = 0
+gf_t_a: f32 = 0
+gf_t_s: f32 = 0
+gf_t_d: f32 = 0
 
 // Player.
 position: raylib.Vector2 = {50, 50}
@@ -156,11 +264,17 @@ aim_dir: raylib.Vector2 = {0, -1} // points at the mouse cursor
 SPEED: f32 = 200
 
 // Weapons. Each slot keeps its own mag/ammo; active_slot picks which one fires.
+// Q cycles through the two gun slots plus SLOT_SIGNATURE (the character's own
+// melee weapon), which has no weapon struct and is always ready.
+SLOT_PRIMARY :: 0
+SLOT_SECONDARY :: 1
+SLOT_SIGNATURE :: 2
+SLOT_COUNT :: 3
 gun: Gun = .SNIPER
 secondary_kind: Secondary = .PISTOL
 primary: weapon
 secondary: weapon
-active_slot: int = 0 // 0 = primary, 1 = secondary
+active_slot: int = 0 // see SLOT_* above: primary, secondary, or signature melee
 ammo_mult: f32 = 1 // reserve-capacity scale from the chosen utility
 
 // Card upgrades. These apply to whichever weapon is active at fire time.
@@ -178,6 +292,13 @@ lifesteal: f32 = 0 // HP healed per enemy killed
 mag_mult: f32 = 1 // magazine-size scale (applied live to both slots)
 ammo_growth_mult: f32 = 1 // reserve-ammo scale (applied live to both slots)
 
+// Status effects. `attack_effects` is what every player attack (shot or swing)
+// inflicts; `status_power` deepens one element; `status_time_mult` stretches all
+// durations. Enemies keep their own active set + timers (see the enemy struct).
+attack_effects: Status_Set = {}
+status_power: [Status_Effect]f32 = {.Burn = 1, .Freeze = 1, .Poison = 1, .Shock = 1}
+status_time_mult: f32 = 1
+
 // Melee. Swing stats come from the active weapon, the KICK, or Bud's FISTS;
 // `melee_cooldown` is the universal swing timer. The flash fields remember the
 // last swing (direction + shape + size + colour) so the drawn flash uses the
@@ -189,9 +310,15 @@ melee_flash_arc: f32 = 0.7
 melee_flash_dir: raylib.Vector2 = {0, -1}
 melee_flash_shape: Melee_Shape = .SECTOR
 melee_flash_color: raylib.Color = {255, 255, 255, 255}
-// Bud's Fists combo: which strike is next, and how long the chain stays open.
+// Counts down after a shot so the held gun can show a muzzle flash.
+muzzle_flash: f32 = 0
+// Direction of Navy's last Muzzle Thrust, so its burst box can be drawn.
+muzzle_volley_dir: raylib.Vector2 = {1, 0}
+// Signature combo: which strike is next, how long the chain stays open, and the
+// wind-up charge for a charged strike (Bud's flying knee).
 combo_index: int = 0
 combo_timer: f32 = 0
+combo_charge: f32 = 0
 
 // Dash.
 dash_kind: Dash_Kind = .BURST
@@ -215,6 +342,9 @@ moving: bool = false // is the player giving move input this frame?
 traceur_charge: f32 = 0 // Traceur's Heart 0..1 (built by attacking)
 rr_adaptation: RR_Adaptation = .OFFENSE // RR's Adaptation, recomputed each frame
 rr_surge: f32 = 0 // RR's Second Wind timer (dashing amplifies his adaptation)
+rr_block: bool = false // BULWARK guard up: front damage cancelled, move slowed
+block_flash: f32 = 0 // flares the guard arc when it actually cancels a hit
+rr_blink_cd: f32 = 0 // NEEDLE blink timer (its E move replaces the kick)
 
 // Progression.
 wave: i32 = 1
@@ -247,6 +377,12 @@ walls: [dynamic]raylib.Rectangle
 barrels: [dynamic]barrel
 trees: [dynamic]tree
 explosions: [dynamic]explosion
+damage_numbers: [dynamic]damage_number
+blood: [dynamic]blood_drop
+// Screen shake: a decaying magnitude the camera jitters by, scaled by the
+// screen-shake setting and amplified by events (hits, explosions).
+shake: f32 = 0
+shake_mag: f32 = 0
 
 // Start a fresh run from a chosen loadout: resets every run variable, rebuilds
 // the arena, and drops you into PLAYING.
@@ -258,7 +394,7 @@ start_run :: proc(stats: Run_Stats) {
 	ammo_mult = stats.ammo_mult
 	weapon_init(&primary, GUNS[stats.primary])
 	weapon_init(&secondary, SECONDARIES[stats.secondary])
-	active_slot = 0
+	active_slot = SLOT_PRIMARY
 	bonus_damage = stats.bonus_damage
 	bonus_projectiles = 0
 	bonus_pierce = 0
@@ -273,6 +409,7 @@ start_run :: proc(stats: Run_Stats) {
 	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
+	muzzle_flash = 0
 	melee_flash_range = KICK.reach
 	melee_flash_arc = KICK.arc
 	melee_flash_dir = {0, -1}
@@ -280,8 +417,17 @@ start_run :: proc(stats: Run_Stats) {
 	melee_flash_color = KICK.flash_color
 	combo_index = 0
 	combo_timer = 0
+	combo_charge = 0
+	attack_effects = {}
+	status_time_mult = 1
+	for eff in Status_Effect {
+		status_power[eff] = 1
+	}
 	traceur_charge = 0
 	rr_surge = 0
+	rr_block = false
+	block_flash = 0
+	rr_blink_cd = 0
 	moving = false
 	DASH_SPEED = stats.dash_speed
 	DASH_DURATION = stats.dash_duration
@@ -370,11 +516,30 @@ weapon_init :: proc(w: ^weapon, g: Weapon_Stats) {
 }
 
 active_weapon :: proc() -> ^weapon {
-	return active_slot == 1 ? &secondary : &primary
+	return active_slot == SLOT_SECONDARY ? &secondary : &primary
+}
+
+// Display name for any slot; used by the HUD and the Q-cycle hint.
+slot_name :: proc(slot: int) -> string {
+	switch slot {
+	case SLOT_PRIMARY:
+		return string(GUNS[gun].name)
+	case SLOT_SECONDARY:
+		return string(SECONDARIES[secondary_kind].name)
+	case SLOT_SIGNATURE:
+		return string(SIGNATURE_NAMES[character])
+	}
+	return ""
 }
 
 active_stats :: proc() -> Weapon_Stats {
-	return active_slot == 1 ? SECONDARIES[secondary_kind] : GUNS[gun]
+	switch active_slot {
+	case SLOT_SECONDARY:
+		return SECONDARIES[secondary_kind]
+	case SLOT_SIGNATURE:
+		return signature_stats()
+	}
+	return GUNS[gun]
 }
 
 // Bud's "Unhappy": holding a gun (rather than a melee weapon) sours him.
@@ -398,33 +563,46 @@ character_move_speed :: proc() -> f32 {
 	if character == .RR && rr_adaptation == .MOBILITY {
 		speed *= 1 + RR_ADAPT_MOBILITY * rr_adapt_scale()
 	}
+	// RR's BULWARK guard is a stance, not free: holding it drags him down.
+	if rr_block {
+		speed *= RR_BLOCK_SPEED_MULT
+	}
 	return speed
 }
 
 // One melee hitbox test shared by the swing and (conceptually) the flash, so the
 // drawn shape can never drift from what actually gets hit. `reach`/`arc` mean
 // whatever `shape` says they mean (see Melee_Shape).
+//
+// The target is a body, not a point: it is passed as its centre plus a radius.
+// Testing only the centre made the narrow THRUST blades (arc 6-9px) whiff on the
+// 30-80px enemies whenever their middle sat a few pixels off the aim line, or
+// slightly behind the player. Every shape is grown by `target_radius` so a blade
+// that visibly overlaps a body connects.
 melee_shape_hits :: proc(
 	origin, dir: raylib.Vector2,
 	reach, arc: f32,
 	shape: Melee_Shape,
 	target: raylib.Vector2,
+	target_radius: f32,
 ) -> bool {
 	to := target - origin
 	switch shape {
 	case .SECTOR:
 		dist := raylib.Vector2Length(to)
-		return dist > 0.01 && dist <= reach && raylib.Vector2Angle(dir, to) <= arc
+		return dist > 0.01 && dist <= reach + target_radius &&
+		       raylib.Vector2Angle(dir, to) <= arc
 	case .THRUST:
-		along := raylib.Vector2DotProduct(to, dir)
-		if along < 0 || along > reach {
-			return false
-		}
-		perp := abs(raylib.Vector2CrossProduct(dir, to)) // dir is unit length
-		return perp <= arc
+		// Distance from the target centre to the swing segment, grown by both
+		// the blade's half-width and the target's radius. Clamping `along` keeps
+		// the near end of the blade live, so an enemy on top of the player is
+		// still stabbed instead of skipped by an `along < 0` test.
+		along := clamp(raylib.Vector2DotProduct(to, dir), 0, reach)
+		closest := origin + dir * along
+		return raylib.Vector2Length(target - closest) <= arc + target_radius
 	case .BLAST:
 		center := origin + dir * reach
-		return raylib.Vector2Length(target - center) <= arc
+		return raylib.Vector2Length(target - center) <= arc + target_radius
 	}
 	return false
 }
@@ -437,17 +615,51 @@ note_attack :: proc() {
 	}
 }
 
-// The unarmed attack: Bud throws the next Fists strike (advancing the combo),
-// everyone else kicks. Returns the stats for this swing; the caller owns the
-// cooldown timer and the swing itself.
-unarmed_stats :: proc() -> Weapon_Stats {
-	if character != .BUD {
+// Which strike the chain currently points at. Everyone reads it from the static
+// SIGNATURES table, except RR: Vector Edge reshapes itself to his Adaptation, so
+// his signature is resolved from RR_EDGE at runtime instead. Callers go through
+// this so one lookup serves the held weapon, the swing and the HUD alike.
+signature_at :: proc(index: int) -> Weapon_Stats {
+	if character == .RR {
+		return RR_EDGE[rr_adaptation][index % SIGNATURE_COUNT[.RR]]
+	}
+	n := SIGNATURE_COUNT[character]
+	if n <= 0 {
 		return KICK
 	}
-	stats := FISTS[combo_index]
-	combo_index = (combo_index + 1) % len(FISTS)
-	combo_timer = BUD_COMBO_WINDOW
+	return SIGNATURES[character][index % n]
+}
+
+// The strike that is currently armed in the signature chain, *without*
+// advancing it. Used to draw the held/worn weapon and for the HUD; only an
+// actual throw (unarmed_stats) moves the combo along.
+signature_stats :: proc() -> Weapon_Stats {
+	return signature_at(combo_index)
+}
+
+// The unarmed attack: each character throws the next strike of their own
+// signature combo, advancing the chain. Returns the stats for this swing; the
+// caller owns the cooldown timer and the swing itself.
+unarmed_stats :: proc() -> Weapon_Stats {
+	n := SIGNATURE_COUNT[character]
+	if n <= 0 {
+		return KICK
+	}
+	stats := signature_at(combo_index)
+	combo_index = (combo_index + 1) % n
+	combo_timer = SIGNATURE_COMBO_WINDOW
 	return stats
+}
+
+// Is the next signature strike a charged one? While true, the combo charge
+// winds up (Bud's flying knee), so the finisher lands harder the longer it is
+// held. Characters without a charged strike never build charge.
+signature_next_charged :: proc() -> bool {
+	n := SIGNATURE_COUNT[character]
+	if n <= 0 {
+		return false
+	}
+	return signature_at(combo_index % n).charged
 }
 
 // Cooldown for a melee swing, after the SWING-speed card's multiplier.
@@ -458,12 +670,28 @@ swing_cooldown :: proc(stats: Weapon_Stats) -> f32 {
 // Swing a melee weapon (the universal KICK, one of Bud's FISTS, or a weapon in a
 // slot) toward `dir`: damage and shove every enemy its hitbox covers. Records the
 // exact geometry so the flash can draw what was hit, and feeds Traceur's Heart.
-melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2) {
-	cs := CHARACTERS[character]
-	dmg := (stats.damage + bonus_melee_damage) * cs.melee_damage_mult + bonus_damage
-	if character == .RR && rr_adaptation == .OFFENSE {
-		dmg *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
+// `finisher` marks the last strike of a signature chain -- RR's Second Wind turns
+// a surged finisher into a thrown blade wind.
+melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = false) {
+	// Charged strikes (Bud's flying knee) hit harder the longer they wound up.
+	charge := stats.charged ? combo_charge : 0
+	// Committed strikes (the knee, the bayonet lunge) shove the attacker
+	// forward first, so the hitbox and flash start where the strike lands.
+	if stats.lunge > 0 {
+		position += dir * stats.lunge
+		resolve_obstacles(&position, size)
+		// The shove can bury the attacker in a perimeter wall, where
+		// resolve_obstacles would push it out of the arena -- clamp it back in.
+		clamp_to_arena(&position, size)
 	}
+	cs := CHARACTERS[character]
+	// Base per-hit damage. REND adds to this per enemy, from the marks it
+	// consumes, so it is figured here and reused inside the loop.
+	base_dmg := (stats.damage + bonus_melee_damage) * cs.melee_damage_mult + bonus_damage
+	if character == .RR && rr_adaptation == .OFFENSE {
+		base_dmg *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
+	}
+	base_dmg *= 1 + KNEE_CHARGE_BONUS * charge
 	reach := stats.reach * cs.melee_range_mult * melee_range_mult
 	knock := (stats.knockback + bonus_melee_knock) * cs.melee_knock_mult
 	melee_flash_range = reach
@@ -476,20 +704,226 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2) {
 	player_c := position + size * 0.5
 	for i := len(enemies) - 1; i >= 0; i -= 1 {
 		e_c := enemies[i].position + enemies[i].size * 0.5
-		if !melee_shape_hits(player_c, dir, reach, stats.arc, stats.shape, e_c) {
+		e_r := max(enemies[i].size.x, enemies[i].size.y) * 0.5
+		if !melee_shape_hits(player_c, dir, reach, stats.arc, stats.shape, e_c, e_r) {
 			continue
 		}
 		to := e_c - player_c
+		// REND pays out whatever PHASE marks the lights have stacked on it.
+		dmg := base_dmg
+		marked := false
+		if stats.phase_detonate {
+			marked = enemies[i].phase_marks > 0
+			dmg += PHASE_MARK_REND_DAMAGE * f32(enemies[i].phase_marks)
+		}
+		// Marking lights are pure setup: they deal no damage at all, even with
+		// damage upgrades, so the killing blow -- and REND's heal -- always
+		// lands on REND instead of a light stealing it.
+		if stats.phase_apply > 0 {
+			dmg = 0
+		}
 		hit := apply_enemy_damage(&enemies[i], dmg, player_c - e_c)
 		if hit != .DAMAGE {
 			play_enemy_hit(hit)
+		}
+		// Melee carries the player's on-hit status set just like bullets do.
+		apply_status(&enemies[i], attack_effects)
+		// Phase Claws: lights stack marks, REND spends them and splashes.
+		if stats.phase_apply > 0 {
+			mark_enemy(&enemies[i], stats.phase_apply)
+		}
+		if stats.phase_detonate {
+			// REND visibly explodes the cross it consumed.
+			tutorial_note(.REND)
+			if marked {
+				append(
+					&explosions,
+					explosion {
+						pos = e_c,
+						life = PHASE_BURST_TIME,
+						max_life = PHASE_BURST_TIME,
+						radius = PHASE_BURST_RADIUS,
+						color = raylib.Color{150, 255, 160, 255},
+					},
+				)
+			}
+			phase_mark_splash(i)
+			enemies[i].phase_marks = 0
 		}
 		if raylib.Vector2Length(to) > 0.01 {
 			enemies[i].position += raylib.Vector2Normalize(to) * knock
 		}
 		if enemies[i].hp <= 0 {
+			// REND's payoff: finishing a marked target heals Tracer, so her
+			// glass-cannon build can sustain the close-range commitment.
+			if marked {
+				health = min(health + PHASE_REND_HEAL, max_health)
+			}
 			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
 			unordered_remove(&enemies, i)
+		}
+	}
+	// PHASE splash can drop enemies the swing itself never covered; sweep any
+	// that died so they still drop their rewards.
+	if stats.phase_detonate {
+		for i := len(enemies) - 1; i >= 0; i -= 1 {
+			if enemies[i].hp <= 0 {
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+				unordered_remove(&enemies, i)
+			}
+		}
+	}
+	// RR's Second Wind: a surged finisher hurls a blade wind out of the swing, so
+	// his BURST dash feeds straight back into the combo.
+	if finisher && character == .RR && rr_surge > 0 {
+		spawn_blade_wind(dir, stats)
+	}
+	// Navy's Muzzle Thrust: the lunge's bayonet fires a point-blank burst.
+	if stats.muzzle_volley {
+		fire_muzzle_volley(dir)
+	}
+	// A charged finisher spends its wind-up.
+	if stats.charged {
+		combo_charge = 0
+	}
+}
+
+// Throw a blade wind: the travelling crescent RR's Second Wind hurls out of a
+// surged finisher. Each form tunes its own wind (RR_EDGE_WIND) -- FLURRY is the
+// fast ladder, so its wind is much weaker to stop it outpacing the others.
+spawn_blade_wind :: proc(dir: raylib.Vector2, stats: Weapon_Stats) {
+	if character != .RR {
+		return
+	}
+	cfg := RR_EDGE_WIND[rr_adaptation]
+	d := dir
+	if raylib.Vector2Length(d) < 0.01 {
+		d = {1, 0}
+	}
+	d = raylib.Vector2Normalize(d)
+	pc := position + size * 0.5
+	append(
+		&bullets,
+		bullet {
+			position = pc - raylib.Vector2{9, 9},
+			size = raylib.Vector2{18, 18},
+			velocity = d * cfg.speed,
+			damage = stats.damage * cfg.mult,
+			pierce = cfg.pierce,
+			effects = attack_effects,
+			wind = true,
+		},
+	)
+}
+
+// Navy's Muzzle Thrust. The bayonet's LUNGE stabs, then fires a point-blank
+// burst: a rectangle punched out along the strike that carries the primary
+// gun's damage. Spends one round; with no loaded firearm in slot 0 the lunge
+// stays a plain stab.
+fire_muzzle_volley :: proc(dir: raylib.Vector2) {
+	if GUNS[gun].class != .GUN || primary.mag <= 0 {
+		return
+	}
+	d := dir
+	if raylib.Vector2Length(d) < 0.01 {
+		d = {1, 0}
+	}
+	d = raylib.Vector2Normalize(d)
+	primary.mag -= 1
+	tutorial_note(.VOLT)
+	muzzle_flash = MUZZLE_VOLLEY_FLASH_TIME
+	muzzle_volley_dir = d
+	play(sounds.primary[gun], rand.float32_range(0.94, 1.06))
+	damage := GUNS[gun].damage + bonus_damage
+	perp := raylib.Vector2{-d.y, d.x}
+	center := position + size * 0.5 + d * MUZZLE_VOLLEY_REACH
+	half_len := f32(MUZZLE_VOLLEY_LENGTH) * 0.5
+	half_wid := f32(MUZZLE_VOLLEY_WIDTH) * 0.5
+	for i := len(enemies) - 1; i >= 0; i -= 1 {
+		ec := enemies[i].position + enemies[i].size * 0.5
+		to := ec - center
+		if abs(raylib.Vector2DotProduct(to, d)) > half_len ||
+		   abs(raylib.Vector2DotProduct(to, perp)) > half_wid {
+			continue
+		}
+		play_enemy_hit(apply_enemy_damage(&enemies[i], damage, -d))
+		apply_status(&enemies[i], attack_effects)
+		if enemies[i].hp <= 0 {
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+			unordered_remove(&enemies, i)
+		}
+	}
+}
+
+// The Muzzle Thrust bloom: a muzzle flash at the tip plus the burst box along
+// the strike, drawn while the volley's (longer) flash lives. Navy-only and only
+// while the signature is in hand, so a gun's flash never lights this up.
+draw_muzzle_volley_flash :: proc() {
+	if muzzle_flash <= 0 || character != .NAVY || active_slot != SLOT_SIGNATURE {
+		return
+	}
+	f := clamp(muzzle_flash / MUZZLE_VOLLEY_FLASH_TIME, 0, 1)
+	d := muzzle_volley_dir
+	pc := position + size * 0.5
+	// Muzzle flash at the bayonet tip.
+	muz := pc + d * 30
+	raylib.DrawCircleV(muz, 6 + 6 * f, raylib.GOLD)
+	raylib.DrawCircleV(muz, 3, raylib.Color{255, 250, 220, 255})
+	// Burst box, rotated to the strike.
+	center := pc + d * MUZZLE_VOLLEY_REACH
+	rec := raylib.Rectangle {
+		center.x,
+		center.y,
+		MUZZLE_VOLLEY_LENGTH,
+		MUZZLE_VOLLEY_WIDTH,
+	}
+	origin := raylib.Vector2{MUZZLE_VOLLEY_LENGTH * 0.5, MUZZLE_VOLLEY_WIDTH * 0.5}
+	rot := math.atan2_f32(d.y, d.x) * raylib.RAD2DEG
+	raylib.DrawRectanglePro(rec, origin, rot, raylib.Color{255, 210, 110, u8(130 * f)})
+	raylib.DrawRectanglePro(rec, origin, rot, raylib.Color{255, 245, 200, u8(70 * f * f)})
+}
+
+// Add PHASE marks to an enemy, capped. Tracer's light claw strikes call this.
+mark_enemy :: proc(e: ^enemy, amount: i32) {
+	if amount <= 0 {
+		return
+	}
+	tutorial_note(.MARK)
+	e.phase_marks = min(e.phase_marks + amount, PHASE_MARK_MAX)
+	e.phase_time = PHASE_MARK_DECAY
+}
+
+// REND's detonation splash: enemies near a spent mark take a little damage and
+// pick up a mark themselves, so repeated finishers spread through a crowd.
+phase_mark_splash :: proc(source: int) {
+	if source < 0 || source >= len(enemies) {
+		return
+	}
+	center := enemies[source].position + enemies[source].size * 0.5
+	for j := len(enemies) - 1; j >= 0; j -= 1 {
+		if j == source {
+			continue
+		}
+		e := &enemies[j]
+		ec := e.position + e.size * 0.5
+		if raylib.Vector2Length(ec - center) > PHASE_MARK_SPLASH_RADIUS {
+			continue
+		}
+		apply_enemy_damage(e, PHASE_MARK_SPLASH_DAMAGE, center - ec)
+		mark_enemy(e, 1)
+	}
+}
+
+// PHASE marks fade if the enemy is left alone, so Tracer has to keep pressure on
+// a target to line up a big REND.
+tick_phase_marks :: proc(dT: f32) {
+	for i in 0 ..< len(enemies) {
+		if enemies[i].phase_marks <= 0 {
+			continue
+		}
+		enemies[i].phase_time -= dT
+		if enemies[i].phase_time <= 0 {
+			enemies[i].phase_marks = 0
 		}
 	}
 }
@@ -500,15 +934,23 @@ update_rr_adaptation :: proc() {
 	if character != .RR {
 		return
 	}
+	// Each mode measures investment on the same scale -- RR_ADAPT_CARDS picks of
+	// its card -- so no adaptation is cheaper to lock in than another. Before
+	// this, PRECISION maxed on 2 cards while OFFENSE needed 6, which pinned a
+	// player to NEEDLE for most of a run.
 	base := CHARACTERS[.RR]
-	offense := clamp(bonus_damage / f32(MAX_BONUS_DAMAGE), 0, 1)
+	offense := clamp(bonus_damage / (RR_ADAPT_CARDS * CARD_ATTACK_DAMAGE), 0, 1)
 	mobility := clamp(
-		(SPEED - base.speed) / max(MAX_SPEED - base.speed, 1),
+		(SPEED - base.speed) / max(RR_ADAPT_CARDS * CARD_SPEED_BONUS, 1),
 		0,
 		1,
 	)
-	resilience := clamp((max_health - base.max_health) / base.max_health, 0, 1)
-	precision := clamp(spread_cut / 0.40, 0, 1)
+	resilience := clamp(
+		(max_health - base.max_health) / max(RR_ADAPT_CARDS * CARD_HEALTH_BONUS, 1),
+		0,
+		1,
+	)
+	precision := clamp(spread_cut / max(RR_ADAPT_CARDS * CARD_SPREAD_CUT, 1), 0, 1)
 	best := offense
 	rr_adaptation = .OFFENSE
 	if mobility > best {
@@ -523,6 +965,11 @@ update_rr_adaptation :: proc() {
 		best = precision
 		rr_adaptation = .PRECISION
 	}
+	// RR's advanced tutorial forces each stance in turn so the lesson is
+	// reachable without hunting for the matching upgrade cards.
+	if a, ok := rr_tutorial_adaptation(); ok {
+		rr_adaptation = a
+	}
 }
 
 // Scale applied to whichever Adaptation bonus is active: 1 normally, larger for
@@ -534,9 +981,104 @@ rr_adapt_scale :: proc() -> f32 {
 	return 1
 }
 
+// Whether the GF-mode comfort assists are active: either the hidden Ctrl+G
+// toggle is on, or the player picked the official EASY difficulty.
+assists_on :: proc() -> bool {
+	return gf_mode || difficulty == .EASY
+}
+
+difficulty_name :: proc(d: Difficulty) -> string {
+	switch d {
+	case .EASY:
+		return "EASY"
+	case .NORMAL:
+		return "NORMAL"
+	case .HARD:
+		return "HARD"
+	}
+	return "NORMAL"
+}
+
+difficulty_desc :: proc(d: Difficulty) -> cstring {
+	switch d {
+	case .EASY:
+		return "aim assist, half damage taken"
+	case .NORMAL:
+		return "the intended experience"
+	case .HARD:
+		return "enemies hit harder and move faster"
+	}
+	return ""
+}
+
+// GF mode movement: newest direction key wins on each axis. Holding an opposite
+// pair (W+S / A+D) no longer cancels -- the more recently pressed key moves you,
+// and releasing it hands control back to the other. Different axes still add
+// together, so diagonals work exactly as before.
+gf_move_dir :: proc() -> raylib.Vector2 {
+	d := raylib.Vector2(0)
+	a := world_key_down(raylib.KeyboardKey.A)
+	dd := world_key_down(raylib.KeyboardKey.D)
+	if a && dd {
+		d.x = gf_t_d > gf_t_a ? 1 : -1
+	} else if a {
+		d.x = -1
+	} else if dd {
+		d.x = 1
+	}
+	w := world_key_down(raylib.KeyboardKey.W)
+	s := world_key_down(raylib.KeyboardKey.S)
+	if w && s {
+		d.y = gf_t_s > gf_t_w ? 1 : -1
+	} else if w {
+		d.y = -1
+	} else if s {
+		d.y = 1
+	}
+	return d
+}
+
+// GF mode aim assist: if an enemy sits inside a narrow cone of where the player
+// is aiming, snap the shot onto it. Only the shot direction is bent -- the
+// character still faces the cursor -- so it stays forgiving, not magnetic.
+gf_assist_aim :: proc(aim: raylib.Vector2) -> raylib.Vector2 {
+	pc := position + size * 0.5
+	best := aim
+	best_d := f32(GF_AIM_RANGE)
+	for e in enemies {
+		ec := e.position + e.size * 0.5
+		to := ec - pc
+		dist := raylib.Vector2Length(to)
+		if dist < 1 || dist > best_d {
+			continue
+		}
+		if raylib.Vector2Angle(aim, to) > GF_AIM_CONE {
+			continue
+		}
+		best_d = dist
+		best = raylib.Vector2Normalize(to)
+	}
+	return best
+}
+
 // The single funnel for player damage. BUD's "Guard Up" blunts hits arriving
 // from the direction he's facing (aim); RR's Resilience adaptation blunts all.
 apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
+	// Tutorial arenas are a safe sandbox: the player cannot be hurt.
+	if tutorial_mode {
+		return
+	}
+	// RR's BULWARK guard (E held): everything arriving from the front is
+	// cancelled outright. Checked first so a blocked hit costs nothing at all --
+	// the slow on his move speed is the whole price of the stance.
+	if rr_block {
+		to := from - (position + size * 0.5)
+		if raylib.Vector2Length(to) < 0.01 ||
+		   raylib.Vector2Angle(aim_dir, raylib.Vector2Normalize(to)) < RR_BLOCK_ARC {
+			block_flash = BLOCK_FLASH_TIME
+			return
+		}
+	}
 	dmg := amount
 	if character == .BUD {
 		to := from - (position + size * 0.5)
@@ -547,6 +1089,12 @@ apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
 	}
 	if character == .RR && rr_adaptation == .RESILIENCE {
 		dmg *= 1 - min(RR_ADAPT_RESILIENCE * rr_adapt_scale(), 1)
+	}
+	// Difficulty scales the hit, then the GF-mode "tougher player" assist halves
+	// whatever is left (so EASY + the Ctrl+G toggle stack as a safety net).
+	dmg *= DIFF_ENEMY_DAMAGE[int(difficulty)]
+	if assists_on() {
+		dmg *= GF_DAMAGE_MULT
 	}
 	health -= dmg
 }
@@ -620,6 +1168,10 @@ clear_run_entities :: proc() {
 	clear(&trail)
 	clear(&drops)
 	clear(&explosions)
+	clear(&damage_numbers)
+	clear(&blood)
+	shake = 0
+	shake_mag = 0
 	clear(&shop_items)
 }
 
@@ -804,7 +1356,9 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
-	spawn_enemies(enemies, wave, wave)
+	// Difficulty scales how many show up; never fewer than one.
+	num := max(i32(f32(wave)*DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
+	spawn_enemies(enemies, num, wave)
 }
 
 // Per-enemy steering. Movement is applied here; wall collision is resolved
@@ -812,6 +1366,10 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 update_enemy :: proc(e: ^enemy, dT: f32) {
 	if e.flash > 0 {
 		e.flash -= dT
+	}
+	// Practice dummies hold position and never act.
+	if e.training {
+		return
 	}
 	s := ENEMIES[e.kind]
 	pc := position + size * 0.5
@@ -822,6 +1380,12 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 	if dist > 0.01 {
 		dir = to / dist
 	}
+	// Status: a shocked enemy is stunned (holds still); a frozen one still acts
+	// but crawls. Both read the effect set ticked over in update_status.
+	if enemy_stunned(e) {
+		return
+	}
+	spd := e.speed * enemy_speed_mult(e) * DIFF_ENEMY_SPEED[int(difficulty)]
 
 	switch e.kind {
 	case .GRUNT, .TANK:
@@ -829,12 +1393,12 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		if e.elite && e.kind == .GRUNT {
 			if lure, ok := nearest_other_enemy(e, ELITE_DEVOUR_LURE); ok {
 				if d := raylib.Vector2Length(lure - ec); d > 0.01 {
-					e.position += (lure - ec) / d * e.speed * dT
+					e.position += (lure - ec) / d * spd * dT
 					break
 				}
 			}
 		}
-		e.position += dir * e.speed * dT
+		e.position += dir * spd * dT
 
 	case .RUNNER:
 		if e.elite {
@@ -853,7 +1417,7 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			} else {
 				// Stalk slowly between bursts, then let the next burst rip.
 				e.ability_timer -= dT
-				e.position += dir * e.speed * 0.30 * dT
+				e.position += dir * spd * 0.30 * dT
 				if e.ability_timer <= 0 {
 					e.elite_step = ELITE_DASH_COUNT
 					e.ability_timer = ELITE_DASH_CYCLE
@@ -863,20 +1427,20 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			// Fast, with a little zig-zag so they're harder to line up.
 			perp := raylib.Vector2{-dir.y, dir.x}
 			osc := rand.float32_range(-0.5, 0.5)
-			e.position += (dir + perp * osc) * e.speed * dT
+			e.position += (dir + perp * osc) * spd * dT
 		}
 
 	case .RANGED:
 		e.fire_cooldown -= dT
 		if dist > s.preferred_range + 50 {
-			e.position += dir * e.speed * dT
+			e.position += dir * spd * dT
 		} else if dist < s.preferred_range - 50 {
-			e.position -= dir * e.speed * dT
+			e.position -= dir * spd * dT
 		} else {
 			// Hover and strafe.
 			perp := raylib.Vector2{-dir.y, dir.x}
 			side: f32 = e.id % 2 == 0 ? 1.0 : -1.0
-			e.position += perp * e.speed * 0.7 * dT * side
+			e.position += perp * spd * 0.7 * dT * side
 		}
 		if e.fire_cooldown <= 0 && dist < s.preferred_range + 140 {
 			if e.elite {
@@ -915,7 +1479,7 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		e.state_timer -= dT
 		#partial switch e.state {
 		case .CHASE:
-			e.position += dir * e.speed * dT
+			e.position += dir * spd * dT
 			if dist < 340 {
 				e.state = .WINDUP
 				e.state_timer = 0.45
@@ -1027,6 +1591,13 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 		return .BLOCKED
 	}
 	e.hp -= amount
+	// Feedback for real number hits only (marking lights deal 0 and stay silent):
+	// a floating number, a blood spray, and a little kick to the camera.
+	if amount > 0.01 {
+		spawn_damage_number(e.position + e.size * 0.5, amount)
+		spawn_blood(e.position + e.size * 0.5, from)
+		add_shake(min(amount * 0.35, 5))
+	}
 	return .DAMAGE
 }
 
@@ -1040,6 +1611,64 @@ play_enemy_hit :: proc(result: Enemy_Hit) {
 		play(sounds.shatter, rand.float32_range(0.97, 1.03))
 	case .DAMAGE:
 		play(sounds.hit, rand.float32_range(0.9, 1.1))
+	}
+}
+
+// --- Hit feedback -----------------------------------------------------------
+
+// Queue a screen shake. The stored magnitude is the strongest pending one;
+// main.odin converts it to a camera jitter and decays it each frame.
+add_shake :: proc(mag: f32) {
+	shake_mag = max(shake_mag, mag)
+}
+
+spawn_damage_number :: proc(pos: raylib.Vector2, amount: f32) {
+	if !settings.damage_numbers || amount < 1 {
+		return
+	}
+	if len(damage_numbers) >= DAMAGE_NUMBER_MAX {
+		ordered_remove(&damage_numbers, 0)
+	}
+	append(
+		&damage_numbers,
+		damage_number {
+			pos = pos + raylib.Vector2{rand.float32_range(-8, 8), -8},
+			vel = raylib.Vector2{rand.float32_range(-16, 16), -50},
+			life = DAMAGE_NUMBER_TIME,
+			value = amount,
+			color = raylib.WHITE,
+		},
+	)
+}
+
+// A short spray of droplets thrown along the hit direction.
+spawn_blood :: proc(pos: raylib.Vector2, dir: raylib.Vector2) {
+	if !settings.blood {
+		return
+	}
+	d := dir
+	if raylib.Vector2Length(d) < 0.01 {
+		d = {1, 0}
+	} else {
+		d = raylib.Vector2Normalize(d)
+	}
+	for _ in 0 ..< 4 {
+		if len(blood) >= BLOOD_MAX {
+			ordered_remove(&blood, 0)
+		}
+		sp := raylib.Vector2Rotate(d, rand.float32_range(-0.7, 0.7)) * rand.float32_range(50, 170)
+		life := rand.float32_range(0.45, 0.9)
+		append(
+			&blood,
+			blood_drop {
+				pos = pos,
+				vel = sp,
+				life = life,
+				max_life = life,
+				size = rand.float32_range(2, 4.5),
+				color = BLOOD_COLOR,
+			},
+		)
 	}
 }
 
@@ -1063,6 +1692,135 @@ separate_enemies :: proc() {
 			}
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Status effects
+// ---------------------------------------------------------------------------
+
+// How much damage-per-second an effect deals after its power scaling. Only the
+// damage-over-time effects return anything; freeze/shock are handled elsewhere.
+status_dps :: proc(eff: Status_Effect) -> f32 {
+	base: f32
+	switch eff {
+	case .Burn:
+		base = BURN_DPS
+	case .Poison:
+		base = POISON_DPS
+	case .Freeze, .Shock:
+		base = 0
+	}
+	return base * status_power[eff]
+}
+
+// Duration of a fresh application, after power (Shock lasts longer with power)
+// and the global time multiplier.
+status_duration :: proc(eff: Status_Effect) -> f32 {
+	base: f32
+	switch eff {
+	case .Burn:
+		base = BURN_TIME
+	case .Poison:
+		base = POISON_TIME
+	case .Freeze:
+		base = FREEZE_TIME
+	case .Shock:
+		base = SHOCK_TIME * status_power[eff]
+	}
+	return base * status_time_mult
+}
+
+// Move-speed multiplier an enemy suffers from its active effects (freeze slows,
+// and stronger freeze power slows harder).
+enemy_speed_mult :: proc(e: ^enemy) -> f32 {
+	if .Freeze in e.effects {
+		return clamp(1 - (1 - FREEZE_SLOW) * status_power[.Freeze], 0.08, 1)
+	}
+	return 1
+}
+
+// A shocked enemy is briefly stunned: it neither moves nor attacks.
+enemy_stunned :: proc(e: ^enemy) -> bool {
+	return .Shock in e.effects
+}
+
+// Stamp `set` onto an enemy, refreshing each effect's timer (a re-application
+// tops it back up but never stacks beyond one timer per effect).
+apply_status :: proc(e: ^enemy, set: Status_Set) {
+	if set == {} {
+		return
+	}
+	for eff in set {
+		e.effects += {eff}
+		e.effect_timer[eff] = max(e.effect_timer[eff], status_duration(eff))
+	}
+}
+
+// Tick every enemy's active effects: drain timers, apply damage-over-time, and
+// drop expired effects. Kills from a damage-over-time effect pay out normally.
+update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
+	for i := len(enemies) - 1; i >= 0; i -= 1 {
+		e := &enemies[i]
+		if e.effects == {} {
+			continue
+		}
+		dmg: f32 = 0
+		// Iterate the enum (not the set) so removing bits is safe.
+		for eff in Status_Effect {
+			if eff not_in e.effects {
+				continue
+			}
+			e.effect_timer[eff] -= dT
+			if e.effect_timer[eff] <= 0 {
+				e.effect_timer[eff] = 0
+				e.effects -= {eff}
+				continue
+			}
+			dmg += status_dps(eff) * dT
+		}
+		if dmg > 0 {
+			// Crystal plates absorb damage-over-time too. Elemental ticks used
+			// to write hp directly and phase straight through an elite Bulwark's
+			// armor; this mirrors the plate guard in apply_enemy_damage.
+			if !(e.elite && e.kind == .TANK && e.plates > 0) {
+				e.hp -= dmg
+				if e.hp <= 0 {
+					spawn_kill_rewards(e.position, e.elite)
+					unordered_remove(enemies, i)
+				}
+			}
+		}
+	}
+}
+
+// Human-readable name for one status effect (HUD + enemy markers).
+status_name :: proc(eff: Status_Effect) -> cstring {
+	switch eff {
+	case .Burn:
+		return "BURN"
+	case .Freeze:
+		return "FREEZE"
+	case .Poison:
+		return "POISON"
+	case .Shock:
+		return "SHOCK"
+	}
+	return "?"
+}
+
+// Representative colour for one status effect (HUD dots + enemy tint markers).
+status_color :: proc(eff: Status_Effect) -> raylib.Color {
+	switch eff {
+	case .Burn:
+		return raylib.ORANGE
+	case .Freeze:
+		return raylib.SKYBLUE
+	case .Poison:
+		return raylib.LIME
+	case .Shock:
+		return raylib.YELLOW
+	}
+	return raylib.WHITE
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,6 +2000,16 @@ resolve_obstacles :: proc(pos: ^raylib.Vector2, sz: raylib.Vector2) {
 	}
 }
 
+// Keep an entity inside the arena's playable area. A committed lunge (Bud's
+// knee, Navy's stab, RR's FLURRY) can land deep inside a perimeter wall, and
+// resolve_against_rect then ejects it through the wall's *outside* edge because
+// that is the shorter overlap. Clamping back in after the shove closes that
+// hole for good.
+clamp_to_arena :: proc(pos: ^raylib.Vector2, sz: raylib.Vector2) {
+	pos.x = clamp(pos.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - sz.x)
+	pos.y = clamp(pos.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - sz.y)
+}
+
 resolve_against_rect :: proc(pos: ^raylib.Vector2, sz: raylib.Vector2, r: raylib.Rectangle) {
 	if !raylib.CheckCollisionRecs({pos.x, pos.y, sz.x, sz.y}, r) {
 		return
@@ -1287,7 +2055,17 @@ bullet_blocked_by_terrain :: proc(rect: raylib.Rectangle) -> bool {
 // chain into any other barrels caught in the blast.
 explode_at :: proc(center: raylib.Vector2) {
 	play(sounds.explosion)
-	append(&explosions, explosion{pos = center, life = EXPLOSION_TIME})
+	add_shake(9)
+	append(
+		&explosions,
+		explosion {
+			pos = center,
+			life = EXPLOSION_TIME,
+			max_life = EXPLOSION_TIME,
+			radius = EXPLOSION_RADIUS,
+			color = raylib.Color{255, 150, 40, 255},
+		},
+	)
 
 	for i := len(enemies) - 1; i >= 0; i -= 1 {
 		ec := enemies[i].position + enemies[i].size * 0.5
@@ -1305,8 +2083,9 @@ explode_at :: proc(center: raylib.Vector2) {
 	}
 
 	pc := position + size * 0.5
-	if raylib.Vector2Distance(pc, center) <= EXPLOSION_RADIUS && inv_timer <= 0 {
-		health -= EXPLOSION_DAMAGE
+	if raylib.Vector2Distance(pc, center) <= EXPLOSION_RADIUS && inv_timer <= 0 && !tutorial_mode {
+		scale := DIFF_ENEMY_DAMAGE[int(difficulty)] * (assists_on() ? GF_DAMAGE_MULT : 1)
+		health -= EXPLOSION_DAMAGE * scale
 		inv_timer = 0.5
 	}
 
@@ -1354,6 +2133,10 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // Standard rewards for killing something. Call right before removing an enemy.
 // Elites leave a guaranteed pile of coins on top of the usual rolls.
 spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
+	// Practice dummies yield nothing (and must not skew run stats).
+	if tutorial_mode {
+		return
+	}
 	count_kill(elite)
 	// Vampirism: every kill heals a little, capped by max health.
 	if lifesteal > 0 {
@@ -1385,11 +2168,11 @@ spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
 // shop's "mystery upgrade" so the two never drift apart.
 apply_upgrade :: proc(name: cstring) {
 	if name == "SPEED" {
-		SPEED = min(SPEED + 50, f32(MAX_SPEED))
+		SPEED = min(SPEED + CARD_SPEED_BONUS, f32(MAX_SPEED))
 	} else if name == "ATTACK" {
-		bonus_damage = min(bonus_damage + 1, f32(MAX_BONUS_DAMAGE))
+		bonus_damage = min(bonus_damage + CARD_ATTACK_DAMAGE, f32(MAX_BONUS_DAMAGE))
 	} else if name == "HEALTH" {
-		max_health += 25
+		max_health += CARD_HEALTH_BONUS
 		health = max_health
 	} else if name == "DASH" {
 		if dash_blink {
@@ -1400,7 +2183,7 @@ apply_upgrade :: proc(name: cstring) {
 	} else if name == "PROJECTILE" {
 		bonus_projectiles = min(bonus_projectiles + 1, MAX_BONUS_PROJECTILES)
 	} else if name == "PRECISION" {
-		spread_cut += 0.2
+		spread_cut += CARD_SPREAD_CUT
 	} else if name == "PIERCE" {
 		bonus_pierce = min(bonus_pierce + 1, MAX_BONUS_PIERCE)
 	} else if name == "MELEE" {
@@ -1428,6 +2211,24 @@ apply_upgrade :: proc(name: cstring) {
 		ammo_growth_mult = min(ammo_growth_mult * 1.25, MAX_AMMO_MULT)
 		grow_ammo(&primary, 1.25)
 		grow_ammo(&secondary, 1.25)
+	} else if name == "IGNITE" {
+		attack_effects += {.Burn}
+	} else if name == "CRYO" {
+		attack_effects += {.Freeze}
+	} else if name == "VENOM" {
+		attack_effects += {.Poison}
+	} else if name == "STATIC" {
+		attack_effects += {.Shock}
+	} else if name == "KINDLING" {
+		status_power[.Burn] = min(status_power[.Burn] + 0.5, MAX_STATUS_POWER)
+	} else if name == "DEEP FREEZE" {
+		status_power[.Freeze] = min(status_power[.Freeze] + 0.5, MAX_STATUS_POWER)
+	} else if name == "VIRULENCE" {
+		status_power[.Poison] = min(status_power[.Poison] + 0.5, MAX_STATUS_POWER)
+	} else if name == "CONDUIT" {
+		status_power[.Shock] = min(status_power[.Shock] + 0.5, MAX_STATUS_POWER)
+	} else if name == "ELEMENTALIST" {
+		status_time_mult = min(status_time_mult * 1.25, MAX_STATUS_TIME_MULT)
 	}
 }
 
@@ -1463,6 +2264,26 @@ upgrade_is_useful :: proc(name: cstring) -> bool {
 		return mag_mult < MAX_MAG_MULT
 	case "AMMO":
 		return ammo_growth_mult < MAX_AMMO_MULT
+	// Infusions are one-time (the set either has the element or not); the
+	// power/time boosters only make sense once you carry the matching element.
+	case "IGNITE":
+		return .Burn not_in attack_effects
+	case "CRYO":
+		return .Freeze not_in attack_effects
+	case "VENOM":
+		return .Poison not_in attack_effects
+	case "STATIC":
+		return .Shock not_in attack_effects
+	case "KINDLING":
+		return .Burn in attack_effects && status_power[.Burn] < MAX_STATUS_POWER
+	case "DEEP FREEZE":
+		return .Freeze in attack_effects && status_power[.Freeze] < MAX_STATUS_POWER
+	case "VIRULENCE":
+		return .Poison in attack_effects && status_power[.Poison] < MAX_STATUS_POWER
+	case "CONDUIT":
+		return .Shock in attack_effects && status_power[.Shock] < MAX_STATUS_POWER
+	case "ELEMENTALIST":
+		return attack_effects != {} && status_time_mult < MAX_STATUS_TIME_MULT
 	}
 	return true // HEALTH, DASH, etc. always have room
 }
@@ -1818,9 +2639,379 @@ draw_character_body :: proc(cs: Character_Stats, center: raylib.Vector2, half: r
 	}
 }
 
-// The player's in-world body, using the currently chosen character.
+// Map a point in the held weapon's local space (x = forward along the aim,
+// y = to the right) into world space, given the hand position and basis.
+wep_pt :: proc(hand, fwd, right: raylib.Vector2, lx, ly: f32) -> raylib.Vector2 {
+	return hand + fwd * lx + right * ly
+}
+
+// Draw the held gun. Each look is built from a few lines and circles so no two
+// weapons read alike; a live `muzzle_flash` adds the flash at the barrel.
+draw_held_gun :: proc(look: Weapon_Look) {
+	fwd := aim_dir
+	if raylib.Vector2Length(fwd) < 0.01 {
+		fwd = {1, 0}
+	}
+	fwd = raylib.Vector2Normalize(fwd)
+	right := raylib.Vector2{-fwd.y, fwd.x}
+	hand := position + size * 0.5 + fwd * (size.x * 0.28)
+
+	metal := raylib.Color{104, 112, 128, 255}
+	steel := raylib.Color{68, 74, 86, 255}
+	dark := raylib.Color{34, 38, 48, 255}
+	wood := raylib.Color{126, 84, 48, 255}
+	firing := muzzle_flash > 0
+
+	// Guns only; melee looks never reach here (melee draws via draw_melee_model).
+	#partial switch look {
+	case .PISTOL, .AUTO:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 0), wep_pt(hand, fwd, right, 17, 0), 6, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 2), wep_pt(hand, fwd, right, 2, 11), 7, dark)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 18, 0), 6, raylib.GOLD)
+		}
+	case .REVOLVER:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 0), wep_pt(hand, fwd, right, 19, 0), 6, metal)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 8, 0), 6, dark)
+		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 8, 0), 6, steel)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 2), wep_pt(hand, fwd, right, 2, 12), 7, wood)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 20, 0), 6, raylib.GOLD)
+		}
+	case .DUAL:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, -5), wep_pt(hand, fwd, right, 15, -5), 5, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 5), wep_pt(hand, fwd, right, 15, 5), 5, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, -3), wep_pt(hand, fwd, right, 2, -11), 6, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 3), wep_pt(hand, fwd, right, 2, 11), 6, dark)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 16, -5), 4, raylib.GOLD)
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 16, 5), 4, raylib.GOLD)
+		}
+	case .SMG:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 15, 0), 9, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 15, 0), wep_pt(hand, fwd, right, 23, 0), 4, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 12, 4), wep_pt(hand, fwd, right, 10, 14), 5, steel)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 4), wep_pt(hand, fwd, right, 2, 12), 6, dark)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 24, 0), 4, raylib.GOLD)
+		}
+	case .RIFLE:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 2), wep_pt(hand, fwd, right, 2, 2), 7, wood)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 22, 0), 6, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 22, 0), wep_pt(hand, fwd, right, 33, 0), 3, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 14, 4), wep_pt(hand, fwd, right, 12, 14), 5, steel)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 34, 0), 4, raylib.GOLD)
+		}
+	case .SHOTGUN:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 2), wep_pt(hand, fwd, right, 2, 2), 8, wood)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 0), wep_pt(hand, fwd, right, 29, 0), 8, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 5), wep_pt(hand, fwd, right, 22, 5), 9, wood)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 30, 0), 7, raylib.GOLD)
+		}
+	case .MINIGUN:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 13, 0), 14, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, -5), wep_pt(hand, fwd, right, 31, -5), 3, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 0), wep_pt(hand, fwd, right, 32, 0), 3, metal)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 5), wep_pt(hand, fwd, right, 31, 5), 3, metal)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 32, 0), 5, raylib.GOLD)
+		}
+	case .CANNON:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 17, 0), 18, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 17, 0), wep_pt(hand, fwd, right, 27, 0), 14, steel)
+		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 27, 0), 8, metal)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 29, 0), 10, raylib.GOLD)
+		}
+	case .SNIPER:
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -12, 2), wep_pt(hand, fwd, right, 2, 2), 7, wood)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, 0), wep_pt(hand, fwd, right, 20, 0), 6, dark)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 20, 0), wep_pt(hand, fwd, right, 42, 0), 3, metal)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 13, -7), 5, dark)
+		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 13, -7), 5, steel)
+		if firing {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 43, 0), 4, raylib.GOLD)
+		}
+	}
+}
+
+// Shared material palette for the melee models. Guns keep their own colour
+// locals, but every hand-built melee weapon pulls from here so they all read as
+// the same set. `WEAPON_OUTLINE` is the dark stamp laid behind held/worn weapons
+// so they still show on the brighter arenas, the way a character's outline does.
+WEAPON_OUTLINE :: raylib.Color{18, 18, 24, 255}
+WEAPON_GRIP :: raylib.Color{70, 74, 84, 255}
+WEAPON_METAL :: raylib.Color{104, 112, 128, 255}
+WEAPON_STEEL :: raylib.Color{68, 74, 86, 255}
+WEAPON_DARK :: raylib.Color{34, 38, 48, 255}
+WEAPON_WOOD :: raylib.Color{126, 84, 48, 255}
+
+// Draw one melee weapon model at `hand`, pointing along `fwd` with `right`
+// perpendicular. `stats.flash_color` is the weapon's accent (blade steel, claw
+// glow, ...). Shared by the held weapon and the signature worn on the back, so
+// a given weapon always looks the same wherever it appears. A weapon with no
+// explicit `look` falls back to the shape-driven stick below.
+draw_melee_model :: proc(
+	look: Weapon_Look,
+	stats: Weapon_Stats,
+	hand, fwd, right: raylib.Vector2,
+) {
+	col := stats.flash_color
+	ang := math.atan2_f32(fwd.y, fwd.x) * raylib.RAD2DEG
+	#partial switch look {
+	case .DAGGER:
+		// Short blade: pommel, wrapped grip, crossguard, tapered point.
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -9, 0), wep_pt(hand, fwd, right, 0, 0), 6, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -8, 0), wep_pt(hand, fwd, right, 1, 0), 4, WEAPON_GRIP)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -6), wep_pt(hand, fwd, right, 0, 6), 4, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -5), wep_pt(hand, fwd, right, 0, 5), 2, WEAPON_METAL)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 19, 0), 9, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 19, 0), 5, col)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 3, 1.5),
+			wep_pt(hand, fwd, right, 18, 1.5),
+			1,
+			raylib.WHITE,
+		)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 20, 0), 3.5, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 20, 0), 2.5, col)
+	case .SPEAR:
+		// Long shaft with a leaf head; the shaft scales with reach.
+		l := clamp(stats.reach * 0.30, f32(26), f32(54))
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -l * 0.5, 0), wep_pt(hand, fwd, right, l * 0.5, 0), 5, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -l * 0.45, 0), wep_pt(hand, fwd, right, l * 0.5, 0), 3, WEAPON_WOOD)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, -l * 0.5, 0), 3, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, -l * 0.5, 0), 2, WEAPON_METAL)
+		head := wep_pt(hand, fwd, right, l * 0.5, 0)
+		mid := wep_pt(hand, fwd, right, l * 0.5 + 5, 0)
+		tip := wep_pt(hand, fwd, right, l * 0.5 + 14, 0)
+		raylib.DrawLineEx(head, tip, 9, WEAPON_OUTLINE)
+		raylib.DrawCircleV(mid, 6, WEAPON_OUTLINE)
+		raylib.DrawLineEx(head, tip, 5, col)
+		raylib.DrawCircleV(mid, 5, col)
+		raylib.DrawCircleV(tip, 2.5, col)
+	case .BATON:
+		// Rounded baton: a wrapped grip and a weighted head.
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, 14, 0), 9, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 0), wep_pt(hand, fwd, right, 14, 0), 6, WEAPON_DARK)
+		for k in 0 ..< 3 {
+			x := -9 + f32(k) * 3
+			raylib.DrawLineEx(wep_pt(hand, fwd, right, x, -3), wep_pt(hand, fwd, right, x, 3), 2, WEAPON_STEEL)
+		}
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 17, 0), 8, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 17, 0), 6, WEAPON_METAL)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 17, 0), 2.5, col)
+	case .HAMMER:
+		// Wooden haft with a blocky steel head across the tip.
+		l := clamp(stats.reach * 0.20, f32(12), f32(18))
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -12, 0), wep_pt(hand, fwd, right, l, 0), 8, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, l, 0), 5, WEAPON_WOOD)
+		head := wep_pt(hand, fwd, right, l + 3, 0)
+		hw, hh := f32(11), f32(26)
+		raylib.DrawRectanglePro(
+			raylib.Rectangle{head.x, head.y, hw, hh},
+			{hw * 0.5, hh * 0.5},
+			ang,
+			WEAPON_OUTLINE,
+		)
+		iw, ih := f32(8), f32(22)
+		raylib.DrawRectanglePro(
+			raylib.Rectangle{head.x, head.y, iw, ih},
+			{iw * 0.5, ih * 0.5},
+			ang,
+			WEAPON_STEEL,
+		)
+		// Bright striking face on the leading edge.
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, l + 8, -10),
+			wep_pt(hand, fwd, right, l + 8, 10),
+			3,
+			col,
+		)
+	case .BLADE:
+		// RR's Vector Edge: a long tech blade with an energy node.
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, 0, 0), 6, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 0), wep_pt(hand, fwd, right, 1, 0), 4, WEAPON_GRIP)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -8), wep_pt(hand, fwd, right, 0, 8), 5, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -7), wep_pt(hand, fwd, right, 0, 7), 3, WEAPON_METAL)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 4, 0), 3.5, col)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 4, 0), 1.5, raylib.WHITE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 29, 0), 10, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 29, 0), 6, col)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 3, 2), wep_pt(hand, fwd, right, 28, 2), 1.5, raylib.WHITE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 31, 0), 3.5, col)
+	case .CLAWS:
+		// Three phase prongs off a palm plate.
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, -1, 0), 7, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, -1, 0), 5, WEAPON_DARK)
+		for k in -1 ..= 1 {
+			base := wep_pt(hand, fwd, right, 2, f32(k) * 3)
+			tip := wep_pt(hand, fwd, right, 17, f32(k) * 6)
+			raylib.DrawLineEx(base, tip, 5, WEAPON_OUTLINE)
+			raylib.DrawLineEx(base, tip, 3, col)
+			raylib.DrawCircleV(tip, 2, col)
+		}
+	case .BAYONET:
+		// A rifle body with a long blade fixed under the muzzle.
+		l := clamp(stats.reach * 0.24, f32(20), f32(32))
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -14, 2), wep_pt(hand, fwd, right, -5, 2), 7, WEAPON_WOOD)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -14, 0), wep_pt(hand, fwd, right, 10, 0), 8, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -13, 0), wep_pt(hand, fwd, right, 10, 0), 5, WEAPON_DARK)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 4), wep_pt(hand, fwd, right, 0, 12), 5, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 4), wep_pt(hand, fwd, right, 1, 11), 3, WEAPON_STEEL)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 9, 0), wep_pt(hand, fwd, right, l, 0), 6, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 9, 0), wep_pt(hand, fwd, right, l, 0), 3, col)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, l + 1, 0), 2.5, col)
+	case .FISTS:
+		// A closed fist with three metal knuckles and a wrist wrap.
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 3, 0), 7, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 3, 0), 6, WEAPON_GRIP)
+		for k in -1 ..= 1 {
+			raylib.DrawCircleV(wep_pt(hand, fwd, right, 8, f32(k) * 3.2), 2, WEAPON_METAL)
+		}
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -4, -5), wep_pt(hand, fwd, right, -4, 5), 4, col)
+	case .BOOT:
+		// A boot: shin, rounded foot, and a sole edge.
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -9, 0), wep_pt(hand, fwd, right, 4, 0), 9, WEAPON_OUTLINE)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, -8, 0), wep_pt(hand, fwd, right, 4, 0), 6, WEAPON_DARK)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 7, 0), 6, WEAPON_OUTLINE)
+		raylib.DrawCircleV(wep_pt(hand, fwd, right, 7, 0), 5, WEAPON_DARK)
+		raylib.DrawLineEx(wep_pt(hand, fwd, right, 3, 4), wep_pt(hand, fwd, right, 11, 4), 2, WEAPON_STEEL)
+	case:
+		draw_melee_generic(stats, hand, fwd, right)
+	}
+}
+
+// Fallback silhouette built from the swing geometry (shape/reach/arc), used for
+// a melee weapon that has no explicit `look`.
+draw_melee_generic :: proc(stats: Weapon_Stats, hand, fwd, right: raylib.Vector2) {
+	switch stats.shape {
+	case .THRUST:
+		// A slim blade. `arc` is the swing's half-width, not the blade's, so the
+		// visual stays knife-thin instead of ballooning into a plank.
+		halfw := clamp(1 + stats.arc * 0.25, f32(2), f32(4.5))
+		blade := hand + fwd * (stats.reach * 0.62)
+		raylib.DrawLineEx(hand, hand - fwd * 8, 5, WEAPON_GRIP)
+		raylib.DrawLineEx(hand - right * (halfw + 3), hand + right * (halfw + 3), 3, WEAPON_GRIP)
+		raylib.DrawLineEx(hand, blade + fwd * 2, halfw * 2 + 2, WEAPON_OUTLINE)
+		raylib.DrawLineEx(hand, blade + fwd * 2, halfw * 2, stats.flash_color)
+		raylib.DrawLineEx(
+			hand + right * halfw * 0.45,
+			blade,
+			max(f32(1), halfw * 0.5),
+			raylib.WHITE,
+		)
+		raylib.DrawCircleV(blade, halfw, stats.flash_color)
+	case .SECTOR:
+		// A weighted baton: short haft with a round head.
+		head := hand + fwd * (stats.reach * 0.48)
+		r := clamp(6 + stats.arc * 10, f32(9), f32(18))
+		raylib.DrawLineEx(hand, head, 12, WEAPON_OUTLINE)
+		raylib.DrawLineEx(hand, head, 7, WEAPON_GRIP)
+		raylib.DrawCircleV(head, r + 3, WEAPON_OUTLINE)
+		raylib.DrawCircleV(head, r, stats.flash_color)
+	case .BLAST:
+		// A hammer: haft with a heavy head.
+		head := hand + fwd * (stats.reach * 0.52)
+		r := clamp(stats.arc * 0.5, f32(10), f32(26))
+		raylib.DrawLineEx(hand, head, 12, WEAPON_OUTLINE)
+		raylib.DrawLineEx(hand, head, 6, WEAPON_GRIP)
+		raylib.DrawCircleV(head, r + 4, WEAPON_OUTLINE)
+		raylib.DrawCircleV(head, r, stats.flash_color)
+		raylib.DrawCircleLinesV(head, r, raylib.WHITE)
+	}
+}
+
+// Draw the melee weapon held in the active slot. Pool weapons carry their own
+// `look`; on the signature slot every combo step shares the character's model,
+// while the stats still come from the armed combo step so a charged strike
+// reads.
+draw_held_melee :: proc(ws: Weapon_Stats) {
+	fwd := aim_dir
+	if raylib.Vector2Length(fwd) < 0.01 {
+		fwd = {1, 0}
+	}
+	fwd = raylib.Vector2Normalize(fwd)
+	right := raylib.Vector2{-fwd.y, fwd.x}
+	hand := position + size * 0.5 + fwd * (size.x * 0.34)
+	look := ws.look
+	if active_slot == SLOT_SIGNATURE {
+		look = SIGNATURE_LOOK[character]
+	}
+	draw_melee_model(look, ws, hand, fwd, right)
+}
+
+// The character's signature weapon, worn across the back whenever it is not the
+// slot in hand, so your melee weapon is always visible on the body. It reuses
+// the same model the held weapon draws with. Bud's "weapon" is his own hands, so
+// his gloves ride at the hips instead of on his back.
+draw_worn_signature :: proc() {
+	sig := signature_at(0)
+	pc := position + size * 0.5
+	look := SIGNATURE_LOOK[character]
+	if look == .FISTS {
+		for k in 0 ..< 2 {
+			side := f32(k) * 2 - 1
+			hand := pc + raylib.Vector2{side * size.x * 0.62, size.y * 0.18}
+			dir := raylib.Vector2{side, 0}
+			draw_melee_model(.FISTS, sig, hand, dir, raylib.Vector2{-dir.y, dir.x})
+		}
+		return
+	}
+	// Laid diagonally over the shoulder; the body stamps over the middle, so
+	// only the ends stick out.
+	tilt := raylib.Vector2Normalize({0.72, -0.7})
+	right := raylib.Vector2{-tilt.y, tilt.x}
+	hand := pc - tilt * (size.x * 0.35)
+	draw_melee_model(look, sig, hand, tilt, right)
+}
+
+// Draw the weapon currently in the active slot (gun or melee).
+draw_held_weapon :: proc() {
+	ws := active_stats()
+	if ws.class == .MELEE {
+		draw_held_melee(ws)
+	} else {
+		draw_held_gun(ws.look)
+	}
+}
+
+// The player's in-world body, using the currently chosen character. The
+// signature weapon rides on the back while the slot in hand is a gun or a
+// picked-up melee, and comes forward when the signature slot is active.
 draw_player :: proc() {
+	// RR's BULWARK guard is drawn first so the body stamps over its centre and
+	// only the front rim reads as a shield. It flares white on a cancelled hit.
+	if rr_block || block_flash > 0 {
+		pc := position + size * 0.5
+		a := math.atan2_f32(aim_dir.y, aim_dir.x) * raylib.RAD2DEG
+		deg := f32(RR_BLOCK_ARC * raylib.RAD2DEG)
+		t := clamp(block_flash / BLOCK_FLASH_TIME, 0, 1)
+		r := size.x * 1.25
+		raylib.DrawCircleSector(
+			pc,
+			r,
+			a - deg,
+			a + deg,
+			16,
+			raylib.Color{120, 200, 255, u8(120 + 100 * t)},
+		)
+		raylib.DrawCircleSectorLines(
+			pc,
+			r,
+			a - deg,
+			a + deg,
+			16,
+			raylib.Color{190, 235, 255, u8(160 + 95 * t)},
+		)
+	}
+	if active_slot != SLOT_SIGNATURE {
+		draw_worn_signature()
+	}
 	draw_character_body(CHARACTERS[character], position + size * 0.5, size * 0.5)
+	draw_held_weapon()
 }
 
 // A small character portrait for the select screen.

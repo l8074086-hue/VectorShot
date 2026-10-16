@@ -30,3 +30,24 @@ x 2026-10-15 2026-10-15 Add Bud's Fists combo melee (jab/hook/elbow) +roguelike 
 x 2026-10-15 2026-10-15 Add character/dash synergies (Tracer+Slide, Bud+Impact) +roguelike @combat @balance
 x 2026-10-15 2026-10-15 Add Navy+Blink and RR+Burst dash synergies +roguelike @combat @balance
 x 2026-10-15 2026-10-15 Add melee/shop upgrades and expand the card pool +roguelike @shop @items @combat
+x 2026-10-16 2026-10-16 Add signature weapons for RR/Tracer/Navy (blade/claws/bayonet) +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Add Bud's flying-knee 4th combo strike with charge-up +roguelike @combat @characters
+x 2026-10-14 2026-10-16 Add status effects (burn/freeze/poison/shock) + infusion cards/perks +roguelike @combat @content
+x 2026-10-16 2026-10-16 Give melee weapons custom models (knife/spear/baton/hammer/boot/signatures) +roguelike @combat @art
+x 2026-10-16 2026-10-16 Make RR's Vector Edge reshape to his Adaptation (4 distinct ladders) +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Give RR's Vector Edge form-specific E moves (BULWARK guard / NEEDLE blink) +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Even RR's Adaptation trigger cost across all four modes +roguelike @balance @characters
+x 2026-10-16 2026-10-16 Make RR's surged finisher throw blade winds +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Give Tracer's Phase Claws a Phase Mark / Rend detonate mechanic +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Give Navy's Bayonet a muzzle-thrust volley finisher +roguelike @combat @characters
+x 2026-10-16 2026-10-16 Add a hidden GF mode (Ctrl+G): newest-key-wins movement + aim assist + half damage +roguelike @input @accessibility
+x 2026-10-16 2026-10-16 Add difficulty levels (Easy/Normal/Hard) with a select screen +roguelike @systems @main-menu @accessibility
+x 2026-10-16 2026-10-16 Add a settings panel (volume/mute, fullscreen, difficulty, assists, FPS, damage numbers, shake, blood, control scheme) +roguelike @ui @accessibility
+x 2026-10-16 2026-10-16 Persist settings to settings.cfg (load on start, save on change) +roguelike @ui @systems
+x 2026-10-16 2026-10-16 Make every menu mouse-interactable (main/difficulty/skill/shop/cards/results/tutorial) +roguelike @ui @input
+x 2026-10-16 2026-10-16 Bind LMB to fire and RMB to the E action (kick/guard/needle) +roguelike @input @combat
+x 2026-10-16 2026-10-16 Add Basic/Medium/Advanced tutorials in a safe practice arena +roguelike @ui @content
+x 2026-10-16 2026-10-16 Add floating damage numbers +roguelike @ui @combat
+x 2026-10-16 2026-10-16 Add screen shake with an intensity slider +roguelike @polish @accessibility
+x 2026-10-16 2026-10-16 Add blood spray on enemy hits +roguelike @polish @combat
+x 2026-10-16 2026-10-16 Add a master volume / mute option +roguelike @sounds @ui
