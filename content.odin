@@ -952,7 +952,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{196, 134, 78, 255},
 		.PEBBLE,
 		{178, 128, 84, 255},
-		.NONE,
+		.DUST,
 	},
 	.RUINS     = {
 		"RUINS",
@@ -988,7 +988,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{168, 96, 56, 255},
 		.EMBER,
 		{255, 150, 60, 255},
-		.NONE,
+		.ASH,
 	},
 	.FOREST    = {
 		"FOREST",
@@ -1012,7 +1012,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{44, 58, 40, 255},
 		.PEBBLE,
 		{96, 118, 82, 255},
-		.NONE,
+		.RAIN,
 	},
 }
 

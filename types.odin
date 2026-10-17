@@ -346,14 +346,18 @@ Arena_Kind :: enum {
 
 // Ambient sky weather for an arena. Drawn as a screen-space foreground overlay on
 // top of the game, so it reads as "falling from the sky" over the top-down view.
+// Each kind uses the same particle pool but different drift, size and colour.
 Weather_Kind :: enum {
 	NONE,
-	SNOW,
+	SNOW, // slow drifting white flakes
+	RAIN, // fast vertical streaks
+	ASH,  // slow drifting hot embers
+	DUST, // fast horizontal grit
 }
 
-// One falling snow particle. Positions are in screen space and wrap around, so
+// One ambient weather particle. Positions are in screen space and wrap around, so
 // the field is cheap and endless.
-snowflake :: struct {
+weather_particle :: struct {
 	pos:  raylib.Vector2,
 	vel:  raylib.Vector2,
 	size: f32,
@@ -564,6 +568,42 @@ Run_Stats :: struct {
 	bonus_damage:  f32, // starts the ATTACK bonus above zero
 	spread_cut:    f32, // starts the PRECISION bonus above zero
 	ammo_mult:     f32, // scales both weapons' reserve capacity (1.0 = normal)
+}
+
+// Serialized run state for save & resume. Written to run_save.cfg each time a
+// wave is cleared, and restored into a freshly-built run to continue. Live
+// entities (enemies/drops/bullets) aren't serialized: resume lands on the
+// between-waves boundary, right where the card reward or shop appears.
+Run_Save :: struct {
+	character:         Character,
+	primary:           Gun,
+	secondary:         Secondary,
+	dash:              Dash_Kind,
+	utility:           Utility,
+	arena:             Arena_Kind,
+	active_mission:    int,
+	mission_cleared:   bool,
+	wave:              i32,
+	health:            f32,
+	max_health:        f32,
+	currency:          i32,
+	speed:             f32,
+	bonus_damage:      f32,
+	bonus_projectiles: i32,
+	bonus_pierce:      i32,
+	spread_cut:        f32,
+	bonus_melee_damage: f32,
+	bonus_melee_knock:  f32,
+	lifesteal:         f32,
+	mag_mult:          f32,
+	ammo_mult:         f32,
+	ammo_growth_mult:  f32,
+	melee_speed_mult:  f32,
+	melee_range_mult:  f32,
+	card_choices:      int,
+	status_time_mult:  f32,
+	attack_effects:    u32,    // Status_Set bitmask
+	status_power:      [4]f32, // per-Status_Effect power
 }
 
 // Snapshot of a finished run, shown on the results screen. Captured at death so

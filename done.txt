@@ -67,3 +67,4 @@ x 2026-10-17 2026-10-17 Cool GLACIER to blue-grey palette + add falling-snow wea
 x 2026-10-17 2026-10-17 Clip falling snow to the canvas; move character/passive name+bar into the left letterbox bar to free canvas space (4:3 fallback) +roguelike @ui @fx @hud
 x 2026-10-17 2026-10-17 Sidebar HUD (char/passive/on-hit) auto-fits the letterbox bar; on-hit effects stacked vertically +roguelike @ui @hud
 x 2026-10-17 2026-10-17 Mirror held gun/melee frame when aiming left so weapons arent upside down +roguelike @ui @combat
+x 2026-10-17 2026-10-17 Weather variety per arena (snow/rain/ash/dust), auto-pause+mute on focus loss, and save&resume (checkpoint each wave, CONTINUE on menu) +roguelike @maps @fx @systems @ui

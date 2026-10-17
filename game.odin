@@ -1,6 +1,10 @@
 package main
+import "core:fmt"
 import "core:math"
 import "core:math/rand"
+import "core:os"
+import "core:strconv"
+import "core:strings"
 import "vendor:raylib"
 
 // ---------------------------------------------------------------------------
@@ -261,6 +265,10 @@ mission_sel: int = 0 // grid cursor on the Mission Control screen
 // world is frozen and the panel is drawn as an overlay over the last frame.
 ingame_panel_open: bool = false
 ingame_panel_sel: int = 0
+// Auto-pause while the window is unfocused during a run; also drives a temporary
+// audio mute so alt-tabbing away never leaves sound playing.
+auto_paused: bool = false
+audio_muted_here: bool = false
 quit_requested: bool = false
 
 // Tutorial state. The select screen picks a tier (and a character for the
@@ -391,10 +399,10 @@ utility: Utility = .VITALITY
 currency: i32 = 0
 arena: Arena_Kind = .GRASSLAND
 
-// Ambient falling snow (screen space), enabled per-arena via ARENAS[].weather.
-// Snowflakes drift down and wrap, so the field is cheap and endless.
-SNOW_COUNT :: 120
-snow: [dynamic]snowflake
+// Ambient weather particles (screen space), enabled per-arena via
+// ARENAS[].weather. Snow/rain/ash/dust drift and wrap, so the field is cheap and
+// endless.
+weather: [dynamic]weather_particle
 
 // Active mission ("level") for this run. -1 means an ordinary endless run with no
 // objective. Set by the Mission Control screen and on START RUN; read by the HUD,
@@ -1355,8 +1363,292 @@ clear_run_entities :: proc() {
 
 // Tear the run down and return to the main menu (used on death).
 end_run :: proc() {
+	clear_run_save() // a finished run leaves nothing to continue
 	clear_run_entities()
 	state = .MAIN_MENU
+}
+
+// ---------------------------------------------------------------------------
+// Save & resume
+// ---------------------------------------------------------------------------
+//
+// The run is checkpointed to run_save.cfg every time a wave is cleared, i.e. on
+// the between-waves boundary where the card reward or shop appears. Continue
+// restores the loadout + accumulated upgrades + wave/health/currency and drops
+// you right back at that boundary. Dying (end_run) deletes the save, so a lost
+// run is lost -- quitting or crashing mid-run is what save & resume is for.
+
+// Serialize the player's on-hit status set as a bitmask. A tiny bit_set has a
+// compiler-chosen backing integer, so go through explicit membership tests rather
+// than transmuting.
+attack_effects_to_u32 :: proc() -> u32 {
+	r: u32 = 0
+	for eff in Status_Effect {
+		if eff in attack_effects {
+			r |= 1 << u32(int(eff))
+		}
+	}
+	return r
+}
+attack_effects_from_u32 :: proc(v: u32) {
+	attack_effects = {}
+	for eff in Status_Effect {
+		if v & (1 << u32(int(eff))) != 0 {
+			attack_effects += {eff}
+		}
+	}
+}
+
+RUN_SAVE_PATH :: "run_save.cfg"
+
+// Capture the current run into a Run_Save.
+capture_run_save :: proc() -> Run_Save {
+	rs := Run_Save {
+		character          = character,
+		primary            = gun,
+		secondary          = secondary_kind,
+		dash               = dash_kind,
+		utility            = utility,
+		arena              = arena,
+		active_mission     = active_mission,
+		mission_cleared    = mission_cleared_this_run,
+		wave               = wave,
+		health             = health,
+		max_health         = max_health,
+		currency           = currency,
+		speed              = SPEED,
+		bonus_damage       = bonus_damage,
+		bonus_projectiles  = bonus_projectiles,
+		bonus_pierce       = bonus_pierce,
+		spread_cut         = spread_cut,
+		bonus_melee_damage = bonus_melee_damage,
+		bonus_melee_knock  = bonus_melee_knock,
+		lifesteal          = lifesteal,
+		mag_mult           = mag_mult,
+		ammo_mult          = ammo_mult,
+		ammo_growth_mult   = ammo_growth_mult,
+		melee_speed_mult   = melee_speed_mult,
+		melee_range_mult   = melee_range_mult,
+		card_choices       = card_choices,
+		status_time_mult   = status_time_mult,
+		attack_effects     = attack_effects_to_u32(),
+	}
+	for eff in Status_Effect {
+		rs.status_power[int(eff)] = status_power[eff]
+	}
+	return rs
+}
+
+// Write the current run to disk (checkpoint).
+save_run :: proc() {
+	rs := capture_run_save()
+	sb: strings.Builder
+	strings.builder_init(&sb)
+	defer strings.builder_destroy(&sb)
+	fmt.sbprintf(&sb, "character=%i\n", i32(int(rs.character)))
+	fmt.sbprintf(&sb, "primary=%i\n", i32(int(rs.primary)))
+	fmt.sbprintf(&sb, "secondary=%i\n", i32(int(rs.secondary)))
+	fmt.sbprintf(&sb, "dash=%i\n", i32(int(rs.dash)))
+	fmt.sbprintf(&sb, "utility=%i\n", i32(int(rs.utility)))
+	fmt.sbprintf(&sb, "arena=%i\n", i32(int(rs.arena)))
+	fmt.sbprintf(&sb, "active_mission=%i\n", rs.active_mission)
+	fmt.sbprintf(&sb, "mission_cleared=%v\n", rs.mission_cleared)
+	fmt.sbprintf(&sb, "wave=%i\n", rs.wave)
+	fmt.sbprintf(&sb, "health=%.2f\n", rs.health)
+	fmt.sbprintf(&sb, "max_health=%.2f\n", rs.max_health)
+	fmt.sbprintf(&sb, "currency=%i\n", rs.currency)
+	fmt.sbprintf(&sb, "speed=%.2f\n", rs.speed)
+	fmt.sbprintf(&sb, "bonus_damage=%.3f\n", rs.bonus_damage)
+	fmt.sbprintf(&sb, "bonus_projectiles=%i\n", rs.bonus_projectiles)
+	fmt.sbprintf(&sb, "bonus_pierce=%i\n", rs.bonus_pierce)
+	fmt.sbprintf(&sb, "spread_cut=%.3f\n", rs.spread_cut)
+	fmt.sbprintf(&sb, "bonus_melee_damage=%.3f\n", rs.bonus_melee_damage)
+	fmt.sbprintf(&sb, "bonus_melee_knock=%.3f\n", rs.bonus_melee_knock)
+	fmt.sbprintf(&sb, "lifesteal=%.3f\n", rs.lifesteal)
+	fmt.sbprintf(&sb, "mag_mult=%.3f\n", rs.mag_mult)
+	fmt.sbprintf(&sb, "ammo_mult=%.3f\n", rs.ammo_mult)
+	fmt.sbprintf(&sb, "ammo_growth_mult=%.3f\n", rs.ammo_growth_mult)
+	fmt.sbprintf(&sb, "melee_speed_mult=%.3f\n", rs.melee_speed_mult)
+	fmt.sbprintf(&sb, "melee_range_mult=%.3f\n", rs.melee_range_mult)
+	fmt.sbprintf(&sb, "card_choices=%i\n", rs.card_choices)
+	fmt.sbprintf(&sb, "status_time_mult=%.3f\n", rs.status_time_mult)
+	fmt.sbprintf(&sb, "attack_effects=%i\n", i32(rs.attack_effects))
+	for i in 0 ..< 4 {
+		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
+	}
+	_ = os.write_entire_file(RUN_SAVE_PATH, strings.to_string(sb))
+	run_save_present = true
+}
+
+parse_run_f32 :: proc(s: string, fallback: f32) -> f32 {
+	if v, ok := strconv.parse_f32(s); ok {
+		return v
+	}
+	return fallback
+}
+parse_run_i32 :: proc(s: string, fallback: i32) -> i32 {
+	if v, ok := strconv.parse_i64(s); ok {
+		return i32(v)
+	}
+	return fallback
+}
+
+// Read the saved run (if any). Returns ok=false when there's no readable save.
+load_run :: proc() -> (rs: Run_Save, ok: bool) {
+	data, err := os.read_entire_file_from_path(RUN_SAVE_PATH, context.allocator)
+	if err != nil {
+		return
+	}
+	defer delete(data)
+	seen := false
+	for line in strings.split_lines(string(data), context.temp_allocator) {
+		l := strings.trim_space(line)
+		if len(l) == 0 || l[0] == '#' {
+			continue
+		}
+		parts := strings.split_n(l, "=", 2, context.temp_allocator)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.trim_space(parts[0])
+		val := strings.trim_space(parts[1])
+		switch key {
+		case "character":
+			rs.character = Character(int(parse_run_i32(val, i32(int(rs.character)))))
+		case "primary":
+			rs.primary = Gun(int(parse_run_i32(val, i32(int(rs.primary)))))
+		case "secondary":
+			rs.secondary = Secondary(int(parse_run_i32(val, i32(int(rs.secondary)))))
+		case "dash":
+			rs.dash = Dash_Kind(int(parse_run_i32(val, i32(int(rs.dash)))))
+		case "utility":
+			rs.utility = Utility(int(parse_run_i32(val, i32(int(rs.utility)))))
+		case "arena":
+			rs.arena = Arena_Kind(int(parse_run_i32(val, i32(int(rs.arena)))))
+		case "active_mission":
+			rs.active_mission = int(parse_run_i32(val, i32(rs.active_mission)))
+		case "mission_cleared":
+			rs.mission_cleared = parse_bool(val, rs.mission_cleared)
+		case "wave":
+			rs.wave = parse_run_i32(val, rs.wave)
+		case "health":
+			rs.health = parse_run_f32(val, rs.health)
+		case "max_health":
+			rs.max_health = parse_run_f32(val, rs.max_health)
+		case "currency":
+			rs.currency = parse_run_i32(val, rs.currency)
+		case "speed":
+			rs.speed = parse_run_f32(val, rs.speed)
+		case "bonus_damage":
+			rs.bonus_damage = parse_run_f32(val, rs.bonus_damage)
+		case "bonus_projectiles":
+			rs.bonus_projectiles = parse_run_i32(val, rs.bonus_projectiles)
+		case "bonus_pierce":
+			rs.bonus_pierce = parse_run_i32(val, rs.bonus_pierce)
+		case "spread_cut":
+			rs.spread_cut = parse_run_f32(val, rs.spread_cut)
+		case "bonus_melee_damage":
+			rs.bonus_melee_damage = parse_run_f32(val, rs.bonus_melee_damage)
+		case "bonus_melee_knock":
+			rs.bonus_melee_knock = parse_run_f32(val, rs.bonus_melee_knock)
+		case "lifesteal":
+			rs.lifesteal = parse_run_f32(val, rs.lifesteal)
+		case "mag_mult":
+			rs.mag_mult = parse_run_f32(val, rs.mag_mult)
+		case "ammo_mult":
+			rs.ammo_mult = parse_run_f32(val, rs.ammo_mult)
+		case "ammo_growth_mult":
+			rs.ammo_growth_mult = parse_run_f32(val, rs.ammo_growth_mult)
+		case "melee_speed_mult":
+			rs.melee_speed_mult = parse_run_f32(val, rs.melee_speed_mult)
+		case "melee_range_mult":
+			rs.melee_range_mult = parse_run_f32(val, rs.melee_range_mult)
+		case "card_choices":
+			rs.card_choices = int(parse_run_i32(val, i32(rs.card_choices)))
+		case "status_time_mult":
+			rs.status_time_mult = parse_run_f32(val, rs.status_time_mult)
+		case "attack_effects":
+			rs.attack_effects = u32(parse_run_i32(val, i32(rs.attack_effects)))
+		case:
+			if len(key) > 13 && key[:13] == "status_power_" {
+				i := parse_run_i32(key[13:], -1)
+				if i >= 0 && i < 4 {
+					rs.status_power[i] = parse_run_f32(val, rs.status_power[i])
+				}
+			}
+		}
+		if key == "wave" {
+			seen = true
+		}
+	}
+	ok = seen
+	return
+}
+
+// Is there a run to continue? Cached so the menu can query it every frame without
+// touching the disk; kept in sync by save_run/clear_run_save (and refreshed once
+// at startup to pick up a save written by a previous session).
+run_save_present: bool = false
+
+has_run_save :: proc() -> bool {
+	return run_save_present
+}
+
+// Re-read presence from disk (called once at startup).
+refresh_run_save_presence :: proc() {
+	rs, ok := load_run()
+	_ = rs
+	run_save_present = ok
+}
+
+// Delete the save (a fresh run overwrites it anyway, but a finished one clears it).
+clear_run_save :: proc() {
+	os.remove(RUN_SAVE_PATH)
+	run_save_present = false
+}
+
+// Rebuild a run from a save and drop into PLAYING at the between-waves boundary
+// (no enemies, no cards -> the loop offers the reward and spawns the next wave).
+resume_run :: proc() -> bool {
+	rs, ok := load_run()
+	if !ok {
+		return false
+	}
+	// Pre-set the arena/mission so start_run picks the right one, then rebuild the
+	// loadout and re-apply the accumulated upgrade state on top.
+	arena = rs.arena
+	active_mission = rs.active_mission
+	start_run(start_loadout(rs.character, rs.primary, rs.secondary, rs.dash, rs.utility))
+
+	SPEED = rs.speed
+	bonus_damage = rs.bonus_damage
+	bonus_projectiles = rs.bonus_projectiles
+	bonus_pierce = rs.bonus_pierce
+	spread_cut = rs.spread_cut
+	bonus_melee_damage = rs.bonus_melee_damage
+	melee_speed_mult = rs.melee_speed_mult
+	melee_range_mult = rs.melee_range_mult
+	bonus_melee_knock = rs.bonus_melee_knock
+	lifesteal = rs.lifesteal
+	mag_mult = rs.mag_mult
+	ammo_mult = rs.ammo_mult
+	ammo_growth_mult = rs.ammo_growth_mult
+	card_choices = rs.card_choices
+	status_time_mult = rs.status_time_mult
+	max_health = rs.max_health
+	health = clamp(rs.health, 1, rs.max_health)
+	currency = rs.currency
+	wave = rs.wave
+	active_mission = rs.active_mission
+	mission_cleared_this_run = rs.mission_cleared
+	attack_effects_from_u32(rs.attack_effects)
+	for eff in Status_Effect {
+		status_power[eff] = rs.status_power[int(eff)]
+	}
+	// start_run already forced the arena from the mission; re-assert the saved one
+	// in case the loadout screen's pick should win for an endless run.
+	build_arena(arena)
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -2206,7 +2498,7 @@ build_arena :: proc(kind: Arena_Kind) {
 	clear(&props)
 	clear(&floor_marks)
 	// Seed the ambient snow field to match this map's weather.
-	seed_snow()
+	seed_weather()
 	// Deterministic per-map seed so decoration is stable across loads.
 	arena_seed = u32(kind) * 1664525 + 1013904223
 
@@ -2406,60 +2698,102 @@ add_barrels :: proc(spots: []raylib.Vector2) {
 
 // --- ambient weather ---------------------------------------------------------
 
-// Does the current arena have falling snow?
-arena_has_snow :: proc() -> bool {
-	return ARENAS[arena].weather == .SNOW
+// The arena's current weather kind.
+arena_weather :: proc() -> Weather_Kind {
+	return ARENAS[arena].weather
 }
 
-// One snowflake, randomly placed. `anywhere` scatters across the whole screen
-// (initial fill); otherwise it spawns just above the top edge to fall in.
-snow_emit :: proc(sw, sh: f32, anywhere: bool) {
+// How many particles a weather kind uses.
+weather_count :: proc(kind: Weather_Kind) -> int {
+	#partial switch kind {
+	case .SNOW:
+		return 120
+	case .RAIN:
+		return 80
+	case .ASH:
+		return 45
+	case .DUST:
+		return 70
+	}
+	return 0
+}
+
+// One particle, randomly placed with kind-appropriate drift/size. `anywhere`
+// scatters across the whole screen (initial fill); otherwise it spawns just
+// above the top edge to fall/wind in.
+weather_emit :: proc(kind: Weather_Kind, sw, sh: f32, anywhere: bool) {
 	y := rand.float32_range(0, sh)
 	if !anywhere {
 		y = -10
 	}
+	vx, vy, size: f32
+	#partial switch kind {
+	case .SNOW:
+		vx = rand.float32_range(-16, 16)
+		vy = rand.float32_range(30, 80)
+		size = rand.float32_range(1.0, 3.0)
+	case .RAIN:
+		vx = rand.float32_range(-30, 10)
+		vy = rand.float32_range(320, 520)
+		size = rand.float32_range(1.5, 3.0)
+	case .ASH:
+		vx = rand.float32_range(-30, 30)
+		vy = rand.float32_range(15, 45)
+		size = rand.float32_range(1.0, 2.5)
+	case .DUST:
+		vx = rand.float32_range(60, 220)
+		vy = rand.float32_range(-10, 30)
+		size = rand.float32_range(1.0, 2.0)
+	case:
+		return
+	}
 	append(
-		&snow,
-		snowflake {
+		&weather,
+		weather_particle {
 			pos = {rand.float32_range(0, sw), y},
-			vel = {rand.float32_range(-16, 16), rand.float32_range(30, 80)},
-			size = rand.float32_range(1.0, 3.0),
+			vel = {vx, vy},
+			size = size,
 		},
 	)
 }
 
-// Fill (or clear) the snow field to match the current arena's weather. Called
+// Fill (or clear) the particle field to match the current arena's weather. Called
 // from build_arena so every map switch reseeds correctly.
-seed_snow :: proc() {
-	clear(&snow)
-	if !arena_has_snow() {
+seed_weather :: proc() {
+	clear(&weather)
+	kind := arena_weather()
+	n := weather_count(kind)
+	if n == 0 {
 		return
 	}
 	sw := f32(raylib.GetScreenWidth())
 	sh := f32(raylib.GetScreenHeight())
-	for _ in 0 ..< SNOW_COUNT {
-		snow_emit(sw, sh, true)
+	for _ in 0 ..< n {
+		weather_emit(kind, sw, sh, true)
 	}
 }
 
-// Drift every flake down and recycle any that fall off the bottom back to the top.
-update_snow :: proc(dT: f32) {
-	if len(snow) == 0 {
+// Drift every particle and recycle any that leave the screen back to the top/left.
+update_weather :: proc(dT: f32) {
+	if len(weather) == 0 {
 		return
 	}
 	sw := f32(raylib.GetScreenWidth())
 	sh := f32(raylib.GetScreenHeight())
-	for i in 0 ..< len(snow) {
-		s := &snow[i]
-		s.pos += s.vel * dT
-		if s.pos.x < 0 {
-			s.pos.x += sw
-		} else if s.pos.x > sw {
-			s.pos.x -= sw
+	for i in 0 ..< len(weather) {
+		p := &weather[i]
+		p.pos += p.vel * dT
+		if p.pos.x < 0 {
+			p.pos.x += sw
+		} else if p.pos.x > sw {
+			p.pos.x -= sw
 		}
-		if s.pos.y > sh {
-			s.pos.y = -10
-			s.pos.x = rand.float32_range(0, sw)
+		if p.pos.y > sh {
+			p.pos.y = -10
+			p.pos.x = rand.float32_range(0, sw)
+		} else if p.pos.y < -20 {
+			p.pos.y = sh + 10
+			p.pos.x = rand.float32_range(0, sw)
 		}
 	}
 }

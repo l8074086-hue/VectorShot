@@ -304,6 +304,7 @@ main :: proc() {
 	// Load the player's settings, then match the window to the stored
 	// fullscreen preference (fullscreen is the default).
 	settings_load()
+	refresh_run_save_presence()
 	apply_fullscreen()
 	defer settings_save()
 
@@ -329,7 +330,7 @@ main :: proc() {
 	defer delete(barrels)
 	defer delete(props)
 	defer delete(floor_marks)
-	defer delete(snow)
+	defer delete(weather)
 	defer delete(explosions)
 	defer delete(sparks)
 	defer delete(shop_items)
@@ -358,6 +359,21 @@ main :: proc() {
 		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.BACKSPACE) {
 			ingame_panel_open = !ingame_panel_open
 			play(sounds.ui_move)
+		}
+
+		// Auto-pause on focus loss: alt-tabbing away from the window pauses the run
+		// and silences audio (audio_muted_here), so you never come back to a corpse
+		// you died while switching windows. Only affects an active run.
+		if state == .PLAYING {
+			if !raylib.IsWindowFocused() {
+				auto_paused = true
+			} else {
+				auto_paused = false
+			}
+			audio_muted_here = auto_paused
+		} else {
+			auto_paused = false
+			audio_muted_here = false
 		}
 
 		// Hitstop: a heavy hit (kill, finisher, barrel) stalls the world for a
@@ -389,84 +405,108 @@ main :: proc() {
 
 		#partial switch state {
 		case .MAIN_MENU:
-			// Five options; UP/DOWN or 1-5 to pick, ENTER or a click to confirm.
+			// Rows: 0 continue, 1 start run, 2 missions, 3 tutorial, 4 settings,
+			// 5 quit. CONTINUE is only usable when a run save exists.
+			can_continue := has_run_save()
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-				main_menu_sel = (main_menu_sel + 1) % 5
+				main_menu_sel = (main_menu_sel + 1) % 6
 				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-				main_menu_sel = (main_menu_sel - 1 + 5) % 5
+				main_menu_sel = (main_menu_sel - 1 + 6) % 6
 				play(sounds.ui_move)
 			}
 			confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER)
 			for key, idx in NUMBER_KEYS {
-				if idx < 5 && raylib.IsKeyPressed(key) {
+				if idx < 6 && raylib.IsKeyPressed(key) {
 					main_menu_sel = idx
 					confirm = true
 				}
 			}
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
-			draw_centered(cstring("ROGUELIKE"), 80, 64, raylib.WHITE)
-			draw_centered(cstring("VECTORSHOT"), 158, 22, raylib.DARKGRAY)
-			k0, h0 := ui_row(
-				cstring("START RUN"),
-				230,
-				32,
-				main_menu_sel == 0 ? raylib.RAYWHITE : raylib.GRAY,
-			)
+			draw_centered(cstring("ROGUELIKE"), 70, 64, raylib.WHITE)
+			draw_centered(cstring("VECTORSHOT"), 148, 22, raylib.DARKGRAY)
+			continue_col := raylib.GREEN
+			if !can_continue {
+				continue_col = raylib.DARKGRAY
+			}
+			if main_menu_sel == 0 && can_continue {
+				continue_col = raylib.RAYWHITE
+			}
+			cont_label := cstring("CONTINUE RUN   (no saved run)")
+			if can_continue {
+				cont_label = cstring("CONTINUE RUN")
+			}
+			k0, h0 := ui_row(cont_label, 200, 30, continue_col)
 			k1, h1 := ui_row(
-				cstring("MISSIONS"),
-				285,
-				32,
+				cstring("START RUN"),
+				252,
+				30,
 				main_menu_sel == 1 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k2, h2 := ui_row(
-				cstring("TUTORIAL"),
-				340,
-				32,
+				cstring("MISSIONS"),
+				304,
+				30,
 				main_menu_sel == 2 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k3, h3 := ui_row(
-				cstring("SETTINGS"),
-				395,
-				32,
+				cstring("TUTORIAL"),
+				356,
+				30,
 				main_menu_sel == 3 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k4, h4 := ui_row(
-				cstring("QUIT"),
-				450,
-				32,
+				cstring("SETTINGS"),
+				408,
+				30,
 				main_menu_sel == 4 ? raylib.RAYWHITE : raylib.GRAY,
 			)
-			draw_centered(cstring("UP / DOWN to choose   -   ENTER to select"), 520, 18, raylib.DARKGRAY)
+			k5, h5 := ui_row(
+				cstring("QUIT"),
+				460,
+				30,
+				main_menu_sel == 5 ? raylib.RAYWHITE : raylib.GRAY,
+			)
+			draw_centered(
+				cstring("UP / DOWN to choose   -   ENTER to select"),
+				525,
+				18,
+				raylib.DARKGRAY,
+			)
 			raylib.EndTextureMode()
 			if mouse_moved {
-				if h0 {main_menu_sel = 0}
+				if h0 && can_continue {main_menu_sel = 0}
 				if h1 {main_menu_sel = 1}
 				if h2 {main_menu_sel = 2}
 				if h3 {main_menu_sel = 3}
 				if h4 {main_menu_sel = 4}
+				if h5 {main_menu_sel = 5}
 			}
-			if k0 || (confirm && main_menu_sel == 0) {
+			if (k0 || (confirm && main_menu_sel == 0)) && can_continue {
+				if resume_run() {
+					play(sounds.ui_select)
+				}
+			} else if k1 || (confirm && main_menu_sel == 1) {
 				play(sounds.ui_select)
 				active_mission = -1 // plain endless run
 				state = .DIFFICULTY
-			} else if k1 || (confirm && main_menu_sel == 1) {
+			} else if k2 || (confirm && main_menu_sel == 2) {
 				play(sounds.ui_select)
 				mission_sel = 0
 				state = .MISSION_CONTROL
-			} else if k2 || (confirm && main_menu_sel == 2) {
+			} else if k3 || (confirm && main_menu_sel == 3) {
 				play(sounds.ui_select)
 				tutorial_select_sel = 0
 				state = .TUTORIAL_SELECT
-			} else if k3 || (confirm && main_menu_sel == 3) {
+			} else if k4 || (confirm && main_menu_sel == 4) {
 				play(sounds.ui_select)
 				settings_sel = 0
 				state = .SETTINGS
-			} else if k4 || (confirm && main_menu_sel == 4) {
+			} else if k5 || (confirm && main_menu_sel == 5) {
 				quit_requested = true
 			}
 		case .DIFFICULTY:
@@ -1351,9 +1391,12 @@ main :: proc() {
 		case .PLAYING:
 			// In-game settings panel is up: handle its input and freeze the world by
 			// skipping this frame's update+draw. The canvas texture keeps the last
-			// frame, which the present step redraws with the panel over it.
+			// frame, which the present step redraws with the panel over it. Auto-pause
+			// (focus loss) freezes the same way, minus the panel input.
 			if ingame_panel_open {
 				ingame_panel_update()
+			}
+			if ingame_panel_open || auto_paused {
 				break
 			}
 			camera.target = position + size * 0.5
@@ -1368,7 +1411,7 @@ main :: proc() {
 			run_time += dT
 			// Ambient falling snow (GLACIER). Screen-space, ticked here so it
 			// freezes with the rest of the world when the panel is open.
-			update_snow(dT)
+			update_weather(dT)
 			// GF mode (Ctrl+G): a hidden comfort toggle. Ctrl is read directly so
 			// the plain-G debug key below can tell the two apart.
 			gf_ctrl :=
@@ -1998,6 +2041,8 @@ main :: proc() {
 			}
 
 			if !tutorial_mode && !console_open && len(enemies) == 0 && len(cards) == 0 {
+				// Between waves: checkpoint the run so it can be continued later.
+				save_run()
 				// Every 5th cleared wave opens the shop instead of a card pick.
 				// (`wave` is the *next* wave, so wave-1 is the one just cleared.)
 				if wave > 1 && (wave - 1) % 5 == 0 {
@@ -2716,18 +2761,31 @@ main :: proc() {
 			0,
 			raylib.WHITE,
 		)
-		// Falling snow: a screen-space foreground overlay, scissored to the
-		// presented canvas rect so it never bleeds into the letterbox bars. Only
-		// on snow arenas, and only during a run.
-		if state == .PLAYING && arena_has_snow() {
+		// Ambient weather: a screen-space foreground overlay, scissored to the
+		// presented canvas rect so it never bleeds into the letterbox bars. Each
+		// kind draws differently (flakes / streaks / embers / grit).
+		if state == .PLAYING && len(weather) > 0 {
+			wk := arena_weather()
 			raylib.BeginScissorMode(
 				i32(view_x),
 				i32(view_y),
 				i32(view_w),
 				i32(view_h),
 			)
-			for s in snow {
-				raylib.DrawCircleV(s.pos, s.size, raylib.Color{240, 248, 255, 200})
+			for w in weather {
+				#partial switch wk {
+				case .RAIN:
+					// A short streak trailing the drop.
+					tail := w.pos - w.vel * 0.02
+					raylib.DrawLineEx(w.pos, tail, w.size, raylib.Color{150, 190, 235, 170})
+				case .ASH:
+					raylib.DrawCircleV(w.pos, w.size * 0.4, raylib.Color{255, 210, 130, 210})
+					raylib.DrawCircleV(w.pos, w.size * 1.1, raylib.Color{255, 120, 40, 60})
+				case .DUST:
+					raylib.DrawCircleV(w.pos, w.size * 0.5, raylib.Color{190, 160, 120, 130})
+				case:
+					raylib.DrawCircleV(w.pos, w.size, raylib.Color{240, 248, 255, 200})
+				}
 			}
 			raylib.EndScissorMode()
 		}
@@ -2765,6 +2823,21 @@ main :: proc() {
 		// the frozen frame.
 		if ingame_panel_open {
 			draw_ingame_panel()
+		} else if auto_paused {
+			// Auto-pause overlay: dim + a "click to resume" prompt while unfocused.
+			sw := f32(raylib.GetScreenWidth())
+			sh := f32(raylib.GetScreenHeight())
+			raylib.DrawRectangleRec(
+				raylib.Rectangle{0, 0, sw, sh},
+				raylib.Color{0, 0, 0, 120},
+			)
+			draw_centered(cstring("PAUSED"), i32(sh * 0.42), 44, raylib.WHITE)
+			draw_centered(
+				cstring("window unfocused - audio muted"),
+				i32(sh * 0.42) + 52,
+				18,
+				raylib.GRAY,
+			)
 		}
 		raylib.EndDrawing()
 	}

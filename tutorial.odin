@@ -316,10 +316,12 @@ tutorial_saved_utility: Utility
 // basic "kick" step impossible.) Advanced uses the character picked up front.
 tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
 	// Tutorials are always plain sandbox runs: drop any mission selected on the
-	// Mission Control screen so its objective/HUD never leaks into a lesson.
+	// Mission Control screen so its objective/HUD never leaks into a lesson, and
+	// don't leave a real run's save behind.
 	active_mission = -1
 	mission_cleared_this_run = false
 	mission_banner = 0
+	clear_run_save()
 	tutorial_saved_char = character
 	tutorial_saved_gun = gun
 	tutorial_saved_secondary = secondary_kind

@@ -50,9 +50,10 @@ settings := Settings {
 	missions_done  = 0,
 }
 
-// Volume the mixer should use right now (mute folds in here).
+// Volume the mixer should use right now (mute folds in here, as does the
+// temporary auto-pause mute while the window is unfocused).
 effective_volume :: proc() -> f32 {
-	if settings.muted {
+	if settings.muted || audio_muted_here {
 		return 0
 	}
 	return clamp(settings.master_volume, 0, 1)

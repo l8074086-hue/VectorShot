@@ -23,9 +23,6 @@
 (B) 2026-10-17 Add more enemy archetypes with distinct behaviors +roguelike @combat @enemies
 (B) 2026-10-17 Drop random weapon pickups mid-run (temporary guns) +roguelike @combat @guns @items
 (C) 2026-10-17 Add meta-progression (unlock characters/guns across runs) +roguelike @meta @systems
-(C) 2026-10-17 Add save & resume for an in-progress run +roguelike @systems @ui
 (C) 2026-10-17 Add kill-streak callouts and combo banners +roguelike @combat @ui @score
-(C) 2026-10-17 Add weather variety per arena (rain/ash/dust, not just snow) +roguelike @maps @fx
-(C) 2026-10-17 Auto-pause and mute when the window loses focus +roguelike @input @ui
 (D) 2026-10-17 Add pickup magnet / auto-collect for coins +roguelike @ui @items
 (D) 2026-10-17 Add a photo / screenshot mode +roguelike @ui
