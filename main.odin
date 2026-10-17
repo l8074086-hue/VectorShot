@@ -1250,14 +1250,16 @@ main :: proc() {
 						cards[i].size.y,
 					}
 					if raylib.CheckCollisionRecs(mouse, card_rect) {
-						apply_upgrade(cards[i].name)
+						picked := cards[i].name
+						apply_upgrade(picked)
 						play(sounds.card)
 						clear(&cards)
 						if tutorial_mode {
 							// The tutorial dealt these cards to teach the
 							// mechanic; picking one is the lesson, not a
-							// genuine between-wave reward.
-							tutorial_note(.CARD)
+							// genuine between-wave reward. The helper also
+							// remembers the element for the status follow-up.
+							tutorial_note_card(picked)
 						} else {
 							if !debug_mode {
 								new_wave(&enemies, wave)
@@ -1616,6 +1618,19 @@ main :: proc() {
 						3,
 						raylib.WHITE,
 					)
+				}
+				// Practice DPS dummy: an always-on health bar with a damage-per-
+				// second bar under it that tracks how hard the player is hitting.
+				if e.kind == .DUMMY_DPS && e.max_hp > 0 {
+					bx := i32(e.position.x)
+					bw := i32(e.size.x)
+					by := i32(e.position.y) - 26
+					raylib.DrawRectangle(bx, by, bw, 5, raylib.MAROON)
+					hp_w := i32(e.size.x * clamp(e.hp / e.max_hp, 0, 1))
+					raylib.DrawRectangle(bx, by, hp_w, 5, raylib.GREEN)
+					raylib.DrawRectangle(bx, by + 6, bw, 4, raylib.Color{40, 40, 40, 255})
+					dps_w := i32(e.size.x * clamp(e.dps_value / DUMMY_DPS_BAR_MAX, 0, 1))
+					raylib.DrawRectangle(bx, by + 6, dps_w, 4, raylib.GOLD)
 				}
 				// Status markers: one pip per active effect, above the body.
 				if e.effects != {} {

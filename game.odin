@@ -204,6 +204,11 @@ ELITE_PLATE_ARC :: 0.70 // half-angle (radians) a hit must fall within to crack 
 // waypoints (see the enemy struct's fixed `patrol_points` array).
 DUMMY_PATROL_POINTS :: 8
 
+// DUMMY_DPS training readout: how often the damage-per-second bar re-samples,
+// and the damage-per-second that fills the whole bar.
+DUMMY_DPS_SAMPLE :: 0.25
+DUMMY_DPS_BAR_MAX :: 300
+
 // Shop: how many offers are stocked, and the reroll limit/cost curve.
 SHOP_OFFER_COUNT :: 3
 SHOP_MAX_REROLLS :: 2
@@ -1366,6 +1371,16 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 	if e.flash > 0 {
 		e.flash -= dT
 	}
+	// DUMMY_DPS training readout: roll the damage-per-second window for its bar.
+	// Done before the stun early-out so a SHOCKED dummy still re-samples.
+	if e.kind == .DUMMY_DPS {
+		e.dps_timer += dT
+		if e.dps_timer >= DUMMY_DPS_SAMPLE {
+			e.dps_value = e.dps_window / e.dps_timer
+			e.dps_window = 0
+			e.dps_timer = 0
+		}
+	}
 	s := ENEMIES[e.kind]
 	pc := position + size * 0.5
 	ec := e.position + e.size * 0.5
@@ -1620,6 +1635,10 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 		return .BLOCKED
 	}
 	e.hp -= amount
+	// Feed the practice dummy's damage-per-second bar.
+	if e.kind == .DUMMY_DPS && amount > 0 {
+		e.dps_window += amount
+	}
 	// Feedback for real number hits only (marking lights deal 0 and stay silent):
 	// a floating number, a blood spray, and a little kick to the camera.
 	if amount > 0.01 {
@@ -1816,6 +1835,10 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 			// armor; this mirrors the plate guard in apply_enemy_damage.
 			if !(e.elite && e.kind == .TANK && e.plates > 0) {
 				e.hp -= dmg
+				// Damage-over-time feeds the practice dummy's DPS bar too.
+				if e.kind == .DUMMY_DPS {
+					e.dps_window += dmg
+				}
 				if e.hp <= 0 {
 					spawn_kill_rewards(e.position, e.elite)
 					unordered_remove(enemies, i)

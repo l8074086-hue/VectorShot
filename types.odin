@@ -134,6 +134,12 @@ enemy :: struct {
 	// DUMMY_RANGED: the locked-in direction it fires. It never aims at the
 	// player, so a lesson can stand safely to one side of the firing line.
 	shoot_dir:     raylib.Vector2,
+	// DUMMY_DPS training readout. `dps_window` accumulates damage taken since the
+	// last sample, `dps_value` is the damage-per-second shown on the bar, and
+	// `dps_timer` counts toward the next sample. Harmless on every other kind.
+	dps_window:    f32,
+	dps_value:     f32,
+	dps_timer:     f32,
 }
 
 // Enemy kinds that exist only to be shot in tutorial arenas. `pick_enemy_kind`

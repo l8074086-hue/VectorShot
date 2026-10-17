@@ -35,6 +35,7 @@ Tutorial_Action :: enum {
 	BLOCK,
 	VOLT,
 	CARD, // picked one of the upgrade cards the tutorial dealt
+	ELEMENT_CARD, // picked a STATUS (element) card the tutorial dealt
 	SHOP_DONE, // left the shop the tutorial opened
 }
 
@@ -53,6 +54,11 @@ tutorial_note :: proc(a: Tutorial_Action) {
 	}
 }
 
+// The element the player took in the Medium "Now you try" status lesson. The
+// follow-up step uses it to stage a matching target (SHOCK/FREEZE -> a walking
+// dummy, POISON/BURN -> a stationary one). Reset when the tutorial starts.
+tutorial_picked_element: Status_Effect = .Burn
+
 // --- step scripts -----------------------------------------------------------
 //
 // A step with action == .NONE is a read-only lesson that auto-advances after
@@ -67,7 +73,7 @@ BASIC_STEPS := [?]Tutorial_Step {
 	{"Press SHIFT to dash. You are invulnerable during it, but it has a cooldown", .DASH, 0},
 	{"Press E or RMB to kick - free, no ammo, and knocks enemies back", .KICK, 0},
 	{"Kills drop coins - finish a dummy and walk over the loot to collect it", .PICKUP, 0},
-	{"Basics complete. Clear the room and head into a real run!", .NONE, 3.5},
+	{"Basics complete. Now head into a real run!", .NONE, 3.5},
 }
 
 MEDIUM_STEPS := [?]Tutorial_Step {
@@ -75,41 +81,70 @@ MEDIUM_STEPS := [?]Tutorial_Step {
 	{"Test fire each slot on a dummy - every weapon has unique ammo, range and feel", .FIRE, 0},
 	{"Your SIGNATURE is a character-specific melee combo. Swing it now", .SIGNATURE, 0},
 	{"Clearing a wave offers UPGRADE CARDS. Pick one to shape your build", .CARD, 0},
-	{"Some cards infuse attacks with STATUS EFFECTS: BURN, FREEZE, POISON, or SHOCK", .NONE, 5.0},
+	{"Some cards infuse attacks with STATUS EFFECTS - watch them on these dummies", .NONE, 6.0},
 	{"BURN and POISON deal damage over time. FREEZE slows enemies. SHOCK stuns them", .NONE, 5.0},
-	{"The FORTUNE utility offers more card choices. Other utilities stack with your build", .NONE, 5.0},
+	{"Now you try - pick a STATUS card to infuse your own attacks", .ELEMENT_CARD, 0},
+	{"Your attacks carry that effect now. Finish the dummy and walk over its coins", .PICKUP, 0},
+	{
+		"The FORTUNE utility offers more card choices. Other utilities stack with your build",
+		.NONE,
+		5.0,
+	},
 	{"Every 5th wave opens a SHOP. Buy an upgrade, then pick LEAVE to continue", .SHOP_DONE, 0},
-	{"That dummy is SHOCKED, so it's stunned. Kill it and walk over its coins to collect", .PICKUP, 0},
 	{"E/RMB = kick, SHIFT = dash. Clear waves, upgrade, survive. Good luck!", .NONE, 4.0},
 }
 
 // RR's Adaptation is driven by your upgrades, so a fresh run sits on OFFENSE.
 // The tutorial walks him through each stance instead (see rr_tutorial_adaptation).
 RR_STEPS := [?]Tutorial_Step {
-	{"RR's ADAPTATION follows your build - whichever stat you invest in most determines his stance", .NONE, 5.0},
+	{
+		"RR's ADAPTATION follows your build - whichever stat you invest in most determines his stance",
+		.NONE,
+		5.0,
+	},
 	{"OFFENSE (most damage): Vector Edge is cuts/sweeps leading to a shock smash", .NONE, 5.0},
 	{"RESILIENCE (most max HP): hold E/RMB to raise BULWARK and block frontal damage", .BLOCK, 0},
 	{"PRECISION (spread reduction): E becomes NEEDLE - a short blink to reposition", .NONE, 5.0},
-	{"MOBILITY (most speed): his blade strikes and reach adapt to hit and close faster", .NONE, 5.0},
+	{
+		"MOBILITY (most speed): his blade strikes and reach adapt to hit and close faster",
+		.NONE,
+		5.0,
+	},
 	{"BURST dash grants SECOND WIND - amplifies your current stance by 50% briefly", .NONE, 5.0},
-	{"Adapt to the fight - stack the stat that counters enemies. Press Q to swap slots", .NONE, 4.0},
+	{
+		"Adapt to the fight - stack the stat that counters enemies. Press Q to swap slots",
+		.NONE,
+		4.0,
+	},
 }
 
 BUD_STEPS := [?]Tutorial_Step {
 	{"Press Q to equip Bud's FISTS. Attack to start the JAB-HOOK-ELBOW-KNEE combo", .SIGNATURE, 0},
 	{"Keep attacking within the combo window. Missing it resets back to JAB", .NONE, 4.0},
 	{"The 4th strike (KNEE) is CHARGED - hold briefly while armed to wind it up", .NONE, 5.0},
-	{"A fully charged KNEE lunges forward and sends enemies flying with massive knockback", .NONE, 4.0},
+	{
+		"A fully charged KNEE lunges forward and sends enemies flying with massive knockback",
+		.NONE,
+		4.0,
+	},
 	{"GUARD UP: Bud blocks frontal hits, taking reduced damage. Face enemies head-on", .NONE, 5.0},
 	{"E or RMB gives a fast KICK you can weave between combo strikes", .KICK, 0},
-	{"Holding a gun makes Bud UNHAPPY - worse accuracy and damage. Stick to his fists", .NONE, 5.0},
+	{
+		"Holding a gun makes Bud UNHAPPY - worse accuracy and damage. Stick to his fists",
+		.NONE,
+		5.0,
+	},
 	{"Keep the chain rolling - pressure is key", .NONE, 3.5},
 }
 
 TRACER_STEPS := [?]Tutorial_Step {
 	{"Press Q for TRACER'S PHASE CLAWS. CLAW and CROSS apply PHASE MARKS", .MARK, 0},
 	{"Marks deal no direct damage - they stack and fade if you don't detonate them", .NONE, 4.0},
-	{"REND (3rd strike) detonates all marks for burst damage plus splash to nearby enemies", .REND, 0},
+	{
+		"REND (3rd strike) detonates all marks for burst damage plus splash to nearby enemies",
+		.REND,
+		0,
+	},
 	{"Killing a marked enemy with REND heals Tracer for 8 HP", .NONE, 4.0},
 	{"TRACEUR'S HEART: attacks build speed up to +50%. Keep the pressure on", .NONE, 5.0},
 	{"SLIDE dash instantly refills Traceur's Heart - slide into fights at full speed", .NONE, 5.0},
@@ -118,13 +153,29 @@ TRACER_STEPS := [?]Tutorial_Step {
 
 NAVY_STEPS := [?]Tutorial_Step {
 	{"Press Q twice to reach Navy's SIGNATURE: the BAYONET. Fire to swing it", .SIGNATURE, 0},
-	{"The bayonet chains a fast THRUST into a committed LUNGE that carries you forward", .NONE, 4.0},
+	{
+		"The bayonet chains a fast THRUST into a committed LUNGE that carries you forward",
+		.NONE,
+		4.0,
+	},
 	{"The LUNGE also fires a MUZZLE VOLLEY: a point-blank burst along the stab line", .VOLT, 0},
 	{"The volley spends one round and hits with your PRIMARY gun's damage", .NONE, 4.0},
 	{"With an empty primary mag the lunge stays a plain stab - no volley, no cost", .NONE, 4.0},
-	{"E or RMB is only Navy's plain kick: free, but it never volleys - just knocks back", .KICK, 0},
-	{"TAKE AIM: standing completely still gives PERFECT accuracy. Stop to snipe, move to spray", .NONE, 5.0},
-	{"Navy carries extra ammo and reloads fast. His BLINK dash finishes reloads instantly", .NONE, 5.0},
+	{
+		"E or RMB is only Navy's plain kick: free, but it never volleys - just knocks back",
+		.KICK,
+		0,
+	},
+	{
+		"TAKE AIM: standing completely still gives PERFECT accuracy. Stop to snipe, move to spray",
+		.NONE,
+		5.0,
+	},
+	{
+		"Navy carries extra ammo and reloads fast. His BLINK dash finishes reloads instantly",
+		.NONE,
+		5.0,
+	},
 	{"Thrust, lunge, volley - that's the Navy rhythm. Q cycles back to your guns", .NONE, 3.5},
 }
 
@@ -147,6 +198,42 @@ tutorial_steps :: proc() -> []Tutorial_Step {
 		return NAVY_STEPS[:]
 	}
 	return BASIC_STEPS[:]
+}
+
+// The action the current step is waiting on (.NONE for info steps). Used to
+// route a card pick to the right lesson when two steps deal cards.
+tutorial_current_action :: proc() -> Tutorial_Action {
+	steps := tutorial_steps()
+	if tutorial_step < 0 || tutorial_step >= len(steps) {
+		return .NONE
+	}
+	return steps[tutorial_step].action
+}
+
+// Record a card pick. Notes the action the current step is waiting on, and
+// remembers which element was taken so the status follow-up can stage the
+// matching dummy. The element is recorded regardless of step; only the note is
+// gated so an early element card can't auto-satisfy the "Now you try" lesson.
+tutorial_note_card :: proc(name: cstring) {
+	switch name {
+	case "IGNITE":
+		tutorial_picked_element = .Burn
+	case "CRYO":
+		tutorial_picked_element = .Freeze
+	case "VENOM":
+		tutorial_picked_element = .Poison
+	case "STATIC":
+		tutorial_picked_element = .Shock
+	}
+	if !tutorial_mode {
+		return
+	}
+	action := tutorial_current_action()
+	if action == .ELEMENT_CARD {
+		tutorial_note(.ELEMENT_CARD)
+	} else if action == .CARD {
+		tutorial_note(.CARD)
+	}
 }
 
 // --- setup ------------------------------------------------------------------
@@ -210,6 +297,7 @@ tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
 	tutorial_step = 0
 	tutorial_timer = 0
 	tutorial_flags = {}
+	tutorial_picked_element = .Burn
 	clear(&enemies)
 	spawn_tutorial_dummies()
 	tutorial_step_entered()
@@ -245,11 +333,55 @@ spawn_patrol_dummy :: proc(pc: raylib.Vector2) {
 	if e == nil {
 		return
 	}
+	set_patrol_route(e)
+}
+
+// Give a DUMMY_PATROL a short horizontal route centered on where it stands.
+set_patrol_route :: proc(e: ^enemy) {
 	c := e.position + e.size * 0.5
 	e.patrol_points[0] = c + {-140, 0}
 	e.patrol_points[1] = c + {140, 0}
 	e.patrol_count = 2
 	e.patrol_index = 1
+}
+
+// Tag a dummy with a status that never expires, for the status-effects demo.
+// The health pool is raised too, so BURN/POISON damage-over-time can't kill the
+// exhibit before the player has seen it.
+demonstrate_status :: proc(e: ^enemy, eff: Status_Effect) {
+	e.effects += {eff}
+	e.effect_timer[eff] = 9999
+	e.hp = 9999
+	e.max_hp = 9999
+}
+
+// The four "on hit" infusion cards, in status order, for the try-it lesson.
+ELEMENT_CARD_NAMES := [?]cstring{"IGNITE", "CRYO", "VENOM", "STATIC"}
+
+// Deal a fixed hand of named cards, for lessons that must show specific choices.
+// Mirrors spawn_cards' layout so the hand lands in the same spot.
+spawn_tutorial_cards :: proc(cards: ^[dynamic]card, names: []cstring) {
+	CARD_W: f32 = 120
+	CARD_H: f32 = 160
+	spacing := CARD_W + 40
+	center_x := f32(800) / 2
+	y := f32(600) / 2 - CARD_H / 2
+	n := len(names)
+	total_w := spacing * f32(n) - (spacing - CARD_W)
+	start_x := center_x - total_w / 2
+	for name, i in names {
+		desc: cstring = ""
+		for c in CARD_POOL {
+			if c.name == name {
+				desc = c.description
+				break
+			}
+		}
+		append(
+			cards,
+			card{{start_x + spacing * f32(i), y}, {CARD_W, CARD_H}, name, desc, false},
+		)
+	}
 }
 
 // Stage the step we just entered. Some lessons need the real thing on screen --
@@ -267,22 +399,54 @@ tutorial_step_entered :: proc() {
 	switch tutorial_kind {
 	case .BASIC:
 		switch tutorial_step {
-		case 6: // "Kills drop coins...": a fragile target that always pays out.
+		case 6:
+			// "Kills drop coins...": a fragile target that always pays out.
 			spawn_tutorial_target(.DUMMY_WEAK, pc + {0, -170})
 		}
 	case .MEDIUM:
 		switch tutorial_step {
-		case 3: // card lesson: deal a real hand to pick from
+		case 3:
+			// card lesson: deal a real hand to pick from
 			spawn_cards(&cards, card_choices)
-		case 7: // shop lesson: open the actual shop, with coins to spend
+		case 4:
+			// status lesson: show each effect live. Two walkers take the movement
+			// effects (SHOCK, FREEZE); two stationary targets take the damage-over-
+			// time effects (POISON, BURN). `demonstrate_status` keeps them alive.
+			clear(&enemies)
+			if e := spawn_tutorial_target(.DUMMY_PATROL, pc + {-150, -190}); e != nil {
+				set_patrol_route(e)
+				demonstrate_status(e, .Shock)
+			}
+			if e := spawn_tutorial_target(.DUMMY_PATROL, pc + {150, -190}); e != nil {
+				set_patrol_route(e)
+				demonstrate_status(e, .Freeze)
+			}
+			if e := spawn_tutorial_target(.DUMMY_DPS, pc + {-95, -105}); e != nil {
+				demonstrate_status(e, .Poison)
+			}
+			if e := spawn_tutorial_target(.DUMMY_DPS, pc + {95, -105}); e != nil {
+				demonstrate_status(e, .Burn)
+			}
+		case 6:
+			// "Now you try": deal exactly the four element cards and wait for a pick.
+			spawn_tutorial_cards(&cards, ELEMENT_CARD_NAMES[:])
+		case 7:
+			// The pick is in: clear the demo and stage one target matching the
+			// chosen element -- movement effects get a walker, damage-over-time a
+			// stationary dummy. The player finishes it off and collects the coins.
+			clear(&enemies)
+			if tutorial_picked_element == .Shock || tutorial_picked_element == .Freeze {
+				if e := spawn_tutorial_target(.DUMMY_PATROL, pc + {0, -170}); e != nil {
+					set_patrol_route(e)
+				}
+			} else {
+				spawn_tutorial_target(.DUMMY_DPS, pc + {0, -170})
+			}
+		case 9:
+			// shop lesson: open the actual shop, with coins to spend
 			currency = max(currency, 90)
 			build_shop()
 			state = .SHOP
-		case 8: // loot lesson: a permanently SHOCKED target to kill and loot
-			if e := spawn_tutorial_target(.DUMMY_WEAK, pc + {0, -170}); e != nil {
-				e.effects = {.Shock}
-				e.effect_timer[.Shock] = 9999
-			}
 		}
 	case .ADVANCED:
 		// Each character's script gets the target that best fits its lesson.
