@@ -206,20 +206,14 @@ ORBITER_CYCLE :: 2.2 // seconds per weave in/out
 SNIPER_TELEGRAPH :: 0.55
 SNIPER_SHOT_SPEED :: 620
 
-// BOSS (WARDEN): appears every BOSS_EVERY waves. Two phases: above half health
-// it cycles telegraphed radial volleys and a ground slam; below half it enrages
-// (faster, denser, summons adds). Every attack telegraphs in WINDUP.
-BOSS_EVERY :: 5
+// BOSS: each arena's finale (see ARENA_BOSSES for the per-map numbers). Two
+// phases: above half health it cycles telegraphed radial volleys and a ground
+// slam; below half it enrages (faster, denser, summons adds). Every attack
+// telegraphs in WINDUP.
 BOSS_PHASE2_FRAC :: 0.5 // flip to phase 2 below this hp fraction
 BOSS_SHOOT_TELEGRAPH :: 0.55
-BOSS_SHOOT_BULLETS :: 10 // radial bullets in a phase-1 volley
-BOSS_SHOOT_BULLETS_RAGE :: 16 // phase-2 volley
-BOSS_SHOOT_SPEED :: 240
 BOSS_SLAM_TELEGRAPH :: 0.7
-BOSS_SLAM_RADIUS :: 190 // damage radius of the slam
-BOSS_SLAM_DAMAGE :: 22
 BOSS_RAGE_SPEED_MULT :: 1.5
-BOSS_SUMMON_COUNT :: 2
 
 // Elite variants: rare early, more common later. Beefier, angrier, richer.
 ELITE_BASE_CHANCE :: 0.03
@@ -289,6 +283,7 @@ difficulty: Difficulty = .NORMAL
 main_menu_sel: int = 0
 settings_sel: int = 0
 mission_sel: int = 0 // grid cursor on the Mission Control screen
+arena_pick_sel: int = 0 // grid cursor on the loadout's SELECT ARENA screen
 // In-game settings panel, toggled with Backspace during a run. While it's open the
 // world is frozen and the panel is drawn as an overlay over the last frame.
 ingame_panel_open: bool = false
@@ -438,6 +433,17 @@ weather: [dynamic]weather_particle
 active_mission: int = -1
 mission_cleared_this_run: bool = false
 mission_banner: f32 = 0
+// Endless mode: false until this run beats its arena's boss. The boss is the
+// arena's finale (spawned once on the arena's last wave); killing it clears the
+// map, unlocks the next one and flips this on, after which waves keep coming
+// forever (no more scripted boss).
+endless_mode: bool = false
+// Big centred callout (e.g. "THE REAPER" when the boss arrives, "ARENA CLEARED"
+// when it dies). `banner_text` must be a stable cstring (a literal or a table
+// field), not a raylib.TextFormat buffer.
+banner_text: cstring = ""
+banner_timer: f32 = 0
+banner_col: raylib.Color = raylib.WHITE
 
 // Per-run tallies, surfaced on the results screen and reset by start_run.
 run_time: f32 = 0
@@ -558,6 +564,10 @@ start_run :: proc(stats: Run_Stats) {
 	// regardless of what the loadout screen had chosen.
 	mission_cleared_this_run = false
 	mission_banner = 0
+	// Fresh run: no arena cleared yet, so the arena's boss still lies ahead and
+	// waves are the normal, finite count rather than endless survival.
+	endless_mode = false
+	banner_timer = 0
 	if m := current_mission(); m != nil {
 		arena = m.arena
 	}
@@ -1481,6 +1491,7 @@ capture_run_save :: proc() -> Run_Save {
 		status_time_mult   = status_time_mult,
 		attack_effects     = attack_effects_to_u32(),
 		relics_owned       = relics_owned,
+		endless            = endless_mode,
 	}
 	for eff in Status_Effect {
 		rs.status_power[int(eff)] = status_power[eff]
@@ -1523,6 +1534,7 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "status_time_mult=%.3f\n", rs.status_time_mult)
 	fmt.sbprintf(&sb, "attack_effects=%i\n", i32(rs.attack_effects))
 	fmt.sbprintf(&sb, "relics_owned=%i\n", i32(rs.relics_owned))
+	fmt.sbprintf(&sb, "endless=%v\n", rs.endless)
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
@@ -1621,6 +1633,8 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.attack_effects = u32(parse_run_i32(val, i32(rs.attack_effects)))
 		case "relics_owned":
 			rs.relics_owned = u32(parse_run_i32(val, i32(rs.relics_owned)))
+		case "endless":
+			rs.endless = parse_bool(val, rs.endless)
 		case:
 			if len(key) > 13 && key[:13] == "status_power_" {
 				i := parse_run_i32(key[13:], -1)
@@ -1700,6 +1714,9 @@ resume_run :: proc() -> bool {
 	// Relic effects are already baked into the stats above; restore the bitmask so
 	// the HUD lists them and a later chest won't redraw one you already hold.
 	relics_owned = rs.relics_owned
+	// Resume into the same mode: a run that had already cleared its boss stays in
+	// endless survival, and one that hadn't still gets its boss on the last wave.
+	endless_mode = rs.endless
 	// start_run already forced the arena from the mission; re-assert the saved one
 	// in case the loadout screen's pick should win for an endless run.
 	build_arena(arena)
@@ -1891,10 +1908,12 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
-	// Every BOSS_EVERY waves is a boss encounter: one Warden (plus a light
-	// escort) instead of the usual grind.
+	// The arena's last wave is its boss: a distinct set-piece fight. Beating it
+	// clears the map and drops the run into endless survival.
 	if is_boss_wave(wave) {
-		//spawn_boss_wave(enemies, wave)
+		fight := ARENA_BOSSES[arena]
+		show_banner(fight.name, fight.color, 3.0)
+		spawn_boss_wave(enemies, wave)
 		return
 	}
 	// Difficulty scales how many show up; never fewer than one. An active
@@ -1950,29 +1969,94 @@ process_splits :: proc() {
 	clear(&pending_splits)
 }
 
-// Is this wave a boss encounter?
+// Is this wave the arena's boss finale? One boss per run, on the arena's last
+// wave, and never again once the map has been cleared (endless mode).
 is_boss_wave :: proc(wave: i32) -> bool {
-	return wave >= BOSS_EVERY && wave % BOSS_EVERY == 0
+	return !endless_mode && wave == ARENAS[arena].waves
 }
 
-// Spawn the boss plus a light escort on a boss wave.
+// Build the arena's boss from ARENA_BOSSES (its own name, colour, size, hp and
+// attack knobs) and drop it in at `pos`. The normal wave scaling still applies.
+spawn_arena_boss :: proc(pos: raylib.Vector2) {
+	b := ARENA_BOSSES[arena]
+	hp_scale, dmg_scale, spd_scale := enemy_scales(ARENAS[arena].waves)
+	append(
+		&enemies,
+		enemy {
+			position = pos,
+			size = b.size,
+			velocity = {0, 0},
+			attacking = false,
+			color = b.color,
+			damage = b.damage * dmg_scale,
+			hp = b.hp * hp_scale,
+			max_hp = b.hp * hp_scale,
+			id = next_enemy_id,
+			speed = b.speed * spd_scale,
+			kind = .BOSS,
+			state = .CHASE,
+		},
+	)
+	next_enemy_id += 1
+}
+
+// Spawn the arena's boss plus a light escort on its finale wave.
 spawn_boss_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
-	spawn_enemy_at(.BOSS, false, wave, random_spawn_pos(ENEMIES[.BOSS].size))
-	// A couple of escorts so the arena isn't empty apart from the boss. Kept light
-	// so the boss stays the focus.
-	escort := 2 + wave / BOSS_EVERY
-	for _ in 0 ..< escort {
+	spawn_arena_boss(random_spawn_pos(ARENA_BOSSES[arena].size))
+	// A light escort so the arena isn't empty apart from the boss.
+	for _ in 0 ..< 3 {
 		kind := pick_enemy_kind(wave)
 		sz := ENEMIES[kind].size
 		spawn_enemy_at(kind, false, wave, random_spawn_pos(sz))
 	}
 }
 
+// Fill the screen with a short centred callout. `text` must be stable storage
+// (a literal or a table field), since it's held across frames.
+show_banner :: proc(text: cstring, col: raylib.Color, time: f32) {
+	banner_text = text
+	banner_col = col
+	banner_timer = time
+}
+
+// Is arena `k` unlocked yet? The first map is always open; each boss kill opens
+// the next one up. The Ctrl+Shift+U cheat sets every bit of maps_unlocked.
+map_unlocked :: proc(k: Arena_Kind) -> bool {
+	return settings.maps_unlocked & (1 << u32(int(k))) != 0
+}
+
+// Dev cheat (Ctrl+Shift+U): open every map without marking any as cleared.
+unlock_all_maps :: proc() {
+	for k in Arena_Kind {
+		settings.maps_unlocked |= 1 << u32(int(k))
+	}
+	settings_save()
+}
+
+// The arena's boss just died: record the clear, unlock the next map, and drop
+// into endless survival. Idempotent, so it only fires once per run.
+arena_cleared :: proc() {
+	if endless_mode {
+		return
+	}
+	endless_mode = true
+	settings.maps_done |= 1 << u32(int(arena))
+	next := int(arena) + 1
+	if next < len(ARENAS) {
+		settings.maps_unlocked |= 1 << u32(next)
+	}
+	settings_save()
+	show_banner(cstring("ARENA CLEARED"), raylib.GOLD, 4.0)
+	play(sounds.shop_buy)
+}
+
 // The boss fight's AI: alternate telegraphed radial volleys and a ground slam,
 // enrage below half health. Every attack announces itself in WINDUP (the body
 // flashes and grows a tell) before it lands.
 update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
-	s := ENEMIES[.BOSS]
+	// Per-arena boss tuning: the same state machine, but each map's boss uses its
+	// own range/volley/slam/summon numbers (spawned by spawn_arena_boss).
+	b := ARENA_BOSSES[arena]
 	ec := e.position + e.size * 0.5
 
 	// Phase flip below half health.
@@ -1990,9 +2074,9 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 	}
 
 	// Keep a mid-range band: close in if too far, back off if crowded.
-	if dist > s.preferred_range {
+	if dist > b.preferred_range {
 		e.position += dir * move_spd * dT
-	} else if dist < s.preferred_range * 0.6 {
+	} else if dist < b.preferred_range * 0.6 {
 		e.position -= dir * move_spd * dT
 	} else {
 		perp := raylib.Vector2{-dir.y, dir.x}
@@ -2035,9 +2119,9 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 		}
 	case .BOSS_SHOOT:
 		// Radial volley centred on the player.
-		count := BOSS_SHOOT_BULLETS
+		count := b.volley
 		if phase2 {
-			count = BOSS_SHOOT_BULLETS_RAGE
+			count = b.volley_rage
 		}
 		aim := e.position + e.size * 0.5
 		to_player := position + size * 0.5 - aim
@@ -2053,8 +2137,8 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 					position = ec - {6, 6},
 					size = {12, 12},
 					velocity = raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} *
-					BOSS_SHOOT_SPEED,
-					damage = s.damage * 0.5,
+					b.bullet_speed,
+					damage = e.damage * 0.5,
 					pierce = 0,
 				},
 			)
@@ -2077,13 +2161,13 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 					pos = sl,
 					life = 0.3,
 					max_life = 0.3,
-					radius = BOSS_SLAM_RADIUS,
+					radius = b.slam_radius,
 					color = raylib.RED,
 				},
 			)
 			add_shake(6)
-			if raylib.Vector2Distance(position + size * 0.5, sl) < BOSS_SLAM_RADIUS {
-				apply_player_damage(BOSS_SLAM_DAMAGE, sl)
+			if raylib.Vector2Distance(position + size * 0.5, sl) < b.slam_radius {
+				apply_player_damage(b.slam_damage, sl)
 			}
 			e.state = .RECOVER
 			e.state_timer = 0.9
@@ -2091,7 +2175,7 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 	case .BOSS_RAGE:
 		// Phase-2 entry flourish: summon adds once, then fight.
 		if e.state_timer <= 0 {
-			for _ in 0 ..< BOSS_SUMMON_COUNT {
+			for _ in 0 ..< b.summon {
 				spawn_enemy_at(.RUNNER, false, 1, random_spawn_pos(ENEMIES[.RUNNER].size))
 			}
 			e.state = .BOSS_SHOOT
@@ -3501,6 +3585,8 @@ spawn_kill_rewards :: proc(
 	// killed it -- bullets, melee, a barrel, a dash.
 	if kind == .BOSS && !tutorial_mode {
 		spawn_relic_chest(pos)
+		// The arena boss is down: clear the map and continue as endless survival.
+		arena_cleared()
 	}
 	// Practice dummies must not skew run stats, but they still drop a small
 	// coin pile so the loot lesson is something you actually kill and collect.

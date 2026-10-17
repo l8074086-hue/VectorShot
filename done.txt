@@ -73,3 +73,4 @@ x 2026-10-17 2026-10-14 Add a relic / passive-item system +roguelike @items
 x 2026-10-17 2026-10-14 Add elemental ammo types +roguelike @guns @combat
 x 2026-10-17 2026-10-17 Add boss enemies that appear every N waves +roguelike @combat @enemies @levels
 x 2026-10-17 2026-10-17 Add more enemy archetypes with distinct behaviors +roguelike @combat @enemies
+x 2026-10-17 2026-10-17 Per-arena bosses as each map's finale (7 distinct bosses: own name/look/volley/slam/summon); killing one clears the map, unlocks the next, and continues the run as Endless survival. Ctrl+Shift+U unlocks all maps (cheat) +roguelike @combat @enemies @levels @systems

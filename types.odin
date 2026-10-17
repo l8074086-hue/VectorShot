@@ -413,6 +413,29 @@ Arena_Stats :: struct {
 	decor:       Floor_Decor,  // kind of floor scatter
 	decor_col:   raylib.Color, // floor scatter tint
 	weather:     Weather_Kind, // ambient sky effect, if any
+	// How many normal waves this arena runs before its boss arrives. The boss
+	// wave is the arena's finale: beat it to clear the map (and continue as
+	// endless survival). Later maps are longer.
+	waves:       i32,
+}
+
+// The set-piece boss that guards an arena, keyed by Arena_Kind so every map has
+// its own look, stats and attack flavour. One boss per run: it spawns once on
+// its arena's final wave and never appears in the normal spawn table.
+Arena_Boss :: struct {
+	name:            cstring,
+	color:           raylib.Color,
+	size:            raylib.Vector2,
+	hp:              f32,
+	speed:           f32,
+	damage:          f32,
+	preferred_range: f32,
+	volley:          i32, // radial bullets per volley (phase 1)
+	volley_rage:     i32, // radial bullets per volley (phase 2)
+	bullet_speed:    f32,
+	slam_radius:     f32,
+	slam_damage:     f32,
+	summon:          i32, // adds summoned on the enrage transition
 }
 
 // What a mission (level) asks you to do. `target` is a wave number for SURVIVE
@@ -644,6 +667,7 @@ Run_Save :: struct {
 	attack_effects:    u32,    // Status_Set bitmask
 	status_power:      [4]f32, // per-Status_Effect power
 	relics_owned:      u32,    // Relic_Kind bitmask, so a resumed run never redraws one
+	endless:           bool,   // arena boss already down: this run is in endless mode
 }
 
 // Snapshot of a finished run, shown on the results screen. Captured at death so

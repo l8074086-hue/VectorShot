@@ -168,8 +168,9 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		spawn_weight = 8,
 		unlock_wave = 10,
 	},
-	// The boss is never rolled from the spawn table (weight 0); it is placed by
-	// spawn_boss_wave on boss waves. Stats are tuned for that, not for rand spawns.
+	// The boss is never rolled from the spawn table (weight 0); each arena's boss
+	// is built by spawn_arena_boss from ARENA_BOSSES. This entry is only a
+	// fallback for the generic enemy plumbing (it holds no boss-specific stats).
 	.BOSS = {
 		name = "WARDEN",
 		size = {120, 120},
@@ -1028,6 +1029,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.GRASS,
 		{92, 150, 78, 255},
 		.NONE,
+		6,
 	},
 	.CANYON    = {
 		"CANYON",
@@ -1040,6 +1042,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.PEBBLE,
 		{178, 128, 84, 255},
 		.DUST,
+		7,
 	},
 	.RUINS     = {
 		"RUINS",
@@ -1052,6 +1055,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.CRACK,
 		{140, 136, 128, 255},
 		.NONE,
+		8,
 	},
 	.GLACIER   = {
 		"GLACIER",
@@ -1064,6 +1068,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.SNOW,
 		{225, 238, 250, 255},
 		.SNOW,
+		9,
 	},
 	.FOUNDRY   = {
 		"FOUNDRY",
@@ -1076,6 +1081,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.EMBER,
 		{255, 150, 60, 255},
 		.ASH,
+		10,
 	},
 	.FOREST    = {
 		"FOREST",
@@ -1088,6 +1094,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.GRASS,
 		{80, 140, 66, 255},
 		.NONE,
+		11,
 	},
 	.SWAMP     = {
 		"SWAMP",
@@ -1100,6 +1107,120 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.PEBBLE,
 		{96, 118, 82, 255},
 		.RAIN,
+		12,
+	},
+}
+
+
+// Per-arena bosses: each map's finale. These are the base stats; the wave
+// scaler still applies on top. The volley/slam/summon knobs are what give each
+// fight its own flavour (a bullet-hell, a heavy slammer, a summoner, ...), and
+// the name/colour make the HUD bar read as a distinct set-piece.
+ARENA_BOSSES := [Arena_Kind]Arena_Boss {
+	.GRASSLAND = {
+		name            = "THE REAPER",
+		color           = {92, 200, 96, 255},
+		size            = {120, 120},
+		hp              = 100,
+		speed           = 58,
+		damage          = 16,
+		preferred_range = 250,
+		volley          = 8,
+		volley_rage     = 12,
+		bullet_speed    = 230,
+		slam_radius     = 170,
+		slam_damage     = 15,
+		summon          = 2,
+	},
+	.CANYON    = {
+		name            = "DUSTMAW",
+		color           = {214, 172, 88, 255},
+		size            = {124, 124},
+		hp              = 120,
+		speed           = 74,
+		damage          = 17,
+		preferred_range = 210,
+		volley          = 10,
+		volley_rage     = 14,
+		bullet_speed    = 255,
+		slam_radius     = 185,
+		slam_damage     = 17,
+		summon          = 2,
+	},
+	.RUINS     = {
+		name            = "THE COLOSSUS",
+		color           = {158, 158, 168, 255},
+		size            = {150, 150},
+		hp              = 150,
+		speed           = 44,
+		damage          = 20,
+		preferred_range = 190,
+		volley          = 8,
+		volley_rage     = 12,
+		bullet_speed    = 210,
+		slam_radius     = 250,
+		slam_damage     = 26,
+		summon          = 2,
+	},
+	.GLACIER   = {
+		name            = "FROSTBITE",
+		color           = {140, 220, 255, 255},
+		size            = {116, 116},
+		hp              = 180,
+		speed           = 86,
+		damage          = 18,
+		preferred_range = 270,
+		volley          = 12,
+		volley_rage     = 18,
+		bullet_speed    = 300,
+		slam_radius     = 165,
+		slam_damage     = 15,
+		summon          = 3,
+	},
+	.FOUNDRY   = {
+		name            = "THE FORGEMASTER",
+		color           = {255, 140, 50, 255},
+		size            = {134, 134},
+		hp              = 220,
+		speed           = 60,
+		damage          = 21,
+		preferred_range = 240,
+		volley          = 14,
+		volley_rage     = 20,
+		bullet_speed    = 275,
+		slam_radius     = 200,
+		slam_damage     = 24,
+		summon          = 3,
+	},
+	.FOREST    = {
+		name            = "THORNWALD",
+		color           = {70, 140, 78, 255},
+		size            = {140, 140},
+		hp              = 260,
+		speed           = 66,
+		damage          = 22,
+		preferred_range = 215,
+		volley          = 10,
+		volley_rage     = 16,
+		bullet_speed    = 250,
+		slam_radius     = 215,
+		slam_damage     = 24,
+		summon          = 4,
+	},
+	.SWAMP     = {
+		name            = "BOGWRAITH",
+		color           = {172, 104, 214, 255},
+		size            = {138, 138},
+		hp              = 320,
+		speed           = 62,
+		damage          = 24,
+		preferred_range = 225,
+		volley          = 12,
+		volley_rage     = 18,
+		bullet_speed    = 260,
+		slam_radius     = 260,
+		slam_damage     = 30,
+		summon          = 4,
 	},
 }
 

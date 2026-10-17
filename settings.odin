@@ -35,6 +35,13 @@ Settings :: struct {
 	// Bitmask of cleared missions (bit i = MISSIONS[i] done). Mission progress is
 	// persisted alongside preferences since it must survive restarts.
 	missions_done:  u32,
+	// Map progression. `maps_done` has bit i set once arena i's boss has been
+	// beaten; `maps_unlocked` has bit i set when arena i is playable (the first
+	// map starts unlocked, and each clear opens the next one up). Persisted so
+	// unlocked maps survive restarts; the Ctrl+Shift+U dev cheat fills
+	// `maps_unlocked` without marking anything cleared.
+	maps_done:      u32,
+	maps_unlocked:  u32,
 }
 
 settings := Settings {
@@ -48,6 +55,8 @@ settings := Settings {
 	blood          = true,
 	control_scheme = .MOUSE,
 	missions_done  = 0,
+	maps_done      = 0,
+	maps_unlocked  = 1, // the first map is always open
 }
 
 // Volume the mixer should use right now (mute folds in here, as does the
@@ -108,6 +117,10 @@ settings_load :: proc() {
 			settings.master_volume = clamp(parse_f32(val, settings.master_volume), 0, 1)
 		case "muted":
 			settings.muted = parse_bool(val, settings.muted)
+		case "maps_done":
+			settings.maps_done = u32(parse_run_i32(val, i32(settings.maps_done)))
+		case "maps_unlocked":
+			settings.maps_unlocked = u32(parse_run_i32(val, i32(settings.maps_unlocked)))
 		case "fullscreen":
 			settings.fullscreen = parse_bool(val, settings.fullscreen)
 		case "show_fps":
@@ -169,6 +182,8 @@ settings_save :: proc() {
 	)
 	fmt.sbprintf(&sb, "assists=%v\n", gf_mode)
 	fmt.sbprintf(&sb, "missions_done=%i\n", i32(settings.missions_done))
+	fmt.sbprintf(&sb, "maps_done=%i\n", i32(settings.maps_done))
+	fmt.sbprintf(&sb, "maps_unlocked=%i\n", i32(settings.maps_unlocked))
 
 	_ = os.write_entire_file(SETTINGS_PATH, strings.to_string(sb))
 }

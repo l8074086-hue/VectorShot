@@ -423,24 +423,25 @@ draw_telegraphs :: proc() {
 			if e.state == .WINDUP && e.boss_next == 1 {
 				// Slam tell: a danger circle at the spot locked in when the
 				// wind-up started, filling as the impact closes.
+				slam_r := ARENA_BOSSES[arena].slam_radius
 				k := 1 - clamp(e.state_timer / f32(BOSS_SLAM_TELEGRAPH), 0, 1)
 				sl := e.charge_dir * 120 + ec
 				raylib.DrawCircleV(
 					sl,
-					f32(BOSS_SLAM_RADIUS),
+					slam_r,
 					raylib.Color{200, 40, 40, u8(30 + 50 * k)},
 				)
 				raylib.DrawCircleLines(
 					i32(sl.x),
 					i32(sl.y),
-					f32(BOSS_SLAM_RADIUS),
+					slam_r,
 					raylib.Color{255, 90, 90, u8(120 + 120 * k)},
 				)
 				// A shrinking ring inside the zone reads as the fuse.
 				raylib.DrawCircleLines(
 					i32(sl.x),
 					i32(sl.y),
-					f32(BOSS_SLAM_RADIUS) * (1 - k),
+					slam_r * (1 - k),
 					raylib.Color{255, 220, 120, u8(150 + 90 * k)},
 				)
 			} else if e.state == .WINDUP {
@@ -516,6 +517,18 @@ main :: proc() {
 		if console_open {
 			dT = 0
 			console_update()
+		}
+
+		// Dev cheat: Ctrl+Shift+U unlocks every map (persisted, but nothing is
+		// marked as cleared). Works from any screen so you can see the whole map
+		// list without grinding the progression.
+		if (raylib.IsKeyDown(raylib.KeyboardKey.LEFT_CONTROL) ||
+			   raylib.IsKeyDown(raylib.KeyboardKey.RIGHT_CONTROL)) &&
+		   (raylib.IsKeyDown(raylib.KeyboardKey.LEFT_SHIFT) ||
+			   raylib.IsKeyDown(raylib.KeyboardKey.RIGHT_SHIFT)) &&
+		   raylib.IsKeyPressed(raylib.KeyboardKey.U) {
+			unlock_all_maps()
+			play(sounds.ui_select)
 		}
 
 		// In-game settings panel: Backspace toggles it during a run. While open the
@@ -1188,8 +1201,14 @@ main :: proc() {
 					skill_state = .SECONDARY
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.SIX) {
 					skill_state = .ARENA
+					arena_pick_sel = int(arena)
 				} else if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					// Apply the chosen loadout and start a fresh run.
+					// Apply the chosen loadout and start a fresh run. A locked arena
+					// (only reachable here via a mission override) falls back to the
+					// always-open starter map.
+					if !map_unlocked(arena) {
+						arena = .GRASSLAND
+					}
 					start_run(start_loadout(character, gun, secondary_kind, dash_kind, utility))
 				}
 				raylib.BeginTextureMode(target)
@@ -1247,8 +1266,14 @@ main :: proc() {
 				if q3 {skill_state = .DASH}
 				if q4 {skill_state = .UTILITY}
 				if q5 {skill_state = .SECONDARY}
-				if q6 {skill_state = .ARENA}
+				if q6 {
+					skill_state = .ARENA
+					arena_pick_sel = int(arena)
+				}
 				if qs {
+					if !map_unlocked(arena) {
+						arena = .GRASSLAND
+					}
 					start_run(start_loadout(character, gun, secondary_kind, dash_kind, utility))
 				}
 			case .CHARACTER:
@@ -1497,46 +1522,51 @@ main :: proc() {
 			case .ARENA:
 				// Grid of themed map cards (every arena visible at once), mirroring the
 				// Mission Control layout so nothing falls off the bottom of the canvas.
-				// Arrows / number keys move the selection, ENTER or a click confirms and
-				// returns to the wizard menu.
+				// Arrows / number keys move the cursor, ENTER or a click confirms an
+				// unlocked map and returns to the wizard menu. Locked maps say what
+				// opens them; the Ctrl+Shift+U cheat opens them all.
 				ARENA_COLS :: 3
 				ARENA_CW: i32 = 240
 				ARENA_CH: i32 = 116
-				sel := int(arena)
 				n := len(ARENAS)
+				if arena_pick_sel < 0 || arena_pick_sel >= n {
+					arena_pick_sel = int(arena)
+				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
-					if sel % ARENA_COLS > 0 {
-						sel -= 1
+					if arena_pick_sel % ARENA_COLS > 0 {
+						arena_pick_sel -= 1
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
-					if sel % ARENA_COLS < ARENA_COLS - 1 && sel + 1 < n {
-						sel += 1
+					if arena_pick_sel % ARENA_COLS < ARENA_COLS - 1 && arena_pick_sel + 1 < n {
+						arena_pick_sel += 1
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-					if sel >= ARENA_COLS {
-						sel -= ARENA_COLS
+					if arena_pick_sel >= ARENA_COLS {
+						arena_pick_sel -= ARENA_COLS
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-					if sel + ARENA_COLS < n {
-						sel += ARENA_COLS
+					if arena_pick_sel + ARENA_COLS < n {
+						arena_pick_sel += ARENA_COLS
 					}
 				}
 				for key, idx in NUMBER_KEYS {
 					if idx < n && raylib.IsKeyPressed(key) {
-						sel = idx
+						arena_pick_sel = idx
 					}
 				}
-				arena = Arena_Kind(sel)
+				sel := arena_pick_sel
+				locked := !map_unlocked(Arena_Kind(sel))
 				confirm :=
-					raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
-					raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
+					!locked &&
+					(raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+					 raylib.IsKeyPressed(raylib.KeyboardKey.SPACE))
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
 				draw_centered(cstring("SELECT ARENA"), 40, 40, raylib.WHITE)
@@ -1549,10 +1579,16 @@ main :: proc() {
 					rect := raylib.Rectangle{f32(x), f32(y), f32(ARENA_CW), f32(ARENA_CH)}
 					pal := ARENAS[ai]
 					selected := a == sel
-					raylib.DrawRectangleRec(rect, raylib.Color{20, 20, 28, 255})
-					border := raylib.DARKGRAY
+					unlocked := map_unlocked(ai)
+					done := settings.maps_done & (1 << u32(a)) != 0
+					card_bg := raylib.Color{20, 20, 28, 255}
+					if !unlocked {
+						card_bg = raylib.Color{14, 14, 18, 255}
+					}
+					raylib.DrawRectangleRec(rect, card_bg)
+					border := unlocked ? raylib.DARKGRAY : raylib.Color{52, 40, 40, 255}
 					if selected {
-						border = raylib.VIOLET
+						border = unlocked ? raylib.VIOLET : raylib.MAROON
 					}
 					raylib.DrawRectangleLinesEx(rect, 3, border)
 					// Themed preview: floor tile, a wall bar, and a couple of cover blobs.
@@ -1563,6 +1599,9 @@ main :: proc() {
 					raylib.DrawCircleV({f32(sx + 32), f32(sy + 22)}, 12, pal.cover)
 					raylib.DrawCircleV({f32(sx + 84), f32(sy + 22)}, 12, pal.cover)
 					name_col := selected ? raylib.YELLOW : raylib.RAYWHITE
+					if !unlocked {
+						name_col = raylib.DARKGRAY
+					}
 					raylib.DrawText(
 						raylib.TextFormat("%i)  %s", a + 1, string(pal.name)),
 						x + 12,
@@ -1570,28 +1609,48 @@ main :: proc() {
 						20,
 						name_col,
 					)
-					raylib.DrawText(pal.desc, x + 12, y + 92, 13, raylib.GRAY)
+					if unlocked {
+						if done {
+							// Cleared maps get a tick so a full run-through is legible.
+							raylib.DrawText("CLEARED", x + ARENA_CW - 84, y + 66, 16, raylib.GREEN)
+						}
+						raylib.DrawText(pal.desc, x + 12, y + 92, 13, raylib.GRAY)
+					} else {
+						// Locked: name what opens it (the previous map's boss).
+						req: cstring = "LOCKED"
+						if a > 0 {
+							req = raylib.TextFormat(
+								"CLEAR %s",
+								string(ARENAS[Arena_Kind(a - 1)].name),
+							)
+						}
+						raylib.DrawText(req, x + 12, y + 92, 13, raylib.MAROON)
+					}
 					if raylib.CheckCollisionRecs(mouse, rect) {
 						if mouse_moved {
+							arena_pick_sel = a
 							sel = a
-							arena = Arena_Kind(sel)
+							locked = !unlocked
 						}
-						if raylib.IsMouseButtonPressed(.LEFT) {
+						if raylib.IsMouseButtonPressed(.LEFT) && unlocked {
+							arena_pick_sel = a
 							sel = a
-							arena = Arena_Kind(sel)
 							confirm = true
 						}
 					}
 				}
-				draw_centered(
-					cstring("ARROWS or 1-7 to pick   -   ENTER to confirm"),
-					560,
-					16,
-					raylib.GRAY,
-				)
+				hint := cstring("ARROWS or 1-7 to pick   -   ENTER to confirm")
+				if locked {
+					hint = cstring(
+						"LOCKED   -   clear the previous map's boss, or press Ctrl+Shift+U",
+					)
+				}
+				draw_centered(hint, 560, 16, locked ? raylib.MAROON : raylib.GRAY)
 				raylib.EndTextureMode()
 				if confirm {
+					arena = Arena_Kind(sel)
 					skill_state = .MAIN
+					play(sounds.ui_select)
 				}
 			}
 		case .PLAYING:
@@ -1618,6 +1677,8 @@ main :: proc() {
 			shake = shake_mag * settings.screen_shake
 			// Count active play time for the results screen.
 			run_time += dT
+			// Count the boss/clear callout down to nothing.
+			banner_timer = max(banner_timer - dT, 0)
 			// Ambient falling snow (GLACIER). Screen-space, ticked here so it
 			// freezes with the rest of the world when the panel is open.
 			update_weather(dT)
@@ -2688,9 +2749,33 @@ main :: proc() {
 			raylib.DrawRectangle(10, 10, 200, 20, raylib.RED)
 			raylib.DrawRectangle(10, 10, i32(200 * health / max_health), 20, raylib.GREEN)
 			raylib.DrawRectangleLines(10, 10, 200, 20, raylib.WHITE)
-			draw_centered(raylib.TextFormat("WAVE %i", int(wave)), 6, 24, raylib.LIGHTGRAY)
-			// Boss encounter bar: a wide bar across the top whenever a WARDEN is
-			// alive, so the fight reads as a set-piece (and shows the phase flip).
+			if endless_mode {
+				draw_centered(raylib.TextFormat("WAVE %i  -  ENDLESS", int(wave)), 6, 24, raylib.GOLD)
+			} else {
+				draw_centered(
+					raylib.TextFormat(
+						"WAVE %i / %i",
+						int(min(wave, ARENAS[arena].waves)),
+						int(ARENAS[arena].waves),
+					),
+					6,
+					24,
+					raylib.LIGHTGRAY,
+				)
+			}
+			// Big centred callout: the arena's boss name as it arrives, then ARENA
+			// CLEARED when it dies. Fades over its last second.
+			if banner_timer > 0 {
+				ba := u8(clamp(banner_timer, 0, 1) * 255)
+				draw_centered(
+					banner_text,
+					120,
+					34,
+					raylib.Color{banner_col.r, banner_col.g, banner_col.b, ba},
+				)
+			}
+			// Boss encounter bar: a wide bar across the top whenever the arena's
+			// boss is alive, so the fight reads as a set-piece (and shows the flip).
 			for e in enemies {
 				if e.kind != .BOSS {
 					continue
@@ -2706,11 +2791,10 @@ main :: proc() {
 				}
 				raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
 				raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
-				label := cstring("WARDEN")
+				draw_centered(ARENA_BOSSES[arena].name, by + 20, 16, raylib.LIGHTGRAY)
 				if e.boss_phase >= 2 {
-					label = "WARDEN  -  ENRAGED"
+					draw_centered(cstring("ENRAGED"), by + 38, 14, raylib.ORANGE)
 				}
-				draw_centered(label, by + 20, 16, raylib.LIGHTGRAY)
 			}
 			// Active weapon + ammo, then the two slots you can Q to. The signature
 			// slot has no ammo: it shows its name and MELEE.
