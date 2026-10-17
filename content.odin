@@ -82,6 +82,8 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 10,
 		hp = 2,
 		color = raylib.BLUE,
+		spawn_weight = 10,
+		unlock_wave = 1,
 	},
 	.RUNNER = {
 		name = "RUNNER",
@@ -90,14 +92,8 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 6,
 		hp = 1,
 		color = raylib.ORANGE,
-	},
-	.TANK = {
-		name = "TANK",
-		size = {80, 80},
-		speed = 45,
-		damage = 20,
-		hp = 8,
-		color = raylib.DARKGREEN,
+		spawn_weight = 28,
+		unlock_wave = 2,
 	},
 	.RANGED = {
 		name = "SHOOTER",
@@ -109,6 +105,18 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		ranged = true,
 		preferred_range = 280,
 		fire_rate = 1.4,
+		spawn_weight = 20,
+		unlock_wave = 2,
+	},
+	.TANK = {
+		name = "TANK",
+		size = {80, 80},
+		speed = 45,
+		damage = 20,
+		hp = 8,
+		color = raylib.DARKGREEN,
+		spawn_weight = 8,
+		unlock_wave = 5,
 	},
 	.CHARGER = {
 		name = "CHARGER",
@@ -118,11 +126,66 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		hp = 4,
 		color = raylib.MAROON,
 		charge_speed = 560,
+		spawn_weight = 16,
+		unlock_wave = 4,
 	},
-	// Tutorial practice targets. These never spawn in a real wave (see
-	// pick_enemy_kind). Speed is zero for everything except the patroller, which
-	// walks its route slowly; all of them copy a real kind's look so they read
-	// as familiar enemies.
+	// Splitters burst into two halves when killed, so chipping one down spreads the
+	// threat instead of clearing it.
+	.SPLITTER = {
+		name = "SPLITTER",
+		size = {46, 46},
+		speed = 70,
+		damage = 8,
+		hp = 5,
+		color = raylib.PURPLE,
+		spawn_weight = 12,
+		unlock_wave = 6,
+	},
+	// Orbiters ring the arena around the player, weaving in for a hit and peeling
+	// back out -- pressure you have to turn to face.
+	.ORBITER = {
+		name = "ORBITER",
+		size = {38, 38},
+		speed = 120,
+		damage = 10,
+		hp = 4,
+		color = raylib.LIME,
+		spawn_weight = 14,
+		unlock_wave = 8,
+	},
+	// Snipers hold the far ring, telegraph with a flash, then fire one fast aimed
+	// shot -- punishes standing still.
+	.SNIPER = {
+		name = "SNIPER",
+		size = {34, 34},
+		speed = 60,
+		damage = 12,
+		hp = 2,
+		color = raylib.GOLD,
+		ranged = true,
+		preferred_range = 400,
+		fire_rate = 2.4,
+		spawn_weight = 10,
+		unlock_wave = 10,
+	},
+	// The boss is never rolled from the spawn table (weight 0); it is placed by
+	// spawn_boss_wave on boss waves. Stats are tuned for that, not for rand spawns.
+	.BOSS = {
+		name = "WARDEN",
+		size = {120, 120},
+		speed = 55,
+		damage = 26,
+		hp = 90,
+		color = raylib.RED,
+		ranged = true,
+		preferred_range = 260,
+		fire_rate = 1.6,
+		spawn_weight = 0,
+		unlock_wave = 5,
+	},
+	// Tutorial practice targets. These never spawn in a real wave (spawn_weight 0).
+	// Speed is zero for everything except the patroller, which walks its route
+	// slowly; all of them copy a real kind's look so they read as familiar enemies.
 	.DUMMY_DPS = {
 		name = "DUMMY",
 		size = {50, 50},
@@ -130,6 +193,8 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 0,
 		hp = 60,
 		color = raylib.BLUE,
+		spawn_weight = 0,
+		unlock_wave = 99,
 	},
 	.DUMMY_RANGED = {
 		name = "TURRET",
@@ -141,6 +206,8 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		ranged = true,
 		preferred_range = 280,
 		fire_rate = 1.4,
+		spawn_weight = 0,
+		unlock_wave = 99,
 	},
 	.DUMMY_WEAK = {
 		name = "DUMMY",
@@ -149,6 +216,8 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 0,
 		hp = 3,
 		color = raylib.ORANGE,
+		spawn_weight = 0,
+		unlock_wave = 99,
 	},
 	.DUMMY_PATROL = {
 		name = "DRIFTER",
@@ -157,8 +226,11 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 0,
 		hp = 10,
 		color = raylib.MAROON,
+		spawn_weight = 0,
+		unlock_wave = 99,
 	},
 }
+
 
 // Primary-slot weapons: guns and melee blades in one pool. Guns fill the
 // ballistic fields; melee entries leave those zero and fill reach/arc/knockback.

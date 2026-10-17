@@ -1973,6 +1973,9 @@ main :: proc() {
 			update_status(&enemies, dT)
 			// Tracer's PHASE marks decay if she leaves a target alone.
 			tick_phase_marks(dT)
+			// Spawn any halves queued by splitters that died this frame. Deferred
+			// so the enemy array isn't mutated while the combat loops run.
+			process_splits()
 
 			if inv_timer > 0 {
 				inv_timer -= dT
@@ -2226,6 +2229,46 @@ main :: proc() {
 					body.a = 110
 				}
 				raylib.DrawRectangleV(e.position, e.size, body)
+				// Per-kind decoration so the new archetypes and the boss read as
+				// distinct silhouettes at a glance.
+				{
+					ec := e.position + e.size * 0.5
+					er := max(e.size.x, e.size.y) * 0.5
+					#partial switch e.kind {
+					case .SPLITTER:
+						// A seam down the middle: it looks ready to come apart.
+						raylib.DrawLineEx(
+							{e.position.x + 3, ec.y},
+							{e.position.x + e.size.x - 3, ec.y},
+							2,
+							raylib.WHITE,
+						)
+					case .ORBITER:
+						// A ring marking its orbit around you.
+						raylib.DrawCircleLines(
+							i32(ec.x),
+							i32(ec.y),
+							er + 4,
+							raylib.Color{body.r, body.g, body.b, 140},
+						)
+					case .SNIPER:
+						// A long barrel + scope glint.
+						raylib.DrawLineEx(ec, ec + e.muzzle_dir * (er + 8), 2, raylib.DARKGRAY)
+						raylib.DrawCircleV(ec, 4, raylib.WHITE)
+					case .BOSS:
+						// An armoured core and a heavy outline to sell the size.
+						raylib.DrawRectangleLinesEx(
+							{e.position.x, e.position.y, e.size.x, e.size.y},
+							4,
+							raylib.Color{0, 0, 0, 200},
+						)
+						core_col := raylib.Color{150, 20, 20, 255}
+						if e.boss_phase >= 2 {
+							core_col = raylib.ORANGE // enrage: the core glows hot
+						}
+						raylib.DrawCircleV(ec, er * 0.4, core_col)
+					}
+				}
 				// Muzzle flash at the barrel this enemy last fired from, so
 				// incoming fire is traceable to its source.
 				if e.muzzle > 0 {
@@ -2429,6 +2472,29 @@ main :: proc() {
 			raylib.DrawRectangle(10, 10, i32(200 * health / max_health), 20, raylib.GREEN)
 			raylib.DrawRectangleLines(10, 10, 200, 20, raylib.WHITE)
 			draw_centered(raylib.TextFormat("WAVE %i", int(wave)), 6, 24, raylib.LIGHTGRAY)
+			// Boss encounter bar: a wide bar across the top whenever a WARDEN is
+			// alive, so the fight reads as a set-piece (and shows the phase flip).
+			for e in enemies {
+				if e.kind != .BOSS {
+					continue
+				}
+				bw: i32 = 420
+				bx: i32 = (800 - bw) / 2
+				by: i32 = 44
+				raylib.DrawRectangle(bx, by, bw, 16, raylib.Color{40, 12, 12, 220})
+				frac := clamp(e.hp / max(e.max_hp, 1), 0, 1)
+				bar_col := raylib.RED
+				if e.boss_phase >= 2 {
+					bar_col = raylib.ORANGE
+				}
+				raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
+				raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
+				label := cstring("WARDEN")
+				if e.boss_phase >= 2 {
+					label = "WARDEN  -  ENRAGED"
+				}
+				draw_centered(label, by + 20, 16, raylib.LIGHTGRAY)
+			}
 			// Active weapon + ammo, then the two slots you can Q to. The signature
 			// slot has no ammo: it shows its name and MELEE.
 			if active_slot == SLOT_SIGNATURE || active_stats().class == .MELEE {

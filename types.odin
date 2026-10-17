@@ -113,6 +113,12 @@ enemy :: struct {
 	// fired so the flash draws at the barrel it shot from. Purely visual.
 	muzzle:        f32,
 	muzzle_dir:    raylib.Vector2,
+	// BOSS (WARDEN): whether it has flipped into its faster second phase, the
+	// angle its radial shot is currently spinning from, and which attack the
+	// current WINDUP telegraph is building toward (0 volley, 1 slam).
+	boss_phase:    i32,
+	boss_spin:     f32,
+	boss_next:     i32,
 	// Bulwark (elite TANK): each crystal plate guards one world-space direction.
 	// A hit arriving from roughly that direction shatters it; while any plate
 	// remains the armored body shrugs off hp damage.
@@ -155,6 +161,10 @@ Enemy_Kind :: enum {
 	TANK,
 	RANGED,
 	CHARGER,
+	SPLITTER, // dies into two smaller copies of itself
+	ORBITER,  // circles the player at a fixed radius, occasionally darting in
+	SNIPER,   // long-range; telegraphs then fires a fast aimed shot
+	BOSS,     // multi-phase set-piece, spawned on boss waves (never in pick_enemy_kind)
 	DUMMY_DPS,    // big, stationary target with a deep health pool
 	DUMMY_RANGED, // stationary; fires along a fixed direction on a timer
 	DUMMY_WEAK,   // fragile stationary target; dies to a single hit
@@ -171,10 +181,16 @@ Enemy_Hit :: enum {
 // Ranged/charger enemies use a tiny state machine.
 Enemy_State :: enum {
 	CHASE,
-	WINDUP, // charger telegraphing its dash
-	CHARGE, // charger mid-dash
+	WINDUP,  // charger/sniper/boss telegraphing its next attack
+	CHARGE,  // charger mid-dash
 	RECOVER, // brief pause after a charge
-	STRAFE, // ranged keeping its distance
+	STRAFE,  // ranged keeping its distance
+	// Boss (WARDEN) states: it cycles telegraph -> attack -> recover, and flips
+	// to its faster second phase below half health.
+	BOSS_SHOOT,     // sweeping shot of radial bullets
+	BOSS_SLAM,      // telegraphed ground slam that damages in a radius
+	BOSS_RAGE,      // phase-2 enrage: faster, denser volleys
+	BOSS_SUMMON,    // calls in a couple of adds
 }
 
 Enemy_Stats :: struct {
@@ -190,6 +206,11 @@ Enemy_Stats :: struct {
 	charge_speed:    f32, // CHARGER dash speed
 	// Status effects this enemy's hits inflict (and, for now, none are set).
 	effects:         Status_Set,
+	// Wave-spawn weighting. `spawn_weight` is this type's relative share of a
+	// wave (only compared against types already unlocked); `unlock_wave` is the
+	// first wave it can appear on. A weight of 0 never spawns (bosses, dummies).
+	spawn_weight:    f32,
+	unlock_wave:     i32,
 }
 
 Drop_Kind :: enum {

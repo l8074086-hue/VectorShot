@@ -193,6 +193,34 @@ ENEMY_DMG_PER_WAVE :: 0.06
 ENEMY_SPEED_PER_WAVE :: 0.02
 ENEMY_SPEED_CAP :: 1.4
 
+// New-archetype tuning.
+// SPLITTER: burst into two halves on death (children shrink, lose the split).
+SPLITTER_CHILD_SCALE :: 0.62
+SPLITTER_CHILD_HP :: 2
+// ORBITER: ring the player at ORBITER_RING, weaving in/out on a timer.
+ORBITER_RING :: 210
+ORBITER_WEAVE_IN :: 0.55 // how far inside the ring it lunges
+ORBITER_CYCLE :: 2.2 // seconds per weave in/out
+// SNIPER: hold the far ring, telegraph with a growing glow, then fire one fast
+// aimed shot. Aiming is instant; the telegraph is the tell.
+SNIPER_TELEGRAPH :: 0.55
+SNIPER_SHOT_SPEED :: 620
+
+// BOSS (WARDEN): appears every BOSS_EVERY waves. Two phases: above half health
+// it cycles telegraphed radial volleys and a ground slam; below half it enrages
+// (faster, denser, summons adds). Every attack telegraphs in WINDUP.
+BOSS_EVERY :: 5
+BOSS_PHASE2_FRAC :: 0.5 // flip to phase 2 below this hp fraction
+BOSS_SHOOT_TELEGRAPH :: 0.55
+BOSS_SHOOT_BULLETS :: 10 // radial bullets in a phase-1 volley
+BOSS_SHOOT_BULLETS_RAGE :: 16 // phase-2 volley
+BOSS_SHOOT_SPEED :: 240
+BOSS_SLAM_TELEGRAPH :: 0.7
+BOSS_SLAM_RADIUS :: 190 // damage radius of the slam
+BOSS_SLAM_DAMAGE :: 22
+BOSS_RAGE_SPEED_MULT :: 1.5
+BOSS_SUMMON_COUNT :: 2
+
 // Elite variants: rare early, more common later. Beefier, angrier, richer.
 ELITE_BASE_CHANCE :: 0.03
 ELITE_CHANCE_PER_WAVE :: 0.01
@@ -426,6 +454,9 @@ shop_rerolls_used: i32 = 0
 
 // Entities.
 enemies: [dynamic]enemy
+// Positions where a SPLITTER died this frame; its halves are spawned in a
+// deferred pass (process_splits) so the enemy array isn't mutated while iterating.
+pending_splits: [dynamic]raylib.Vector2
 bullets: [dynamic]bullet
 enemy_bullets: [dynamic]bullet
 cards: [dynamic]card
@@ -1659,21 +1690,31 @@ next_enemy_id: i32 = 1
 
 // Later waves unlock tougher enemy kinds. Thresholds are cumulative so each
 // kind keeps a stable share once it's unlocked.
+// Pick a random enemy kind for a wave, weighted by each type's `spawn_weight`
+// and gated by its `unlock_wave`. Bosses and tutorial dummies have weight 0 and
+// never roll here (bosses are placed by spawn_boss_wave; dummies by the tutorial).
 pick_enemy_kind :: proc(wave: i32) -> Enemy_Kind {
-	roll := rand.float32()
-	if wave >= 2 && roll < 0.30 {
-		return .RANGED
+	total: f32 = 0
+	for k in Enemy_Kind {
+		st := ENEMIES[k]
+		if st.spawn_weight > 0 && wave >= st.unlock_wave {
+			total += st.spawn_weight
+		}
 	}
-	if wave >= 3 && roll < 0.65 {
-		return .RUNNER
+	if total <= 0 {
+		return .GRUNT
 	}
-	if wave >= 4 && roll < 0.80 {
-		return .CHARGER
+	roll := rand.float32() * total
+	for k in Enemy_Kind {
+		st := ENEMIES[k]
+		if st.spawn_weight > 0 && wave >= st.unlock_wave {
+			roll -= st.spawn_weight
+			if roll <= 0 {
+				return k
+			}
+		}
 	}
-	if wave >= 5 && roll < 0.90 {
-		return .TANK
-	}
-	return .GRUNT
+	return .GRUNT // numerical fallback
 }
 
 // Is there room for a box of `sz` at top-left `p`? Checks walls and props so we
@@ -1826,6 +1867,12 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
+	// Every BOSS_EVERY waves is a boss encounter: one Warden (plus a light
+	// escort) instead of the usual grind.
+	if is_boss_wave(wave) {
+		spawn_boss_wave(enemies, wave)
+		return
+	}
 	// Difficulty scales how many show up; never fewer than one. An active
 	// mission's density modifier then crowds (or thins) the wave on top.
 	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
@@ -1833,6 +1880,197 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 		num = max(i32(f32(num) * m.density + 0.5), 1)
 	}
 	spawn_enemies(enemies, num, wave)
+}
+
+// Deferred splitter halves: spawn two smaller, non-splitting copies at each
+// queued death site. Called once per frame after combat, never during iteration.
+process_splits :: proc() {
+	if len(pending_splits) == 0 {
+		return
+	}
+	s := ENEMIES[.SPLITTER]
+	child_sz := s.size * SPLITTER_CHILD_SCALE
+	for pos in pending_splits {
+		for k in 0 ..< 2 {
+			ang := rand.float32() * 2 * math.PI
+			off := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * (s.size.x * 0.45)
+			cp := pos + off - child_sz * 0.5
+			cp.x = clamp(cp.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - child_sz.x)
+			cp.y = clamp(cp.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - child_sz.y)
+			child := enemy {
+				position  = cp,
+				size      = child_sz,
+				velocity  = {0, 0},
+				attacking = false,
+				color     = s.color,
+				damage    = s.damage,
+				hp        = f32(SPLITTER_CHILD_HP),
+				max_hp    = f32(SPLITTER_CHILD_HP),
+				id        = next_enemy_id,
+				speed     = s.speed * 1.2,
+				kind      = .SPLITTER,
+				state     = .CHASE,
+				elite     = false,
+				plates    = 0,
+			}
+			// Children can't split again -- turn them into plain RUNNERs so a
+			// chain reaction doesn't flood the arena.
+			child.kind = .RUNNER
+			append(&enemies, child)
+			next_enemy_id += 1
+		}
+	}
+	clear(&pending_splits)
+}
+
+// Is this wave a boss encounter?
+is_boss_wave :: proc(wave: i32) -> bool {
+	return wave >= BOSS_EVERY && wave % BOSS_EVERY == 0
+}
+
+// Spawn the boss plus a light escort on a boss wave.
+spawn_boss_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
+	spawn_enemy_at(.BOSS, false, wave, random_spawn_pos(ENEMIES[.BOSS].size))
+	// A couple of escorts so the arena isn't empty apart from the boss. Kept light
+	// so the boss stays the focus.
+	escort := 2 + wave / BOSS_EVERY
+	for _ in 0 ..< escort {
+		kind := pick_enemy_kind(wave)
+		sz := ENEMIES[kind].size
+		spawn_enemy_at(kind, false, wave, random_spawn_pos(sz))
+	}
+}
+
+// The boss fight's AI: alternate telegraphed radial volleys and a ground slam,
+// enrage below half health. Every attack announces itself in WINDUP (the body
+// flashes and grows a tell) before it lands.
+update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
+	s := ENEMIES[.BOSS]
+	ec := e.position + e.size * 0.5
+
+	// Phase flip below half health.
+	if e.boss_phase < 2 && e.hp <= e.max_hp * BOSS_PHASE2_FRAC {
+		e.boss_phase = 2
+		e.state = .BOSS_RAGE
+		e.state_timer = 1.0
+		e.flash = 0.4
+		play(sounds.enemy_die, 0.7)
+	}
+	phase2 := e.boss_phase >= 2
+	move_spd := spd
+	if phase2 {
+		move_spd = spd * BOSS_RAGE_SPEED_MULT
+	}
+
+	// Keep a mid-range band: close in if too far, back off if crowded.
+	if dist > s.preferred_range {
+		e.position += dir * move_spd * dT
+	} else if dist < s.preferred_range * 0.6 {
+		e.position -= dir * move_spd * dT
+	} else {
+		perp := raylib.Vector2{-dir.y, dir.x}
+		e.position += perp * move_spd * 0.4 * dT
+	}
+
+	e.state_timer -= dT
+	#partial switch e.state {
+	case .CHASE, .RECOVER:
+		if e.state_timer <= 0 {
+			// Pick the next attack: alternate volley and slam, favouring volleys.
+			if rand.float32() < 0.6 {
+				e.boss_next = 0
+				e.boss_spin = rand.float32() * 2 * math.PI
+				e.state_timer = BOSS_SHOOT_TELEGRAPH
+			} else {
+				e.boss_next = 1
+				e.charge_dir = dir // remember where to slam
+				e.state_timer = BOSS_SLAM_TELEGRAPH
+			}
+			e.state = .WINDUP
+		}
+	case .WINDUP:
+		// Telegraph: pulse white faster the closer the attack is.
+		if e.state_timer > 0 {
+			tell: f32 = BOSS_SLAM_TELEGRAPH
+			if e.boss_next == 0 {
+				tell = BOSS_SHOOT_TELEGRAPH
+			}
+			e.flash = max(e.flash, f32(0.2) * (e.state_timer / tell))
+		}
+		if e.state_timer <= 0 {
+			// Dispatch to the queued attack.
+			if e.boss_next == 0 {
+				e.state = .BOSS_SHOOT
+			} else {
+				e.state = .BOSS_SLAM
+			}
+			e.state_timer = 0.01
+		}
+	case .BOSS_SHOOT:
+		// Radial volley centred on the player.
+		count := BOSS_SHOOT_BULLETS
+		if phase2 {
+			count = BOSS_SHOOT_BULLETS_RAGE
+		}
+		aim := e.position + e.size * 0.5
+		to_player := position + size * 0.5 - aim
+		base_ang: f32 = 0.0
+		if raylib.Vector2Length(to_player) > 0.01 {
+			base_ang = math.atan2_f32(to_player.y, to_player.x)
+		}
+		for i in 0 ..< count {
+			ang := base_ang + e.boss_spin + f32(i) * (2 * math.PI / f32(count))
+			append(
+				&enemy_bullets,
+				bullet {
+					position = ec - {6, 6},
+					size = {12, 12},
+					velocity = raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} *
+						BOSS_SHOOT_SPEED,
+					damage = s.damage * 0.5,
+					pierce = 0,
+				},
+			)
+		}
+		e.muzzle = ENEMY_MUZZLE_FLASH_TIME
+		e.muzzle_dir = to_player
+		add_shake(4)
+		// After a volley, telegraph the slam.
+		e.boss_next = 1
+		e.charge_dir = to_player / max(raylib.Vector2Length(to_player), 0.01)
+		e.state = .WINDUP
+		e.state_timer = BOSS_SLAM_TELEGRAPH
+	case .BOSS_SLAM:
+		if e.state_timer <= 0 {
+			// Ground slam centred on where the player was telegraphed.
+			sl := e.charge_dir * 120 + ec
+			append(
+				&explosions,
+				explosion {
+					pos = sl,
+					life = 0.3,
+					max_life = 0.3,
+					radius = BOSS_SLAM_RADIUS,
+					color = raylib.RED,
+				},
+			)
+			add_shake(6)
+			if raylib.Vector2Distance(position + size * 0.5, sl) < BOSS_SLAM_RADIUS {
+				apply_player_damage(BOSS_SLAM_DAMAGE, sl)
+			}
+			e.state = .RECOVER
+			e.state_timer = 0.9
+		}
+	case .BOSS_RAGE:
+		// Phase-2 entry flourish: summon adds once, then fight.
+		if e.state_timer <= 0 {
+			for _ in 0 ..< BOSS_SUMMON_COUNT {
+				spawn_enemy_at(.RUNNER, false, 1, random_spawn_pos(ENEMIES[.RUNNER].size))
+			}
+			e.state = .BOSS_SHOOT
+			e.state_timer = 0.01
+		}
+	}
 }
 
 // Per-enemy steering. Movement is applied here; wall collision is resolved
@@ -1988,6 +2226,82 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			}
 		}
 
+	case .SPLITTER:
+		// Walks straight in; its trick is what it leaves behind on death (see
+		// split_enemy_on_death).
+		e.position += dir * spd * dT
+
+	case .ORBITER:
+		// Rings the player at ORBITER_RING, periodically lunging inside for a
+		// hit and peeling back out. state_timer runs the weave cycle.
+		e.state_timer -= dT
+		if e.state_timer <= 0 {
+			e.state_timer = ORBITER_CYCLE
+			e.elite_step = 1 - e.elite_step // toggle weave in/out
+		}
+		// Tangent around the player keeps them circling, not colliding.
+		perp := raylib.Vector2{-dir.y, dir.x}
+		side: f32 = e.id % 2 == 0 ? 1.0 : -1.0
+		target_ring := f32(ORBITER_RING)
+		if e.elite_step == 1 {
+			target_ring = f32(ORBITER_RING) * f32(ORBITER_WEAVE_IN)
+		}
+		// Move toward/away from the ring radius, plus a tangential drift.
+		radius_err := dist - target_ring
+		radial := dir * clamp(radius_err / 60, -1, 1)
+		e.position += (radial + perp * side * 0.8) * spd * dT
+
+	case .SNIPER:
+		// Holds a far ring and fires telegraphed aimed shots: wind up (state_timer
+		// counts down from SNIPER_TELEGRAPH with a growing flash), snap a shot, then
+		// recover.
+		perp := raylib.Vector2{-dir.y, dir.x}
+		side: f32 = e.id % 2 == 0 ? 1.0 : -1.0
+		// Drift to keep distance while aiming.
+		if dist > s.preferred_range {
+			e.position += dir * spd * dT
+		} else if dist < s.preferred_range - 80 {
+			e.position -= dir * spd * dT
+		} else {
+			e.position += perp * spd * 0.5 * dT * side
+		}
+		#partial switch e.state {
+		case .CHASE:
+			e.state_timer -= dT
+			if e.state_timer <= 0 && dist < s.preferred_range + 160 {
+				e.state = .WINDUP
+				e.state_timer = SNIPER_TELEGRAPH
+			}
+		case .WINDUP:
+			// Flash brighter as the shot approaches.
+			e.flash = max(e.flash, 0.12 * (e.state_timer / SNIPER_TELEGRAPH))
+			e.state_timer -= dT
+			if e.state_timer <= 0 {
+				append(
+					&enemy_bullets,
+					bullet {
+						position = ec - {5, 5},
+						size = {12, 12},
+						velocity = dir * SNIPER_SHOT_SPEED,
+						damage = s.damage,
+						pierce = 0,
+					},
+				)
+				e.muzzle = ENEMY_MUZZLE_FLASH_TIME
+				e.muzzle_dir = dir
+				e.state = .RECOVER
+				e.state_timer = s.fire_rate
+			}
+		case .RECOVER:
+			e.state_timer -= dT
+			if e.state_timer <= 0 {
+				e.state = .CHASE
+			}
+		}
+
+	case .BOSS:
+		update_boss(e, dir, dist, spd, dT)
+
 	case .DUMMY_DPS, .DUMMY_WEAK:
 	// Stationary practice targets: they never move or attack.
 
@@ -2117,6 +2431,11 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 	// Feed the practice dummy's damage-per-second bar.
 	if e.kind == .DUMMY_DPS && amount > 0 {
 		e.dps_window += amount
+	}
+	// Splitters queue their halves the moment they die; process_splits spawns them
+	// in a deferred pass so the enemies array is never mutated mid-iteration.
+	if e.kind == .SPLITTER && e.hp <= 0 {
+		append(&pending_splits, e.position)
 	}
 	// RR's OFFENSE lesson clears when its turret goes down. Noted on the lethal
 	// hit here (the single damage funnel); no-op outside that tutorial.
