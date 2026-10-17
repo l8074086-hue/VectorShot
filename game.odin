@@ -1717,6 +1717,11 @@ resume_run :: proc() -> bool {
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
+	// An older save (from before per-arena bosses) may sit past this arena's boss
+	// wave; treat that as already-endedless so we don't re-run a boss it skipped.
+	if !endless_mode && wave > ARENAS[arena].waves {
+		endless_mode = true
+	}
 	// start_run already forced the arena from the mission; re-assert the saved one
 	// in case the loadout screen's pick should win for an endless run.
 	build_arena(arena)
