@@ -506,6 +506,8 @@ start_run :: proc(stats: Run_Stats) {
 	lifesteal = 0
 	mag_mult = 1
 	ammo_growth_mult = 1
+	// Relics are per-run; a fresh run starts with none (resume_run restores them).
+	relics_owned = 0
 	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
@@ -966,7 +968,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 				health = min(health + PHASE_REND_HEAL, max_health)
 				tutorial_note(.MARK_KILL)
 			}
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -975,7 +977,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 	if stats.phase_detonate {
 		for i := len(enemies) - 1; i >= 0; i -= 1 {
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -1056,7 +1058,7 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 		play_enemy_hit(apply_enemy_damage(&enemies[i], damage, -d))
 		apply_status(&enemies[i], attack_effects)
 		if enemies[i].hp <= 0 {
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -1463,6 +1465,7 @@ capture_run_save :: proc() -> Run_Save {
 		card_choices       = card_choices,
 		status_time_mult   = status_time_mult,
 		attack_effects     = attack_effects_to_u32(),
+		relics_owned       = relics_owned,
 	}
 	for eff in Status_Effect {
 		rs.status_power[int(eff)] = status_power[eff]
@@ -1504,6 +1507,7 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "card_choices=%i\n", rs.card_choices)
 	fmt.sbprintf(&sb, "status_time_mult=%.3f\n", rs.status_time_mult)
 	fmt.sbprintf(&sb, "attack_effects=%i\n", i32(rs.attack_effects))
+	fmt.sbprintf(&sb, "relics_owned=%i\n", i32(rs.relics_owned))
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
@@ -1600,6 +1604,8 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.status_time_mult = parse_run_f32(val, rs.status_time_mult)
 		case "attack_effects":
 			rs.attack_effects = u32(parse_run_i32(val, i32(rs.attack_effects)))
+		case "relics_owned":
+			rs.relics_owned = u32(parse_run_i32(val, i32(rs.relics_owned)))
 		case:
 			if len(key) > 13 && key[:13] == "status_power_" {
 				i := parse_run_i32(key[13:], -1)
@@ -1676,6 +1682,9 @@ resume_run :: proc() -> bool {
 	for eff in Status_Effect {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
+	// Relic effects are already baked into the stats above; restore the bitmask so
+	// the HUD lists them and a later chest won't redraw one you already hold.
+	relics_owned = rs.relics_owned
 	// start_run already forced the arena from the mission; re-assert the saved one
 	// in case the loadout screen's pick should win for an endless run.
 	build_arena(arena)
@@ -1889,34 +1898,37 @@ process_splits :: proc() {
 		return
 	}
 	s := ENEMIES[.SPLITTER]
+	// Halves become plain RUNNERs: same fast chase AI, a runner's colour so they
+	// read as runners (not more splitters), and they can't split again -- one
+	// splitter should never cascade into a flood.
+	child_base := ENEMIES[.RUNNER]
 	child_sz := s.size * SPLITTER_CHILD_SCALE
 	for pos in pending_splits {
-		for k in 0 ..< 2 {
+		for _ in 0 ..< 2 {
 			ang := rand.float32() * 2 * math.PI
 			off := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * (s.size.x * 0.45)
 			cp := pos + off - child_sz * 0.5
 			cp.x = clamp(cp.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - child_sz.x)
 			cp.y = clamp(cp.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - child_sz.y)
-			child := enemy {
-				position  = cp,
-				size      = child_sz,
-				velocity  = {0, 0},
-				attacking = false,
-				color     = s.color,
-				damage    = s.damage,
-				hp        = f32(SPLITTER_CHILD_HP),
-				max_hp    = f32(SPLITTER_CHILD_HP),
-				id        = next_enemy_id,
-				speed     = s.speed * 1.2,
-				kind      = .SPLITTER,
-				state     = .CHASE,
-				elite     = false,
-				plates    = 0,
-			}
-			// Children can't split again -- turn them into plain RUNNERs so a
-			// chain reaction doesn't flood the arena.
-			child.kind = .RUNNER
-			append(&enemies, child)
+			append(
+				&enemies,
+				enemy {
+					position  = cp,
+					size      = child_sz,
+					velocity  = {0, 0},
+					attacking = false,
+					color     = child_base.color,
+					damage    = s.damage,
+					hp        = f32(SPLITTER_CHILD_HP),
+					max_hp    = f32(SPLITTER_CHILD_HP),
+					id        = next_enemy_id,
+					speed     = s.speed * 1.2,
+					kind      = .RUNNER,
+					state     = .CHASE,
+					elite     = false,
+					plates    = 0,
+				},
+			)
 			next_enemy_id += 1
 		}
 	}
@@ -2392,7 +2404,7 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 			continue
 		}
 		// The victim dies (and still drops); the Devourer heals off it.
-		spawn_kill_rewards(enemies[best].position, false, enemies[best].color)
+		spawn_kill_rewards(enemies[best].position, false, enemies[best].color, enemies[best].kind)
 		e.hp = min(e.hp + e.max_hp * ELITE_DEVOUR_HEAL, e.max_hp)
 		e.flash = 0.25
 		e.ability_timer = ELITE_DEVOUR_COOLDOWN
@@ -2703,7 +2715,7 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 					e.dps_window += dmg
 				}
 				if e.hp <= 0 {
-					spawn_kill_rewards(e.position, e.elite, e.color)
+					spawn_kill_rewards(e.position, e.elite, e.color, e.kind)
 					unordered_remove(enemies, i)
 				}
 			}
@@ -3206,7 +3218,7 @@ explode_at :: proc(center: raylib.Vector2) {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24
 			}
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -3263,8 +3275,83 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // Standard rewards for killing something. Call right before removing an enemy.
 // Elites leave a guaranteed pile of coins on top of the usual rolls. `col` is
 // the dying enemy's colour, used for the death burst's shards.
-spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false, col: raylib.Color = raylib.WHITE) {
+// --- relics -----------------------------------------------------------------
+
+// Relics held this run (bitmask over Relic_Kind), plus the draw currently on offer.
+relics_owned: u32 = 0
+pending_relic: Relic_Kind = .VAMPIRE_FANG
+relic_pick_open: bool = false // true while the accept/discard overlay is up
+
+relic_owned :: proc(kind: Relic_Kind) -> bool {
+	return (relics_owned & (u32(1) << u32(int(kind)))) != 0
+}
+
+relic_count :: proc() -> int {
+	n := 0
+	for k in Relic_Kind {
+		if relic_owned(k) {
+			n += 1
+		}
+	}
+	return n
+}
+
+// Apply a relic's permanent effect for the rest of the run.
+apply_relic :: proc(kind: Relic_Kind) {
+	relics_owned |= u32(1) << u32(int(kind))
+	switch kind {
+	case .VAMPIRE_FANG:
+		lifesteal += 0.6
+	case .IRON_STEADY:
+		max_health += 25
+		health = min(max_health, health + 25)
+	case .SWIFT_SOLE:
+		SPEED += 25
+	case .SHARP_EDGE:
+		spread_cut += 0.4
+	case .QUICK_WRIST:
+		melee_speed_mult *= 0.82
+	case .THICK_MAG:
+		mag_mult *= 1.25
+	case .BULLET_RESERVE:
+		ammo_growth_mult *= 1.3
+	case .HEAVY_BARREL:
+		bonus_damage += 1.5
+	}
+}
+
+// Draw a random relic you don't already own. Returns false once you hold them all.
+draw_relic :: proc() -> (kind: Relic_Kind, ok: bool) {
+	pool: [dynamic]Relic_Kind
+	defer delete(pool)
+	for k in Relic_Kind {
+		if !relic_owned(k) {
+			append(&pool, k)
+		}
+	}
+	if len(pool) == 0 {
+		return .VAMPIRE_FANG, false
+	}
+	return pool[rand.int_range(0, len(pool) - 1)], true
+}
+
+// A boss leaves a chest. Walk into it to draw a relic (accept or discard).
+spawn_relic_chest :: proc(pos: raylib.Vector2) {
+	sz: raylib.Vector2 = {26, 26}
+	p := pos - sz * 0.5
+	p.x = clamp(p.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - sz.x)
+	p.y = clamp(p.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - sz.y)
+	append(&drops, drop{position = p, size = sz, kind = .RELIC_CHEST, amount = 0, life = 30.0})
+}
+
+spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false, col: raylib.Color = raylib.WHITE, kind: Enemy_Kind = .GRUNT) {
 	spawn_death_burst(pos, col, elite)
+	// A boss always leaves a relic chest (walk over it to draw, then accept or
+	// discard). This is the universal death funnel, so it fires no matter what
+	// killed it -- bullets, melee, a barrel, a dash.
+	if kind == .BOSS && !tutorial_mode {
+		spawn_relic_chest(pos)
+	}
 	// Practice dummies must not skew run stats, but they still drop a small
 	// coin pile so the loot lesson is something you actually kill and collect.
 	if tutorial_mode {

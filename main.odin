@@ -293,6 +293,24 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 			cy += f32(fs) + 3
 		}
 	}
+	// Relics drawn from chests this run: a gold row per relic, so your build's
+	// passive bonuses are always visible without opening a menu.
+	if n := relic_count(); n > 0 {
+		cy += 6
+		hdr := raylib.TextFormat("RELICS (%i):", n)
+		hdr_fs := fit_font(cstring(hdr), avail, 13)
+		raylib.DrawText(cstring(hdr), i32(ox), i32(cy), hdr_fs, raylib.GOLD)
+		cy += f32(hdr_fs) + 3
+		for k in Relic_Kind {
+			if !relic_owned(k) {
+				continue
+			}
+			fs := fit_font(RELICS[k].name, avail - 14, 12)
+			raylib.DrawRectangle(i32(ox), i32(cy)+2, 8, 8, raylib.GOLD)
+			raylib.DrawText(RELICS[k].name, i32(ox)+13, i32(cy), fs, raylib.GOLD)
+			cy += f32(fs) + 2
+		}
+	}
 }
 
 // Leave the shop: back to PLAYING, spawning the next wave (or noting the tutorial
@@ -309,6 +327,145 @@ leave_shop :: proc() {
 			new_wave(&enemies, wave)
 		}
 		wave += 1
+	}
+}
+
+// Keyboard handler for the accept/discard relic overlay. ENTER (or R) takes the
+// relic, ESC (or D) discards it; either way the world resumes.
+relic_pick_update :: proc() {
+	accept := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+		raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) ||
+		raylib.IsKeyPressed(raylib.KeyboardKey.R)
+	discard := raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
+		raylib.IsKeyPressed(raylib.KeyboardKey.D)
+	if accept {
+		apply_relic(pending_relic)
+		relic_pick_open = false
+		play(sounds.shop_buy)
+	} else if discard {
+		relic_pick_open = false
+		play(sounds.ui_move)
+	}
+}
+
+// The accept/discard overlay: a centred card showing the drawn relic with the two
+// choices, drawn over the frozen frame in the present step.
+relic_pick_draw :: proc() {
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	raylib.DrawRectangleRec(raylib.Rectangle{0, 0, sw, sh}, raylib.Color{0, 0, 0, 150})
+	w: f32 = 460
+	h: f32 = 240
+	x := (sw - w) * 0.5
+	y := (sh - h) * 0.5
+	raylib.DrawRectangleRec(raylib.Rectangle{x, y, w, h}, raylib.Color{28, 24, 16, 250})
+	raylib.DrawRectangleLinesEx(raylib.Rectangle{x, y, w, h}, 3, raylib.GOLD)
+	r := RELICS[pending_relic]
+	draw_centered(cstring("RELIC CHEST"), i32(y) + 20, 24, raylib.GOLD)
+	draw_centered(r.name, i32(y) + 56, 28, raylib.RAYWHITE)
+	draw_centered(r.desc, i32(y) + 96, 17, raylib.LIGHTGRAY)
+	// Two buttons.
+	bw: f32 = 180
+	bh: f32 = 44
+	by := y + h - 70
+	accept_rect := raylib.Rectangle{x + 30, by, bw, bh}
+	discard_rect := raylib.Rectangle{x + w - 30 - bw, by, bw, bh}
+	mp := raylib.GetMousePosition()
+	clicked := raylib.IsMouseButtonPressed(.LEFT)
+	if raylib.CheckCollisionPointRec(mp, accept_rect) {
+		raylib.DrawRectangleLinesEx(accept_rect, 3, raylib.YELLOW)
+		if clicked {
+			apply_relic(pending_relic)
+			relic_pick_open = false
+			play(sounds.shop_buy)
+		}
+	} else {
+		raylib.DrawRectangleLinesEx(accept_rect, 2, raylib.GRAY)
+	}
+	if raylib.CheckCollisionPointRec(mp, discard_rect) {
+		raylib.DrawRectangleLinesEx(discard_rect, 3, raylib.YELLOW)
+		if clicked {
+			relic_pick_open = false
+			play(sounds.ui_move)
+		}
+	} else {
+		raylib.DrawRectangleLinesEx(discard_rect, 2, raylib.GRAY)
+	}
+	draw_centered(cstring("ACCEPT"), i32(by) + 12, 22, raylib.LIME)
+	draw_centered(cstring("DISCARD"), i32(by) + 12, 22, raylib.LIGHTGRAY)
+	draw_centered(
+		cstring("ENTER accept   -   ESC discard"),
+		i32(y + h) - 16,
+		14,
+		raylib.DARKGRAY,
+	)
+}
+
+// Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper
+// wind-up paints its tell here; that's what makes those attacks dodgeable rather
+// than unavoidable.
+draw_telegraphs :: proc() {
+	player_c := position + size * 0.5
+	for e in enemies {
+		ec := e.position + e.size * 0.5
+		#partial switch e.kind {
+		case .SNIPER:
+			if e.state != .WINDUP {
+				continue
+			}
+			// An aim line that brightens into the shot, plus a ring collapsing
+			// onto it as the fuse runs out: you can see where it's going.
+			k := 1 - clamp(e.state_timer / f32(SNIPER_TELEGRAPH), 0, 1)
+			to_p := player_c - ec
+			d := max(raylib.Vector2Length(to_p), 0.01)
+			dir := to_p / d
+			raylib.DrawLineEx(
+				ec,
+				ec + dir * d,
+				f32(1 + k * 2),
+				raylib.Color{255, 255, 120, u8(40 + 180 * k)},
+			)
+			raylib.DrawCircleLines(
+				i32(ec.x),
+				i32(ec.y),
+				d * k,
+				raylib.Color{255, 255, 120, u8(50 + 150 * k)},
+			)
+		case .BOSS:
+			if e.state == .WINDUP && e.boss_next == 1 {
+				// Slam tell: a danger circle at the spot locked in when the
+				// wind-up started, filling as the impact closes.
+				k := 1 - clamp(e.state_timer / f32(BOSS_SLAM_TELEGRAPH), 0, 1)
+				sl := e.charge_dir * 120 + ec
+				raylib.DrawCircleV(
+					sl,
+					f32(BOSS_SLAM_RADIUS),
+					raylib.Color{200, 40, 40, u8(30 + 50 * k)},
+				)
+				raylib.DrawCircleLines(
+					i32(sl.x),
+					i32(sl.y),
+					f32(BOSS_SLAM_RADIUS),
+					raylib.Color{255, 90, 90, u8(120 + 120 * k)},
+				)
+				// A shrinking ring inside the zone reads as the fuse.
+				raylib.DrawCircleLines(
+					i32(sl.x),
+					i32(sl.y),
+					f32(BOSS_SLAM_RADIUS) * (1 - k),
+					raylib.Color{255, 220, 120, u8(150 + 90 * k)},
+				)
+			} else if e.state == .WINDUP {
+				// Volley tell: the boss flares while spinning up its radial shot.
+				k := 1 - clamp(e.state_timer / f32(BOSS_SHOOT_TELEGRAPH), 0, 1)
+				raylib.DrawCircleLines(
+					i32(ec.x),
+					i32(ec.y),
+					max(e.size.x, e.size.y) * (0.6 + 0.8 * k),
+					raylib.Color{255, 160, 60, u8(90 + 150 * k)},
+				)
+			}
+		}
 	}
 }
 
@@ -1430,7 +1587,10 @@ main :: proc() {
 			if ingame_panel_open {
 				ingame_panel_update()
 			}
-			if ingame_panel_open || auto_paused {
+			if relic_pick_open {
+				relic_pick_update()
+			}
+			if ingame_panel_open || auto_paused || relic_pick_open {
 				break
 			}
 			camera.target = position + size * 0.5
@@ -1930,7 +2090,7 @@ main :: proc() {
 						apply_status(e, bullets[i].effects)
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
-							spawn_kill_rewards(e.position, e.elite, e.color)
+							spawn_kill_rewards(e.position, e.elite, e.color, e.kind)
 							unordered_remove(&enemies, j)
 						}
 						// Spend a pierce charge, or die on this hit.
@@ -2071,6 +2231,22 @@ main :: proc() {
 						currency += i32(drops[i].amount)
 						run_coins_earned += i32(drops[i].amount)
 						play(sounds.coin, rand.float32_range(0.97, 1.03))
+					case .RELIC_CHEST:
+						// Open the chest: draw a relic and pause for accept/discard.
+						if !tutorial_mode {
+							if kind, ok := draw_relic(); ok {
+								pending_relic = kind
+								relic_pick_open = true
+							} else {
+								currency += 100 // everything owned: pay out instead
+							}
+							play(sounds.shop_buy)
+						}
+					}
+					if drops[i].kind == .RELIC_CHEST {
+						// The chest is consumed even if the draw was declined.
+						unordered_remove(&drops, i)
+						continue
 					}
 					tutorial_note(.PICKUP)
 					unordered_remove(&drops, i)
@@ -2215,8 +2391,41 @@ main :: proc() {
 					raylib.DrawRectangleV(d.position, d.size, raylib.Color{110, 190, 255, alpha})
 				case .CURRENCY:
 					raylib.DrawRectangleV(d.position, d.size, raylib.Color{255, 205, 60, alpha})
+				case .RELIC_CHEST:
+					// A gilded chest with a pulsing glow so it reads as the
+					// wave's reward.
+					c := d.position + d.size * 0.5
+					pulse: f32 = 0.5 + 0.5 * f32(math.sin(raylib.GetTime() * 4.0))
+					raylib.DrawCircleV(
+						c,
+						d.size.x * (0.9 + 0.3 * pulse),
+						raylib.Color{255, 200, 60, u8(50 * alpha / 255)},
+					)
+					raylib.DrawRectangleV(d.position, d.size, raylib.BROWN)
+					raylib.DrawRectangleLinesEx(
+						{d.position.x, d.position.y, d.size.x, d.size.y},
+						2,
+						raylib.GOLD,
+					)
+					// Lid line + lock.
+					mid := d.position.y + d.size.y * 0.4
+					raylib.DrawLineEx(
+						{d.position.x, mid},
+						{d.position.x + d.size.x, mid},
+						2,
+						raylib.GOLD,
+					)
+					raylib.DrawRectangleV(
+						c - {4, 2},
+						{8, 8},
+						raylib.GOLD,
+					)
 				}
 			}
+			// Attack telegraphs, drawn under the enemies so the danger zones read as
+			// ground effects rather than UI. Every boss/sniper wind-up paints its
+			// tell here, which is what makes those attacks fair to dodge.
+			draw_telegraphs()
 			// Enemies (chargers flash a white box while winding up).
 			for e in enemies {
 				// Crystalized elites flash white for a beat after acting.
@@ -2909,9 +3118,11 @@ main :: proc() {
 				raylib.DrawRectangleLinesEx(rect, band, raylib.Color{255, 40, 40, alpha})
 			}
 		}
-		// In-game settings panel overlay (Backspace), drawn in screen space on top of
-		// the frozen frame.
-		if ingame_panel_open {
+		// Relic accept/discard overlay, drawn over the frozen frame (highest
+		// priority: it was triggered from a chest you just touched).
+		if relic_pick_open {
+			relic_pick_draw()
+		} else if ingame_panel_open {
 			draw_ingame_panel()
 		} else if auto_paused {
 			// Auto-pause overlay: dim + a "click to resume" prompt while unfocused.

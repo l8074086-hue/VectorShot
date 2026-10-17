@@ -187,10 +187,9 @@ Enemy_State :: enum {
 	STRAFE,  // ranged keeping its distance
 	// Boss (WARDEN) states: it cycles telegraph -> attack -> recover, and flips
 	// to its faster second phase below half health.
-	BOSS_SHOOT,     // sweeping shot of radial bullets
-	BOSS_SLAM,      // telegraphed ground slam that damages in a radius
-	BOSS_RAGE,      // phase-2 enrage: faster, denser volleys
-	BOSS_SUMMON,    // calls in a couple of adds
+	BOSS_SHOOT,  // sweeping shot of radial bullets
+	BOSS_SLAM,   // telegraphed ground slam that damages in a radius
+	BOSS_RAGE,   // phase-2 enrage flourish: summons adds, then resumes fighting
 }
 
 Enemy_Stats :: struct {
@@ -217,6 +216,25 @@ Drop_Kind :: enum {
 	HEALTH,
 	AMMO,
 	CURRENCY,
+	RELIC_CHEST, // boss-only: walk over it to draw a relic (accept or discard)
+}
+
+// Relic: a rare permanent passive for the run, drawn from a chest a boss drops.
+// You accept or discard it, so a draw is never forced.
+Relic_Kind :: enum {
+	VAMPIRE_FANG,   // heal a little on every kill
+	IRON_STEADY,    // + max health
+	SWIFT_SOLE,     // + move speed
+	SHARP_EDGE,     // cut spread
+	QUICK_WRIST,    // faster melee swings
+	THICK_MAG,      // bigger magazines
+	BULLET_RESERVE, // more reserve ammo
+	HEAVY_BARREL,   // + damage
+}
+
+Relic :: struct {
+	name: cstring,
+	desc: cstring,
 }
 
 // Pickups left behind by slain enemies. Ammo drops can reuse this.
@@ -625,6 +643,7 @@ Run_Save :: struct {
 	status_time_mult:  f32,
 	attack_effects:    u32,    // Status_Set bitmask
 	status_power:      [4]f32, // per-Status_Effect power
+	relics_owned:      u32,    // Relic_Kind bitmask, so a resumed run never redraws one
 }
 
 // Snapshot of a finished run, shown on the results screen. Captured at death so

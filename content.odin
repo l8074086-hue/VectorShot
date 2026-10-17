@@ -1001,6 +1001,21 @@ UTILITIES := [Utility]Utility_Stats {
 
 // Playable arenas. Same 1600x1200 bounds and border, but each has its own
 // interior layout and palette. `build_arena` matches on the kind to place cover.
+// --- relics ------------------------------------------------------------------
+//
+// Rare run passives, drawn one at a time from the chest a boss drops. You accept
+// or discard each draw, so opening a chest is always a choice, never a tax.
+RELICS := [Relic_Kind]Relic {
+	.VAMPIRE_FANG = {"VAMPIRE'S FANG", "Heal a little on every kill."},
+	.IRON_STEADY = {"IRON STEADY", "+25 max health (and heal it now)."},
+	.SWIFT_SOLE = {"SWIFT SOLE", "+25 move speed."},
+	.SHARP_EDGE = {"SHARP EDGE", "Cut your spread."},
+	.QUICK_WRIST = {"QUICK WRIST", "Melee swings come out faster."},
+	.THICK_MAG = {"THICK MAG", "Bigger magazines on both guns."},
+	.BULLET_RESERVE = {"DEEP POCKETS", "More reserve ammo on both guns."},
+	.HEAVY_BARREL = {"HEAVY BARREL", "+1.5 damage on every hit."},
+}
+
 ARENAS := [Arena_Kind]Arena_Stats {
 	.GRASSLAND = {
 		"GRASSLAND",
