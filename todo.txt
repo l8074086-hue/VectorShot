@@ -1,5 +1,3 @@
-(B) 2026-10-14 Add a relic / passive-item system +roguelike @items
-(B) 2026-10-14 Add elemental ammo types +roguelike @guns @combat
 (B) 2026-10-14 Add a combo & score multiplier +roguelike @combat @score
 (B) 2026-10-14 Add a minimap +roguelike @ui @levels
 (B) 2026-10-14 Add controller support +roguelike @input @ui
@@ -19,8 +17,6 @@
 (D) 2026-10-14 Add achievements +roguelike @meta
 (D) 2026-10-14 Add a local leaderboard +roguelike @meta @score
 (D) 2026-10-14 Add procedural background music +roguelike @sounds @music
-(B) 2026-10-17 Add boss enemies that appear every N waves +roguelike @combat @enemies @levels
-(B) 2026-10-17 Add more enemy archetypes with distinct behaviors +roguelike @combat @enemies
 (B) 2026-10-17 Drop random weapon pickups mid-run (temporary guns) +roguelike @combat @guns @items
 (C) 2026-10-17 Add meta-progression (unlock characters/guns across runs) +roguelike @meta @systems
 (C) 2026-10-17 Add kill-streak callouts and combo banners +roguelike @combat @ui @score

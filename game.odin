@@ -199,7 +199,7 @@ SPLITTER_CHILD_SCALE :: 0.62
 SPLITTER_CHILD_HP :: 2
 // ORBITER: ring the player at ORBITER_RING, weaving in/out on a timer.
 ORBITER_RING :: 210
-ORBITER_WEAVE_IN :: 0.55 // how far inside the ring it lunges
+ORBITER_WEAVE_IN :: 1 // how far inside the ring it lunges
 ORBITER_CYCLE :: 2.2 // seconds per weave in/out
 // SNIPER: hold the far ring, telegraph with a growing glow, then fire one fast
 // aimed shot. Aiming is instant; the telegraph is the tell.
@@ -968,7 +968,12 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 				health = min(health + PHASE_REND_HEAL, max_health)
 				tutorial_note(.MARK_KILL)
 			}
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
+			spawn_kill_rewards(
+				enemies[i].position,
+				enemies[i].elite,
+				enemies[i].color,
+				enemies[i].kind,
+			)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -977,7 +982,12 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 	if stats.phase_detonate {
 		for i := len(enemies) - 1; i >= 0; i -= 1 {
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
+				spawn_kill_rewards(
+					enemies[i].position,
+					enemies[i].elite,
+					enemies[i].color,
+					enemies[i].kind,
+				)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -1058,7 +1068,12 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 		play_enemy_hit(apply_enemy_damage(&enemies[i], damage, -d))
 		apply_status(&enemies[i], attack_effects)
 		if enemies[i].hp <= 0 {
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
+			spawn_kill_rewards(
+				enemies[i].position,
+				enemies[i].elite,
+				enemies[i].color,
+				enemies[i].kind,
+			)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -1879,7 +1894,7 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	// Every BOSS_EVERY waves is a boss encounter: one Warden (plus a light
 	// escort) instead of the usual grind.
 	if is_boss_wave(wave) {
-		spawn_boss_wave(enemies, wave)
+		//spawn_boss_wave(enemies, wave)
 		return
 	}
 	// Difficulty scales how many show up; never fewer than one. An active
@@ -1913,20 +1928,20 @@ process_splits :: proc() {
 			append(
 				&enemies,
 				enemy {
-					position  = cp,
-					size      = child_sz,
-					velocity  = {0, 0},
+					position = cp,
+					size = child_sz,
+					velocity = {0, 0},
 					attacking = false,
-					color     = child_base.color,
-					damage    = s.damage,
-					hp        = f32(SPLITTER_CHILD_HP),
-					max_hp    = f32(SPLITTER_CHILD_HP),
-					id        = next_enemy_id,
-					speed     = s.speed * 1.2,
-					kind      = .RUNNER,
-					state     = .CHASE,
-					elite     = false,
-					plates    = 0,
+					color = child_base.color,
+					damage = s.damage,
+					hp = f32(SPLITTER_CHILD_HP),
+					max_hp = f32(SPLITTER_CHILD_HP),
+					id = next_enemy_id,
+					speed = s.speed * 1.2,
+					kind = .RUNNER,
+					state = .CHASE,
+					elite = false,
+					plates = 0,
 				},
 			)
 			next_enemy_id += 1
@@ -2038,7 +2053,7 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 					position = ec - {6, 6},
 					size = {12, 12},
 					velocity = raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} *
-						BOSS_SHOOT_SPEED,
+					BOSS_SHOOT_SPEED,
 					damage = s.damage * 0.5,
 					pierce = 0,
 				},
@@ -2589,7 +2604,7 @@ spawn_death_burst :: proc(pos: raylib.Vector2, col: raylib.Color, elite: bool) {
 	}
 	append(
 		&explosions,
-		explosion {pos = pos, life = life, max_life = life, radius = r, color = raylib.WHITE},
+		explosion{pos = pos, life = life, max_life = life, radius = r, color = raylib.WHITE},
 	)
 	spawn_sparks(pos, {0, -1}, col, 14 if elite else 8)
 	add_hitstop(HITSTOP_BARREL if elite else HITSTOP_KILL)
@@ -2849,24 +2864,50 @@ build_arena :: proc(kind: Arena_Kind) {
 	switch kind {
 	case .GRASSLAND:
 		rects := [?]raylib.Rectangle {
-			{180, 300, 200, 36}, {1220, 300, 200, 36},
-			{180, 864, 200, 36}, {1220, 864, 200, 36},
-			{700, 180, 200, 36}, {700, 984, 200, 36},
+			{180, 300, 200, 36},
+			{1220, 300, 200, 36},
+			{180, 864, 200, 36},
+			{1220, 864, 200, 36},
+			{700, 180, 200, 36},
+			{700, 984, 200, 36},
 		}
 		trees := [?]raylib.Vector2 {
-			{260, 220}, {360, 180}, {520, 240}, {180, 460},
-			{1340, 220}, {1240, 180}, {1080, 240}, {1420, 460},
-			{260, 1000}, {380, 1040}, {520, 980}, {180, 760},
-			{1340, 1000}, {1220, 1040}, {1080, 980}, {1420, 760},
-			{800, 180}, {800, 1020},
+			{260, 220},
+			{360, 180},
+			{520, 240},
+			{180, 460},
+			{1340, 220},
+			{1240, 180},
+			{1080, 240},
+			{1420, 460},
+			{260, 1000},
+			{380, 1040},
+			{520, 980},
+			{180, 760},
+			{1340, 1000},
+			{1220, 1040},
+			{1080, 980},
+			{1420, 760},
+			{800, 180},
+			{800, 1020},
 		}
 		rocks := [?]raylib.Vector2 {
-			{430, 420}, {1170, 420}, {430, 780}, {1170, 780},
-			{640, 300}, {960, 300}, {640, 900}, {960, 900},
+			{430, 420},
+			{1170, 420},
+			{430, 780},
+			{1170, 780},
+			{640, 300},
+			{960, 300},
+			{640, 900},
+			{960, 900},
 		}
 		barrels := [?]raylib.Vector2 {
-			{700, 320}, {900, 320}, {700, 880}, {900, 880},
-			{520, 600}, {1080, 600},
+			{700, 320},
+			{900, 320},
+			{700, 880},
+			{900, 880},
+			{520, 600},
+			{1080, 600},
 		}
 		add_walls(rects[:])
 		add_props(trees[:], .TREE, 48)
@@ -2875,18 +2916,33 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .CANYON:
 		rects := [?]raylib.Rectangle {
-			{220, 300, 560, 44}, {820, 300, 560, 44},
-			{220, 880, 560, 44}, {820, 880, 560, 44},
-			{520, 450, 44, 300}, {1036, 450, 44, 300},
+			{220, 300, 560, 44},
+			{820, 300, 560, 44},
+			{220, 880, 560, 44},
+			{820, 880, 560, 44},
+			{520, 450, 44, 300},
+			{1036, 450, 44, 300},
 		}
 		mesas := [?]raylib.Vector2 {
-			{300, 180}, {1300, 180}, {300, 1020}, {1300, 1020},
-			{660, 420}, {940, 420}, {660, 780}, {940, 780},
+			{300, 180},
+			{1300, 180},
+			{300, 1020},
+			{1300, 1020},
+			{660, 420},
+			{940, 420},
+			{660, 780},
+			{940, 780},
 		}
 		crates := [?]raylib.Vector2{{400, 600}, {1200, 600}}
 		barrels := [?]raylib.Vector2 {
-			{400, 420}, {1200, 420}, {400, 780}, {1200, 780},
-			{800, 340}, {800, 860}, {600, 620}, {1000, 620},
+			{400, 420},
+			{1200, 420},
+			{400, 780},
+			{1200, 780},
+			{800, 340},
+			{800, 860},
+			{600, 620},
+			{1000, 620},
 		}
 		add_walls(rects[:])
 		add_props(mesas[:], .ROCK, 52)
@@ -2895,16 +2951,25 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .RUINS:
 		rects := [?]raylib.Rectangle {
-			{285, 285, 70, 70}, {765, 285, 70, 70}, {1245, 285, 70, 70},
-			{285, 565, 70, 70}, {1245, 565, 70, 70},
-			{285, 845, 70, 70}, {765, 845, 70, 70}, {1245, 845, 70, 70},
+			{285, 285, 70, 70},
+			{765, 285, 70, 70},
+			{1245, 285, 70, 70},
+			{285, 565, 70, 70},
+			{1245, 565, 70, 70},
+			{285, 845, 70, 70},
+			{765, 845, 70, 70},
+			{1245, 845, 70, 70},
 		}
-		rubble := [?]raylib.Vector2 {
-			{620, 480}, {980, 480}, {620, 720}, {980, 720},
-		}
+		rubble := [?]raylib.Vector2{{620, 480}, {980, 480}, {620, 720}, {980, 720}}
 		barrels := [?]raylib.Vector2 {
-			{450, 425}, {1150, 425}, {450, 775}, {1150, 775},
-			{800, 180}, {800, 1020}, {180, 600}, {1420, 600},
+			{450, 425},
+			{1150, 425},
+			{450, 775},
+			{1150, 775},
+			{800, 180},
+			{800, 1020},
+			{180, 600},
+			{1420, 600},
 		}
 		add_walls(rects[:])
 		add_props(rubble[:], .ROCK, 44)
@@ -2912,14 +2977,26 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .GLACIER:
 		rects := [?]raylib.Rectangle {
-			{300, 500, 300, 44}, {1000, 500, 300, 44},
-			{300, 656, 300, 44}, {1000, 656, 300, 44},
-			{760, 190, 80, 180}, {760, 830, 80, 180},
+			{300, 500, 300, 44},
+			{1000, 500, 300, 44},
+			{300, 656, 300, 44},
+			{1000, 656, 300, 44},
+			{760, 190, 80, 180},
+			{760, 830, 80, 180},
 		}
 		pines := [?]raylib.Vector2 {
-			{240, 260}, {360, 220}, {1360, 260}, {1240, 220},
-			{240, 940}, {360, 980}, {1360, 940}, {1240, 980},
-			{560, 300}, {1040, 300}, {560, 900}, {1040, 900},
+			{240, 260},
+			{360, 220},
+			{1360, 260},
+			{1240, 220},
+			{240, 940},
+			{360, 980},
+			{1360, 940},
+			{1240, 980},
+			{560, 300},
+			{1040, 300},
+			{560, 900},
+			{1040, 900},
 		}
 		ice := [?]raylib.Vector2{{420, 420}, {1180, 420}, {420, 780}, {1180, 780}}
 		barrels := [?]raylib.Vector2{{800, 420}, {800, 780}, {200, 600}, {1400, 600}}
@@ -2930,19 +3007,38 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .FOUNDRY:
 		rects := [?]raylib.Rectangle {
-			{220, 260, 220, 120}, {1160, 260, 220, 120},
-			{220, 820, 220, 120}, {1160, 820, 220, 120},
-			{660, 220, 280, 80}, {660, 900, 280, 80},
-			{440, 560, 120, 80}, {1040, 560, 120, 80},
+			{220, 260, 220, 120},
+			{1160, 260, 220, 120},
+			{220, 820, 220, 120},
+			{1160, 820, 220, 120},
+			{660, 220, 280, 80},
+			{660, 900, 280, 80},
+			{440, 560, 120, 80},
+			{1040, 560, 120, 80},
 		}
 		crates := [?]raylib.Vector2 {
-			{300, 460}, {300, 540}, {1300, 460}, {1300, 540},
-			{760, 420}, {840, 420}, {760, 740}, {840, 740},
-			{520, 340}, {1080, 340}, {520, 860}, {1080, 860},
+			{300, 460},
+			{300, 540},
+			{1300, 460},
+			{1300, 540},
+			{760, 420},
+			{840, 420},
+			{760, 740},
+			{840, 740},
+			{520, 340},
+			{1080, 340},
+			{520, 860},
+			{1080, 860},
 		}
 		barrels := [?]raylib.Vector2 {
-			{620, 480}, {980, 480}, {620, 720}, {980, 720},
-			{420, 300}, {1180, 300}, {420, 900}, {1180, 900},
+			{620, 480},
+			{980, 480},
+			{620, 720},
+			{980, 720},
+			{420, 300},
+			{1180, 300},
+			{420, 900},
+			{1180, 900},
 		}
 		add_walls(rects[:])
 		add_props(crates[:], .CRATE, 40)
@@ -2950,20 +3046,44 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .FOREST:
 		logs := [?]raylib.Rectangle {
-			{400, 300, 120, 40}, {1080, 300, 120, 40},
-			{400, 860, 120, 40}, {1080, 860, 120, 40},
+			{400, 300, 120, 40},
+			{1080, 300, 120, 40},
+			{400, 860, 120, 40},
+			{1080, 860, 120, 40},
 		}
 		trees := [?]raylib.Vector2 {
-			{240, 200}, {320, 260}, {180, 300}, {400, 180},
-			{1360, 200}, {1280, 260}, {1420, 300}, {1200, 180},
-			{240, 1000}, {320, 940}, {180, 900}, {400, 1020},
-			{1360, 1000}, {1280, 940}, {1420, 900}, {1200, 1020},
-			{560, 240}, {600, 300}, {1000, 240}, {960, 300},
-			{560, 960}, {600, 900}, {1000, 960}, {960, 900},
+			{240, 200},
+			{320, 260},
+			{180, 300},
+			{400, 180},
+			{1360, 200},
+			{1280, 260},
+			{1420, 300},
+			{1200, 180},
+			{240, 1000},
+			{320, 940},
+			{180, 900},
+			{400, 1020},
+			{1360, 1000},
+			{1280, 940},
+			{1420, 900},
+			{1200, 1020},
+			{560, 240},
+			{600, 300},
+			{1000, 240},
+			{960, 300},
+			{560, 960},
+			{600, 900},
+			{1000, 960},
+			{960, 900},
 		}
-		pines := [?]raylib.Vector2{
-			{700, 180}, {900, 180}, {700, 1020}, {900, 1020},
-			{140, 600}, {1460, 600},
+		pines := [?]raylib.Vector2 {
+			{700, 180},
+			{900, 180},
+			{700, 1020},
+			{900, 1020},
+			{140, 600},
+			{1460, 600},
 		}
 		barrels := [?]raylib.Vector2{{800, 240}, {800, 960}, {480, 600}, {1120, 600}}
 		add_walls(logs[:])
@@ -2973,21 +3093,40 @@ build_arena :: proc(kind: Arena_Kind) {
 
 	case .SWAMP:
 		stumps := [?]raylib.Rectangle {
-			{360, 320, 80, 80}, {1160, 320, 80, 80},
-			{360, 800, 80, 80}, {1160, 800, 80, 80},
+			{360, 320, 80, 80},
+			{1160, 320, 80, 80},
+			{360, 800, 80, 80},
+			{1160, 800, 80, 80},
 		}
 		reeds := [?]raylib.Vector2 {
-			{240, 240}, {300, 300}, {1360, 240}, {1300, 300},
-			{240, 960}, {300, 900}, {1360, 960}, {1300, 900},
-			{520, 280}, {1080, 280}, {520, 920}, {1080, 920},
+			{240, 240},
+			{300, 300},
+			{1360, 240},
+			{1300, 300},
+			{240, 960},
+			{300, 900},
+			{1360, 960},
+			{1300, 900},
+			{520, 280},
+			{1080, 280},
+			{520, 920},
+			{1080, 920},
 		}
 		mounds := [?]raylib.Vector2 {
-			{440, 460}, {1160, 460}, {440, 740}, {1160, 740},
-			{800, 260}, {800, 940},
+			{440, 460},
+			{1160, 460},
+			{440, 740},
+			{1160, 740},
+			{800, 260},
+			{800, 940},
 		}
-		barrels := [?]raylib.Vector2{
-			{640, 420}, {960, 420}, {640, 780}, {960, 780},
-			{200, 600}, {1400, 600},
+		barrels := [?]raylib.Vector2 {
+			{640, 420},
+			{960, 420},
+			{640, 780},
+			{960, 780},
+			{200, 600},
+			{1400, 600},
 		}
 		add_walls(stumps[:])
 		add_props(reeds[:], .PINE, 46)
@@ -3080,11 +3219,7 @@ weather_emit :: proc(kind: Weather_Kind, sw, sh: f32, anywhere: bool) {
 	}
 	append(
 		&weather,
-		weather_particle {
-			pos = {rand.float32_range(0, sw), y},
-			vel = {vx, vy},
-			size = size,
-		},
+		weather_particle{pos = {rand.float32_range(0, sw), y}, vel = {vx, vy}, size = size},
 	)
 }
 
@@ -3218,7 +3353,12 @@ explode_at :: proc(center: raylib.Vector2) {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24
 			}
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color, enemies[i].kind)
+				spawn_kill_rewards(
+					enemies[i].position,
+					enemies[i].elite,
+					enemies[i].color,
+					enemies[i].kind,
+				)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -3344,7 +3484,12 @@ spawn_relic_chest :: proc(pos: raylib.Vector2) {
 	append(&drops, drop{position = p, size = sz, kind = .RELIC_CHEST, amount = 0, life = 30.0})
 }
 
-spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false, col: raylib.Color = raylib.WHITE, kind: Enemy_Kind = .GRUNT) {
+spawn_kill_rewards :: proc(
+	pos: raylib.Vector2,
+	elite := false,
+	col: raylib.Color = raylib.WHITE,
+	kind: Enemy_Kind = .GRUNT,
+) {
 	spawn_death_burst(pos, col, elite)
 	// A boss always leaves a relic chest (walk over it to draw, then accept or
 	// discard). This is the universal death funnel, so it fires no matter what

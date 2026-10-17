@@ -100,21 +100,19 @@ ingame_panel_activate :: proc(row: int) {
 // Keyboard handling for the panel. Runs once per frame while it's open; the world
 // is frozen because the PLAYING case skips its update while the panel is up.
 ingame_panel_update :: proc() {
-	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
-	   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) || raylib.IsKeyPressed(raylib.KeyboardKey.W) {
 		ingame_panel_sel = (ingame_panel_sel - 1 + INGAME_PANEL_ROWS) % INGAME_PANEL_ROWS
 		play(sounds.ui_move)
 	}
-	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
-	   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) || raylib.IsKeyPressed(raylib.KeyboardKey.S) {
 		ingame_panel_sel = (ingame_panel_sel + 1) % INGAME_PANEL_ROWS
 		play(sounds.ui_move)
 	}
 	changed := false
-	left := raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
-		raylib.IsKeyPressed(raylib.KeyboardKey.A)
-	right := raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
-		raylib.IsKeyPressed(raylib.KeyboardKey.D)
+	left :=
+		raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) || raylib.IsKeyPressed(raylib.KeyboardKey.A)
+	right :=
+		raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) || raylib.IsKeyPressed(raylib.KeyboardKey.D)
 	if left || right {
 		step := right ? 0.05 : f32(-0.05)
 		switch ingame_panel_sel {
@@ -147,13 +145,7 @@ draw_ingame_panel :: proc() {
 	raylib.DrawRectangleRec(box, raylib.Color{24, 24, 34, 245})
 	raylib.DrawRectangleLinesEx(box, 3, raylib.SKYBLUE)
 	raylib.DrawText(cstring("PAUSED"), i32(gx + 24), i32(gy + 22), 26, raylib.WHITE)
-	raylib.DrawText(
-		cstring("in-run settings"),
-		i32(gx + 24),
-		i32(gy + 54),
-		16,
-		raylib.DARKGRAY,
-	)
+	raylib.DrawText(cstring("in-run settings"), i32(gx + 24), i32(gy + 54), 16, raylib.DARKGRAY)
 	mp := raylib.GetMousePosition()
 	clicked := raylib.IsMouseButtonPressed(.LEFT)
 	for row in 0 ..< INGAME_PANEL_ROWS {
@@ -288,8 +280,8 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 			}
 			sn := status_name(eff)
 			fs := fit_font(sn, avail - 14, 13)
-			raylib.DrawRectangle(i32(ox), i32(cy)+2, 8, 8, status_color(eff))
-			raylib.DrawText(sn, i32(ox)+13, i32(cy), fs, status_color(eff))
+			raylib.DrawRectangle(i32(ox), i32(cy) + 2, 8, 8, status_color(eff))
+			raylib.DrawText(sn, i32(ox) + 13, i32(cy), fs, status_color(eff))
 			cy += f32(fs) + 3
 		}
 	}
@@ -306,8 +298,8 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 				continue
 			}
 			fs := fit_font(RELICS[k].name, avail - 14, 12)
-			raylib.DrawRectangle(i32(ox), i32(cy)+2, 8, 8, raylib.GOLD)
-			raylib.DrawText(RELICS[k].name, i32(ox)+13, i32(cy), fs, raylib.GOLD)
+			raylib.DrawRectangle(i32(ox), i32(cy) + 2, 8, 8, raylib.GOLD)
+			raylib.DrawText(RELICS[k].name, i32(ox) + 13, i32(cy), fs, raylib.GOLD)
 			cy += f32(fs) + 2
 		}
 	}
@@ -333,11 +325,12 @@ leave_shop :: proc() {
 // Keyboard handler for the accept/discard relic overlay. ENTER (or R) takes the
 // relic, ESC (or D) discards it; either way the world resumes.
 relic_pick_update :: proc() {
-	accept := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+	accept :=
+		raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
 		raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) ||
 		raylib.IsKeyPressed(raylib.KeyboardKey.R)
-	discard := raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
-		raylib.IsKeyPressed(raylib.KeyboardKey.D)
+	discard :=
+		raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) || raylib.IsKeyPressed(raylib.KeyboardKey.D)
 	if accept {
 		apply_relic(pending_relic)
 		relic_pick_open = false
@@ -393,12 +386,7 @@ relic_pick_draw :: proc() {
 	}
 	draw_centered(cstring("ACCEPT"), i32(by) + 12, 22, raylib.LIME)
 	draw_centered(cstring("DISCARD"), i32(by) + 12, 22, raylib.LIGHTGRAY)
-	draw_centered(
-		cstring("ENTER accept   -   ESC discard"),
-		i32(y + h) - 16,
-		14,
-		raylib.DARKGRAY,
-	)
+	draw_centered(cstring("ENTER accept   -   ESC discard"), i32(y + h) - 16, 14, raylib.DARKGRAY)
 }
 
 // Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper
@@ -533,7 +521,7 @@ main :: proc() {
 		// In-game settings panel: Backspace toggles it during a run. While open the
 		// world is frozen (the PLAYING case skips its update) and the panel is drawn
 		// as an overlay over the last frame.
-		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.BACKSPACE) {
+		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.P) {
 			ingame_panel_open = !ingame_panel_open
 			play(sounds.ui_move)
 		}
@@ -918,7 +906,10 @@ main :: proc() {
 				tutorial_select_sel == 1 ? raylib.YELLOW : raylib.DARKGRAY,
 			)
 			t2, th2 := ui_row(
-				raylib.TextFormat("3)  ADVANCED   a character's kit  <%s>", string(CHARACTERS[tutorial_char].name)),
+				raylib.TextFormat(
+					"3)  ADVANCED   a character's kit  <%s>",
+					string(CHARACTERS[tutorial_char].name),
+				),
 				270,
 				28,
 				tutorial_select_sel == 2 ? raylib.YELLOW : raylib.DARKGRAY,
@@ -930,7 +921,9 @@ main :: proc() {
 				tutorial_select_sel == 3 ? raylib.YELLOW : raylib.DARKGRAY,
 			)
 			draw_centered(
-				cstring("BASIC & MEDIUM play as Navy  -  ADVANCED: LEFT / RIGHT picks a character"),
+				cstring(
+					"BASIC & MEDIUM play as Navy  -  ADVANCED: LEFT / RIGHT picks a character",
+				),
 				420,
 				17,
 				raylib.GRAY,
@@ -983,9 +976,11 @@ main :: proc() {
 				play(sounds.ui_move)
 			}
 			changed := false
-			left := raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+			left :=
+				raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
 				raylib.IsKeyPressed(raylib.KeyboardKey.A)
-			right := raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+			right :=
+				raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
 				raylib.IsKeyPressed(raylib.KeyboardKey.D)
 			if left || right {
 				step := right ? f32(0.05) : f32(-0.05)
@@ -1004,13 +999,22 @@ main :: proc() {
 				case:
 				}
 			}
-			toggle_sel := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			toggle_sel :=
+				raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
 				raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
 			draw_centered(cstring("SETTINGS"), 36, 44, raylib.WHITE)
 			// 0: volume slider.
-			vol := ui_slider(0, cstring("Master volume"), 116, 100, 420, 180, settings.master_volume)
+			vol := ui_slider(
+				0,
+				cstring("Master volume"),
+				116,
+				100,
+				420,
+				180,
+				settings.master_volume,
+			)
 			if vol != settings.master_volume {
 				settings.master_volume = vol
 				changed = true
@@ -1076,7 +1080,12 @@ main :: proc() {
 				settings_sel == 10,
 			)
 			k11, h11 := ui_setting_row(cstring("BACK"), cstring(""), 524, settings_sel == 11)
-			draw_centered(cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust"), 566, 16, raylib.GRAY)
+			draw_centered(
+				cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust"),
+				566,
+				16,
+				raylib.GRAY,
+			)
 			raylib.EndTextureMode()
 
 			if mouse_moved {
@@ -1127,11 +1136,11 @@ main :: proc() {
 				changed = true
 			}
 			if k10 || (toggle_sel && settings_sel == 10) {
-				settings.control_scheme =
-					settings.control_scheme == .MOUSE ? .KEYBOARD : .MOUSE
+				settings.control_scheme = settings.control_scheme == .MOUSE ? .KEYBOARD : .MOUSE
 				changed = true
 			}
-			if k11 || (toggle_sel && settings_sel == 11) ||
+			if k11 ||
+			   (toggle_sel && settings_sel == 11) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 				play(sounds.ui_select)
 				state = .MAIN_MENU
@@ -1226,7 +1235,12 @@ main :: proc() {
 					raylib.VIOLET,
 				)
 				qs, _ := ui_row(cstring("START RUN  (ENTER)"), 404, 26, raylib.RAYWHITE)
-				draw_centered(cstring("Click a slot or press 1 - 6 to change it"), 462, 20, raylib.GRAY)
+				draw_centered(
+					cstring("Click a slot or press 1 - 6 to change it"),
+					462,
+					20,
+					raylib.GRAY,
+				)
 				raylib.EndTextureMode()
 				if q1 {skill_state = .CHARACTER}
 				if q2 {skill_state = .GUN}
@@ -1492,13 +1506,13 @@ main :: proc() {
 				n := len(ARENAS)
 				if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
-					if sel%ARENA_COLS > 0 {
+					if sel % ARENA_COLS > 0 {
 						sel -= 1
 					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
-					if sel%ARENA_COLS < ARENA_COLS-1 && sel+1 < n {
+					if sel % ARENA_COLS < ARENA_COLS - 1 && sel + 1 < n {
 						sel += 1
 					}
 				}
@@ -1510,7 +1524,7 @@ main :: proc() {
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-					if sel+ARENA_COLS < n {
+					if sel + ARENA_COLS < n {
 						sel += ARENA_COLS
 					}
 				}
@@ -1520,7 +1534,8 @@ main :: proc() {
 					}
 				}
 				arena = Arena_Kind(sel)
-				confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+				confirm :=
+					raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
 					raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
@@ -1529,8 +1544,8 @@ main :: proc() {
 					a := int(ai)
 					col := i32(a) % ARENA_COLS
 					row := i32(a) / ARENA_COLS
-					x := 20 + col*(ARENA_CW+20)
-					y := 110 + row*(ARENA_CH+14)
+					x := 20 + col * (ARENA_CW + 20)
+					y := 110 + row * (ARENA_CH + 14)
 					rect := raylib.Rectangle{f32(x), f32(y), f32(ARENA_CW), f32(ARENA_CH)}
 					pal := ARENAS[ai]
 					selected := a == sel
@@ -1543,19 +1558,19 @@ main :: proc() {
 					// Themed preview: floor tile, a wall bar, and a couple of cover blobs.
 					sx := x + 12
 					sy := y + 12
-					raylib.DrawRectangle(sx, sy, ARENA_CW-24, 46, pal.floor_dark)
-					raylib.DrawRectangle(sx, sy+36, ARENA_CW-24, 10, pal.wall)
-					raylib.DrawCircleV({f32(sx+32), f32(sy+22)}, 12, pal.cover)
-					raylib.DrawCircleV({f32(sx+84), f32(sy+22)}, 12, pal.cover)
+					raylib.DrawRectangle(sx, sy, ARENA_CW - 24, 46, pal.floor_dark)
+					raylib.DrawRectangle(sx, sy + 36, ARENA_CW - 24, 10, pal.wall)
+					raylib.DrawCircleV({f32(sx + 32), f32(sy + 22)}, 12, pal.cover)
+					raylib.DrawCircleV({f32(sx + 84), f32(sy + 22)}, 12, pal.cover)
 					name_col := selected ? raylib.YELLOW : raylib.RAYWHITE
 					raylib.DrawText(
-						raylib.TextFormat("%i)  %s", a+1, string(pal.name)),
-						x+12,
-						y+66,
+						raylib.TextFormat("%i)  %s", a + 1, string(pal.name)),
+						x + 12,
+						y + 66,
 						20,
 						name_col,
 					)
-					raylib.DrawText(pal.desc, x+12, y+92, 13, raylib.GRAY)
+					raylib.DrawText(pal.desc, x + 12, y + 92, 13, raylib.GRAY)
 					if raylib.CheckCollisionRecs(mouse, rect) {
 						if mouse_moved {
 							sel = a
@@ -2289,9 +2304,6 @@ main :: proc() {
 			// ESC opens the in-game settings panel (a normal run has nothing to
 			// "leave", so pausing is the useful back action). The tutorial above
 			// handles its own ESC-to-exit.
-			if !tutorial_mode && raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
-				ingame_panel_open = true
-			}
 
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
@@ -2415,11 +2427,7 @@ main :: proc() {
 						2,
 						raylib.GOLD,
 					)
-					raylib.DrawRectangleV(
-						c - {4, 2},
-						{8, 8},
-						raylib.GOLD,
-					)
+					raylib.DrawRectangleV(c - {4, 2}, {8, 8}, raylib.GOLD)
 				}
 			}
 			// Attack telegraphs, drawn under the enemies so the danger zones read as
@@ -2716,7 +2724,12 @@ main :: proc() {
 				)
 			} else {
 				raylib.DrawText(
-					raylib.TextFormat("[%s] %i / %i", slot_name(active_slot), int(w.mag), int(w.ammo)),
+					raylib.TextFormat(
+						"[%s] %i / %i",
+						slot_name(active_slot),
+						int(w.mag),
+						int(w.ammo),
+					),
 					560,
 					10,
 					20,
@@ -2759,13 +2772,7 @@ main :: proc() {
 					obj_col = raylib.GREEN
 				}
 				raylib.DrawText(
-					raylib.TextFormat(
-						"%s  %s %i/%i",
-						string(m.name),
-						string(obj),
-						cur,
-						total,
-					),
+					raylib.TextFormat("%s  %s %i/%i", string(m.name), string(obj), cur, total),
 					10,
 					58,
 					15,
@@ -3065,12 +3072,7 @@ main :: proc() {
 		// kind draws differently (flakes / streaks / embers / grit).
 		if state == .PLAYING && len(weather) > 0 {
 			wk := arena_weather()
-			raylib.BeginScissorMode(
-				i32(view_x),
-				i32(view_y),
-				i32(view_w),
-				i32(view_h),
-			)
+			raylib.BeginScissorMode(i32(view_x), i32(view_y), i32(view_w), i32(view_h))
 			for w in weather {
 				#partial switch wk {
 				case .RAIN:
@@ -3128,10 +3130,7 @@ main :: proc() {
 			// Auto-pause overlay: dim + a "click to resume" prompt while unfocused.
 			sw := f32(raylib.GetScreenWidth())
 			sh := f32(raylib.GetScreenHeight())
-			raylib.DrawRectangleRec(
-				raylib.Rectangle{0, 0, sw, sh},
-				raylib.Color{0, 0, 0, 120},
-			)
+			raylib.DrawRectangleRec(raylib.Rectangle{0, 0, sw, sh}, raylib.Color{0, 0, 0, 120})
 			draw_centered(cstring("PAUSED"), i32(sh * 0.42), 44, raylib.WHITE)
 			draw_centered(
 				cstring("window unfocused - audio muted"),
