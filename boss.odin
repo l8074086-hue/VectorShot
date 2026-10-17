@@ -189,8 +189,8 @@ update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32
 		update_boss_colossus(e, dir, dist, spd, dT)
 	case .FROSTBITE:
 		update_boss_frostbite(e, dir, dist, spd, dT)
-	case .FORGEMASTER:
-		update_boss_forgemaster(e, dir, dist, spd, dT)
+	case .MECHANIKTRON:
+		update_boss_mechaniktron(e, dir, dist, spd, dT)
 	case .THORNWALD:
 		update_boss_thornwald(e, dir, dist, spd, dT)
 	case .BOGWRAITH:
@@ -206,7 +206,7 @@ boss_on_enrage :: proc(e: ^enemy) {
 		boss_summon(.RUNNER, 3)
 	case .THORNWALD:
 		boss_summon(.SPLITTER, 2)
-	case .FORGEMASTER:
+	case .MECHANIKTRON:
 		boss_summon(.CHARGER, 2)
 	case .BOGWRAITH:
 		boss_summon(.ORBITER, 2)
@@ -609,89 +609,86 @@ update_boss_frostbite :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f3
 }
 
 // ---------------------------------------------------------------------------
-// THE FORGEMASTER (FOUNDRY)
-// A furnace engine: lobs molten mortars that pound the floor around you, sweeps
-// a rotating stream of fire, and builds charging constructs to press the attack.
+// MECHANIKTRON (FOUNDRY)
+// An impervious war machine. It lobs exploding rockets and crashes both fists
+// down on locked ground, and it keeps its armoured back turned so the weakpoint
+// is never in reach. Only breaking the crystals it seeds around the arena stuns
+// it -- and each full clear leaves it stunned longer than the last.
 // ---------------------------------------------------------------------------
-update_boss_forgemaster :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
+update_boss_mechaniktron :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
 	b := ARENA_BOSSES[arena]
 	ec := e.position + e.size * 0.5
-	phase2 := e.boss_phase >= 2
+	pc := position + size * 0.5
 
-	boss_hold_range(e, dir, dist, spd, b.preferred_range, dT, 0.4)
+	// Exposed window: the machine locks up and its back weakpoint goes live. If
+	// the window closes without a kill, it reseeds its crystals for another try.
+	if e.boss_stun > 0 {
+		e.boss_stun -= dT
+		e.flash = max(e.flash, 0.04)
+		if e.boss_stun <= 0 {
+			e.boss_stun = 0
+			mech_spawn_crystals()
+			e.state = .RECOVER
+			e.state_timer = 0.8
+		}
+		return
+	}
+
+	// Every crystal in the set downed exposes the weakpoint (longer each round).
+	if len(crystals) == 0 {
+		e.boss_clears += 1
+		e.boss_stun = MECH_STUN_BASE + MECH_STUN_STEP * f32(e.boss_clears - 1)
+		e.boss_aux = dir // freeze the facing; the weakpoint sits dead opposite
+		e.state = .RECOVER
+		e.state_timer = e.boss_stun
+		e.flash = 0.5
+		show_banner(cstring("WEAKPOINT EXPOSED"), raylib.Color{150, 220, 255, 255}, 1.6)
+		play(sounds.shatter, 0.8)
+		return
+	}
+
+	boss_hold_range(e, dir, dist, spd, b.preferred_range, dT, 0.5)
 	e.state_timer -= dT
-	e.boss_timer2 -= dT
 	#partial switch e.state {
 	case .CHASE, .RECOVER:
 		if e.state_timer <= 0 {
-			r := rand.float32()
 			e.boss_seq = 0
-			if r < 0.5 {
-				e.boss_next = 0 // mortar volley
-				e.state_timer = 0.5
-			} else if r < 0.8 {
-				e.boss_next = 1 // flame sweep
-				e.state_timer = 0.45
+			if rand.float32() < 0.55 {
+				e.boss_next = 0 // rocket salvo
 			} else {
-				e.boss_next = 2 // build constructs
-				e.state_timer = 0.45
+				e.boss_next = 1 // hand slam
+				e.boss_aux = pc // lock the landing spot so it can be dodged
 			}
 			e.state = .WINDUP
+			e.state_timer = 0.5
 			e.flash = 0.15
 		}
 	case .WINDUP:
-		e.boss_aux = dir
 		if e.state_timer <= 0 {
 			e.state = .BOSS_ATTACK
-			e.boss_timer2 = 0
-			switch e.boss_next {
-			case 0:
-				e.state_timer = 1.1
-			case 1:
-				e.state_timer = 1.4
-			case 2:
-				e.state_timer = 0.5
-			}
+			e.state_timer = e.boss_next == 0 ? 1.1 : 0.7
 		}
 	case .BOSS_ATTACK:
 		switch e.boss_next {
-		case 0: // mortars fall around the player, one after another
-			total: i32 = phase2 ? 6 : 4
-			step: f32 = 0.18
+		case 0: // three rockets, lobbed on a cadence
 			elapsed := 1.1 - e.state_timer
-			target := i32(elapsed / step)
-			for e.boss_seq < total && e.boss_seq <= target {
-				off := raylib.Vector2{rand.float32_range(-70, 70), rand.float32_range(-70, 70)}
-				boss_blast(position + size * 0.5 + off, 80, e.damage * 0.7, raylib.Color{255, 150, 50, 255})
+			want := int(elapsed / 0.3) + 1
+			for e.boss_seq < i32(want) && e.boss_seq < 3 {
+				mech_fire_rocket(ec, pc, e.damage)
 				e.boss_seq += 1
 			}
 			if e.state_timer <= 0 {
 				e.state = .RECOVER
-				e.state_timer = phase2 ? 0.35 : 0.6
+				e.state_timer = 0.55
 			}
-		case 1: // flame sweep: a rotating stream of fire
-			e.boss_spin += dT * (phase2 ? 3.4 : 2.4)
-			fd := raylib.Vector2{math.cos_f32(e.boss_spin), math.sin_f32(e.boss_spin)}
-			if e.boss_timer2 <= 0 {
-				boss_shot(ec, fd, 300, e.damage * 0.5, 13)
-				e.boss_timer2 = 0.06
-			}
-			e.muzzle = ENEMY_MUZZLE_FLASH_TIME
-			e.muzzle_dir = fd
-			if e.state_timer <= 0 {
-				e.state = .RECOVER
-				e.state_timer = phase2 ? 0.35 : 0.6
-			}
-		case 2:
+		case 1: // both fists crash down on the locked spot
 			if e.boss_seq == 0 {
-				boss_summon(.TANK, phase2 ? 2 : 1)
-				boss_summon(.CHARGER, 1)
-				e.flash = 0.3
 				e.boss_seq = 1
+				boss_blast(e.boss_aux, MECH_SLAM_RADIUS, e.damage, raylib.Color{190, 205, 220, 255})
 			}
 			if e.state_timer <= 0 {
 				e.state = .RECOVER
-				e.state_timer = 0.6
+				e.state_timer = 0.65
 			}
 		}
 	}
@@ -944,11 +941,19 @@ draw_boss_telegraph :: proc(e: enemy) {
 			} else if e.boss_next == 1 {
 				boss_tele_circle(ec, 70 + 120 * (1 - k), k, raylib.Color{150, 220, 255, 255})
 			}
-		case .FORGEMASTER:
+		case .MECHANIKTRON:
 			if e.boss_next == 0 {
-				boss_tele_circle(pc, 120, k, raylib.Color{255, 170, 60, 255})
-			} else if e.boss_next == 1 {
-				boss_tele_circle(ec, 150, k, raylib.Color{255, 150, 40, 255})
+				// Rocket lock: a lane down the machine's aim.
+				boss_tele_line(
+					ec,
+					ec + raylib.Vector2Normalize(to) * 460,
+					10,
+					k,
+					raylib.Color{150, 220, 255, 255},
+				)
+			} else {
+				// Hand slam: a ring on the locked landing spot.
+				boss_tele_circle(e.boss_aux, MECH_SLAM_RADIUS, k, raylib.Color{190, 205, 220, 255})
 			}
 		case .THORNWALD:
 			if e.boss_next == 0 {
@@ -988,8 +993,8 @@ draw_boss_body :: proc(e: enemy) {
 		colossus_body(e, ec, er)
 	case .FROSTBITE:
 		frostbite_body(e, ec, er)
-	case .FORGEMASTER:
-		forgemaster_body(e, ec, er)
+	case .MECHANIKTRON:
+		mechaniktron_body(e, ec, er, facing)
 	case .THORNWALD:
 		thornwald_body(e, ec, er)
 	case .BOGWRAITH:
@@ -1076,24 +1081,61 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 	}
 }
 
-forgemaster_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.85, ec.y - er * 0.7, er * 1.7, er * 1.6},
-		raylib.Color{70, 44, 36, 255},
-	)
-	// Chimney with a smoke puff.
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.25, ec.y - er * 1.2, er * 0.5, er * 0.5},
-		raylib.Color{56, 40, 34, 255},
-	)
-	raylib.DrawCircleV(ec + {er * 0.1, -er * 1.25}, 5, raylib.Color{90, 90, 90, 160})
-	// Glowing grate.
-	for i in 0 ..< 3 {
-		y := ec.y - er * 0.25 + f32(i) * er * 0.35
-		raylib.DrawRectangle(i32(ec.x - er * 0.55), i32(y), i32(er * 1.1), 5, raylib.Color{255, 140, 40, 255})
+mechaniktron_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing_in: raylib.Vector2) {
+	// While exposed the machine can't turn, so draw its frozen facing and let the
+	// weakpoint stay where the stun left it.
+	facing := facing_in
+	if e.boss_stun > 0 && raylib.Vector2Length(e.boss_aux) > 0.01 {
+		facing = raylib.Vector2Normalize(e.boss_aux)
 	}
-	perk := e.state == .WINDUP ? f32(4) : 0
-	raylib.DrawCircleV(ec + {0, er * 0.55}, 6 + perk, raylib.Color{255, 210, 120, 255})
+	perp := raylib.Vector2{-facing.y, facing.x}
+	steel := raylib.Color{104, 118, 134, 255}
+	dark := raylib.Color{52, 60, 70, 255}
+	// Treads.
+	raylib.DrawRectangleRec(
+		raylib.Rectangle{ec.x - er * 0.98, ec.y - er * 0.34, er * 1.96, er * 0.68},
+		dark,
+	)
+	// Back plate: the armour that hides the weakpoint.
+	back := ec - facing * er * 0.55
+	raylib.DrawRectangleRec(
+		raylib.Rectangle{back.x - er * 0.55, back.y - er * 0.55, er * 1.1, er * 1.1},
+		raylib.Color{70, 80, 92, 255},
+	)
+	// Torso.
+	raylib.DrawRectangleRec(
+		raylib.Rectangle{ec.x - er * 0.68, ec.y - er * 0.68, er * 1.36, er * 1.36},
+		steel,
+	)
+	raylib.DrawRectangleLinesEx(
+		raylib.Rectangle{ec.x - er * 0.68, ec.y - er * 0.68, er * 1.36, er * 1.36},
+		2,
+		dark,
+	)
+	// Arms reaching at the player, ending in fists.
+	for s in ([2]f32{-1, 1}) {
+		shoulder := ec + facing * er * 0.1 + perp * (er * 0.66 * s)
+		fist := ec + facing * er * 0.82 + perp * (er * 0.58 * s)
+		raylib.DrawLineEx(shoulder, fist, er * 0.26, steel)
+		if e.state == .WINDUP && e.boss_next == 1 {
+			raylib.DrawCircleV(fist, er * 0.44, raylib.Color{200, 215, 230, 110})
+		}
+		raylib.DrawCircleV(fist, er * 0.28, dark)
+	}
+	// Head with a red optic toward the player.
+	head := ec + facing * er * 0.42
+	raylib.DrawCircleV(head, er * 0.4, dark)
+	raylib.DrawCircleV(head + facing * er * 0.16, er * 0.13, raylib.Color{255, 90, 70, 255})
+	// Weakpoint core on the back: dull while armoured, blazing while exposed.
+	wp := ec - facing * er * 0.98
+	if e.boss_stun > 0 {
+		pulse := 0.5 + 0.5 * f32(math.sin(raylib.GetTime() * 12.0))
+		raylib.DrawCircleV(wp, er * 0.52 * (1 + 0.15 * pulse), raylib.Color{150, 220, 255, 90})
+		raylib.DrawCircleV(wp, er * 0.3, raylib.Color{190, 240, 255, 255})
+	} else {
+		raylib.DrawCircleV(wp, er * 0.28, raylib.Color{90, 110, 130, 255})
+	}
+	raylib.DrawCircleLines(i32(wp.x), i32(wp.y), er * 0.36, raylib.Color{150, 220, 255, 255})
 }
 
 thornwald_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {

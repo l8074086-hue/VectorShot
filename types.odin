@@ -125,6 +125,11 @@ enemy :: struct {
 	boss_timer2:   f32,           // secondary timer (between-attack pacing)
 	boss_hidden:   bool,          // DUSTMAW: burrowed (invulnerable, no contact)
 	boss_aux:      raylib.Vector2,// scratch aim/dash/target direction
+	// MECHANIKTRON: seconds left in its exposed window (its weakpoint is only
+	// vulnerable while this runs), and how many full crystal-clears it has
+	// survived (each one makes the next exposed window longer).
+	boss_stun:     f32,
+	boss_clears:   i32,
 	// Bulwark (elite TANK): each crystal plate guards one world-space direction.
 	// A hit arriving from roughly that direction shatters it; while any plate
 	// remains the armored body shrugs off hp damage.
@@ -262,6 +267,25 @@ barrel :: struct {
 	pos:  raylib.Vector2,
 	size: raylib.Vector2,
 	hp:   f32,
+}
+
+// A MECHANIKTRON power crystal: a destructible backfield target. Shattering the
+// whole set stuns the boss and opens its weakpoint for a short window.
+crystal :: struct {
+	pos:    raylib.Vector2,
+	size:   raylib.Vector2,
+	hp:     f32,
+	max_hp: f32,
+	flash:  f32,
+}
+
+// A MECHANIKTRON rocket: a slow projectile that detonates on the first thing it
+// touches (player, cover or wall) or when its fuse runs out.
+rocket :: struct {
+	pos:    raylib.Vector2,
+	vel:    raylib.Vector2,
+	life:   f32,
+	damage: f32,
 }
 
 // Static cover. All kinds are solid to movement and bullets (they live in the
@@ -441,7 +465,8 @@ Boss_Kind :: enum {
 	DUSTMAW,     // CANYON: burrowing worm -- pops up to strike, then hides again
 	COLOSSUS,    // RUINS: stone titan -- stomps, hurled rubble, charges
 	FROSTBITE,   // GLACIER: ice wraith -- icicle fans, frost novas, blinks
-	FORGEMASTER, // FOUNDRY: furnace engine -- mortars, a flame sweep, constructs
+	MECHANIKTRON, // FOUNDRY: war machine -- rockets + hand slams, invulnerable
+	              // except for a back weakpoint opened by shattering its crystals
 	THORNWALD,   // FOREST: tree horror -- thorn spirals, root lashes, saplings
 	BOGWRAITH,   // SWAMP: bog spirit -- poison novas, phasing, wisps
 }

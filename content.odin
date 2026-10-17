@@ -1029,7 +1029,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.GRASS,
 		{92, 150, 78, 255},
 		.NONE,
-		6,
+		11,
 	},
 	.CANYON    = {
 		"CANYON",
@@ -1042,7 +1042,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.PEBBLE,
 		{178, 128, 84, 255},
 		.DUST,
-		7,
+		12,
 	},
 	.RUINS     = {
 		"RUINS",
@@ -1055,7 +1055,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.CRACK,
 		{140, 136, 128, 255},
 		.NONE,
-		8,
+		13,
 	},
 	.GLACIER   = {
 		"GLACIER",
@@ -1068,7 +1068,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.SNOW,
 		{225, 238, 250, 255},
 		.SNOW,
-		9,
+		14,
 	},
 	.FOUNDRY   = {
 		"FOUNDRY",
@@ -1081,7 +1081,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.EMBER,
 		{255, 150, 60, 255},
 		.ASH,
-		10,
+		15,
 	},
 	.FOREST    = {
 		"FOREST",
@@ -1094,7 +1094,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.GRASS,
 		{80, 140, 66, 255},
 		.NONE,
-		11,
+		16,
 	},
 	.SWAMP     = {
 		"SWAMP",
@@ -1107,7 +1107,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		.PEBBLE,
 		{96, 118, 82, 255},
 		.RAIN,
-		12,
+		17,
 	},
 }
 
@@ -1158,14 +1158,14 @@ ARENA_BOSSES := [Arena_Kind]Arena_Boss {
 		preferred_range = 270,
 	},
 	.FOUNDRY   = {
-		name            = "THE FORGEMASTER",
-		kind            = .FORGEMASTER,
-		color           = {255, 138, 48, 255},
+		name            = "MECHANIKTRON",
+		kind            = .MECHANIKTRON,
+		color           = {150, 168, 186, 255},
 		size            = {100, 100},
 		hp              = 260,
-		speed           = 58,
-		damage          = 19,
-		preferred_range = 240,
+		speed           = 66,
+		damage          = 20,
+		preferred_range = 265,
 	},
 	.FOREST    = {
 		name            = "THORNWALD",

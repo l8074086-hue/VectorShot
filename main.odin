@@ -1722,6 +1722,35 @@ main :: proc() {
 			if dash_timer > 0 {
 				dash_timer -= dT
 				position += raylib.Vector2Normalize(last_dir) * DASH_SPEED * dT
+				// The MECHANIKTRON is solid: a dash can't pass through its body.
+				// Push the player clear along the shallowest axis and stop short.
+				for j := 0; j < len(enemies); j += 1 {
+					mb := &enemies[j]
+					if mb.kind != .BOSS || mb.boss_kind != .MECHANIKTRON {
+						continue
+					}
+					pr := raylib.Rectangle{position.x, position.y, size.x, size.y}
+					mr := raylib.Rectangle{mb.position.x, mb.position.y, mb.size.x, mb.size.y}
+					if !raylib.CheckCollisionRecs(pr, mr) {
+						continue
+					}
+					ol := (position.x + size.x) - mb.position.x
+					orr := (mb.position.x + mb.size.x) - position.x
+					ot := (position.y + size.y) - mb.position.y
+					ob := (mb.position.y + mb.size.y) - position.y
+					shallow := min(min(ol, orr), min(ot, ob))
+					if shallow == ol {
+						position.x = mb.position.x - size.x
+					} else if shallow == orr {
+						position.x = mb.position.x + mb.size.x
+					} else if shallow == ot {
+						position.y = mb.position.y - size.y
+					} else {
+						position.y = mb.position.y + mb.size.y
+					}
+					dash_timer = 0
+					break
+				}
 				append(&trail, trail_point{position, 0.3})
 				// IMPACT dash (and card upgrades that set dash_damages) hurts
 				// everything it touches while active.
@@ -2118,6 +2147,29 @@ main :: proc() {
 					unordered_remove(&bullets, i)
 					continue
 				}
+				// MECHANIKTRON power crystals shatter under fire.
+				hit_crystal := false
+				for k := len(crystals) - 1; k >= 0; k -= 1 {
+					if raylib.CheckCollisionRecs(
+						{p.x, p.y, s.x, s.y},
+						{crystals[k].pos.x, crystals[k].pos.y, crystals[k].size.x, crystals[k].size.y},
+					) {
+						crystals[k].hp -= bullets[i].damage
+						crystals[k].flash = 0.12
+						spawn_sparks(
+							crystals[k].pos + crystals[k].size * 0.5,
+							-bullets[i].velocity,
+							raylib.Color{150, 220, 255, 255},
+							4,
+						)
+						hit_crystal = true
+						break
+					}
+				}
+				if hit_crystal {
+					unordered_remove(&bullets, i)
+					continue
+				}
 				for j := len(enemies) - 1; j >= 0; j -= 1 {
 					e := &enemies[j]
 					// A burrowed boss is underground: shots fly over the mound.
@@ -2158,6 +2210,20 @@ main :: proc() {
 					blast := barrels[i].pos + barrels[i].size * 0.5
 					unordered_remove(&barrels, i)
 					explode_at(blast)
+				}
+			}
+
+			// MECHANIKTRON crystals: fade their hit flash and burst on break.
+			for i := len(crystals) - 1; i >= 0; i -= 1 {
+				if crystals[i].flash > 0 {
+					crystals[i].flash = max(crystals[i].flash - dT, 0)
+				}
+				if crystals[i].hp <= 0 {
+					c := crystals[i].pos + crystals[i].size * 0.5
+					spawn_sparks(c, {0, -1}, raylib.Color{150, 220, 255, 255}, 10)
+					boss_dust(c, raylib.Color{150, 220, 255, 255})
+					play(sounds.shatter, rand.float32_range(0.9, 1.15))
+					unordered_remove(&crystals, i)
 				}
 			}
 
@@ -2250,6 +2316,35 @@ main :: proc() {
 						}
 					}
 					unordered_remove(&enemy_bullets, i)
+				}
+			}
+
+			// MECHANIKTRON rockets: fly straight and detonate on the first thing
+			// they touch (player, cover, wall) or when the fuse runs out.
+			for i := len(rockets) - 1; i >= 0; i -= 1 {
+				r := &rockets[i]
+				r.pos += r.vel * dT
+				r.life -= dT
+				rr := raylib.Rectangle{r.pos.x, r.pos.y, MECH_ROCKET_SIZE, MECH_ROCKET_SIZE}
+				blow := r.life <= 0 || bullet_blocked_by_terrain(rr)
+				if !blow && raylib.CheckCollisionRecs(rr, player_rect) {
+					blow = true
+					if inv_timer <= 0 {
+						apply_player_damage(r.damage, r.pos)
+						inv_timer = 0.5
+						if !tutorial_mode {
+							play(sounds.player_hurt)
+						}
+					}
+				}
+				if blow {
+					boss_blast(
+						r.pos + {MECH_ROCKET_SIZE * 0.5, MECH_ROCKET_SIZE * 0.5},
+						MECH_ROCKET_BLAST,
+						r.damage,
+						raylib.Color{255, 150, 60, 255},
+					)
+					unordered_remove(&rockets, i)
 				}
 			}
 
@@ -2424,6 +2519,25 @@ main :: proc() {
 					2,
 					raylib.ORANGE,
 				)
+			}
+			// MECHANIKTRON power crystals: glowing shards that flash when hit.
+			for c in crystals {
+				cc := c.pos + c.size * 0.5
+				cr := max(c.size.x, c.size.y) * 0.5
+				tint := raylib.Color{90, 170, 235, 255}
+				if c.flash > 0 {
+					tint = raylib.WHITE
+				}
+				raylib.DrawPoly(cc, 6, cr * 1.25, 0, raylib.Color{tint.r, tint.g, tint.b, 90})
+				raylib.DrawPoly(cc, 6, cr, 0, tint)
+				raylib.DrawPolyLinesEx(cc, 6, cr, 0, 2, raylib.Color{200, 240, 255, 220})
+				// A little health pip under it so a near-broken crystal reads.
+				if c.max_hp > 0 && c.hp < c.max_hp {
+					pw := i32(c.size.x)
+					filled := i32(f32(pw) * clamp(c.hp / c.max_hp, 0, 1))
+					raylib.DrawRectangle(i32(c.pos.x), i32(c.pos.y + c.size.y + 4), pw, 3, raylib.Color{30, 50, 70, 200})
+					raylib.DrawRectangle(i32(c.pos.x), i32(c.pos.y + c.size.y + 4), filled, 3, raylib.Color{150, 220, 255, 255})
+				}
 			}
 			// Dash trail + drops.
 			for t in trail {
@@ -2656,6 +2770,21 @@ main :: proc() {
 			for b in enemy_bullets {
 				raylib.DrawRectangleV(b.position, b.size, raylib.MAGENTA)
 			}
+			// MECHANIKTRON rockets: a dark shell with a hot exhaust flare.
+			for r in rockets {
+				rc := r.pos + {MECH_ROCKET_SIZE * 0.5, MECH_ROCKET_SIZE * 0.5}
+				sp := raylib.Vector2Length(r.vel)
+				if sp > 1 {
+					d := r.vel / sp
+					raylib.DrawLineEx(rc - d * 4, rc - d * 16, 5, raylib.Color{255, 150, 60, 160})
+				}
+				raylib.DrawRectangleV(r.pos, {MECH_ROCKET_SIZE, MECH_ROCKET_SIZE}, raylib.Color{70, 74, 82, 255})
+				raylib.DrawRectangleLinesEx(
+					{r.pos.x, r.pos.y, MECH_ROCKET_SIZE, MECH_ROCKET_SIZE},
+					2,
+					raylib.Color{255, 120, 60, 255},
+				)
+			}
 			// Player (shape + darker outline come from the chosen character).
 			draw_player()
 			draw_melee_flash()
@@ -2757,6 +2886,36 @@ main :: proc() {
 				bw: i32 = 420
 				bx: i32 = (800 - bw) / 2
 				by: i32 = 44
+				// MECHANIKTRON doesn't show health: it shows how many of its power
+				// crystals are down, and when its weakpoint is exposed.
+				if e.boss_kind == .MECHANIKTRON {
+					done := MECH_CRYSTALS - len(crystals)
+					raylib.DrawRectangle(bx, by, bw, 16, raylib.Color{14, 26, 38, 220})
+					frac := clamp(f32(done) / f32(MECH_CRYSTALS), 0, 1)
+					bar_col := raylib.Color{80, 170, 235, 255}
+					if e.boss_stun > 0 {
+						bar_col = raylib.Color{190, 240, 255, 255}
+					}
+					raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
+					raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
+					draw_centered(ARENA_BOSSES[arena].name, by + 20, 16, raylib.LIGHTGRAY)
+					if e.boss_stun > 0 {
+						draw_centered(
+							raylib.TextFormat("WEAKPOINT EXPOSED  %is", int(e.boss_stun) + 1),
+							by + 38,
+							14,
+							raylib.ORANGE,
+						)
+					} else {
+						draw_centered(
+							raylib.TextFormat("CRYSTALS  %i / %i", done, MECH_CRYSTALS),
+							by + 38,
+							14,
+							raylib.Color{150, 220, 255, 255},
+						)
+					}
+					continue
+				}
 				raylib.DrawRectangle(bx, by, bw, 16, raylib.Color{40, 12, 12, 220})
 				frac := clamp(e.hp / max(e.max_hp, 1), 0, 1)
 				bar_col := raylib.RED

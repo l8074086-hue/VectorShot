@@ -219,6 +219,21 @@ BOSS_SHOOT_TELEGRAPH :: 0.55
 BOSS_SLAM_TELEGRAPH :: 0.7
 BOSS_RAGE_SPEED_MULT :: 1.5
 
+// MECHANIKTRON (FOUNDRY): a war machine that shrugs off all damage until its
+// back weakpoint is exposed. Break every crystal it seeds around the arena to
+// stun it; the stun grows longer each time you clear a fresh set.
+MECH_CRYSTALS :: 5 // crystals seeded per round
+MECH_CRYSTAL_HP :: 55 // base hp of one crystal (wave scaling applies)
+MECH_CRYSTAL_SIZE :: 34
+MECH_STUN_BASE :: 3.5 // exposed window on the first clear
+MECH_STUN_STEP :: 1.5 // added per subsequent clear
+MECH_ROCKET_SPEED :: 205
+MECH_ROCKET_SIZE :: 12
+MECH_ROCKET_LIFE :: 3.0
+MECH_ROCKET_BLAST :: 88
+MECH_ROCKET_DMG_MULT :: 0.85
+MECH_SLAM_RADIUS :: 118
+
 // Elite variants: rare early, more common later. Beefier, angrier, richer.
 ELITE_BASE_CHANCE :: 0.03
 ELITE_CHANCE_PER_WAVE :: 0.01
@@ -476,6 +491,10 @@ drops: [dynamic]drop
 walls: [dynamic]raylib.Rectangle
 barrels: [dynamic]barrel
 props: [dynamic]prop
+// MECHANIKTRON fight state: the destructible power crystals seeded around the
+// arena and the rockets the machine lobs at the player.
+crystals: [dynamic]crystal
+rockets: [dynamic]rocket
 // Decorative floor scatter (grass/pebbles/cracks/embers). Cleared and rebuilt
 // per arena; drawn before walls so it never covers cover.
 floor_marks: [dynamic]floor_mark
@@ -993,6 +1012,17 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 			unordered_remove(&enemies, i)
 		}
 	}
+	// MECHANIKTRON power crystals are destructible by any melee swing too, so a
+	// close-range build can break the set without switching weapons.
+	for i := len(crystals) - 1; i >= 0; i -= 1 {
+		cc := crystals[i].pos + crystals[i].size * 0.5
+		cr := max(crystals[i].size.x, crystals[i].size.y) * 0.5
+		if melee_shape_hits(player_c, dir, reach, stats.arc, stats.shape, cc, cr) {
+			crystals[i].hp -= base_dmg
+			crystals[i].flash = 0.12
+			spawn_sparks(cc, player_c - cc, raylib.Color{150, 220, 255, 255}, 4)
+		}
+	}
 	// PHASE splash can drop enemies the swing itself never covered; sweep any
 	// that died so they still drop their rewards.
 	if stats.phase_detonate {
@@ -1411,6 +1441,8 @@ clear_run_entities :: proc() {
 	clear(&enemies)
 	clear(&bullets)
 	clear(&enemy_bullets)
+	clear(&crystals)
+	clear(&rockets)
 	clear(&cards)
 	clear(&trail)
 	clear(&drops)
@@ -2011,6 +2043,47 @@ spawn_arena_boss :: proc(pos: raylib.Vector2) {
 		},
 	)
 	next_enemy_id += 1
+	// MECHANIKTRON opens behind a full set of power crystals.
+	if b.kind == .MECHANIKTRON {
+		clear(&crystals)
+		mech_spawn_crystals()
+	}
+}
+
+// Seed a fresh set of MECHANIKTRON power crystals at random clear spots.
+mech_spawn_crystals :: proc() {
+	clear(&crystals)
+	hp_scale, _, _ := enemy_scales(ARENAS[arena].waves)
+	sz := raylib.Vector2{MECH_CRYSTAL_SIZE, MECH_CRYSTAL_SIZE}
+	for _ in 0 ..< MECH_CRYSTALS {
+		hp := MECH_CRYSTAL_HP * hp_scale
+		append(
+			&crystals,
+			crystal {
+				pos = random_spawn_pos(sz),
+				size = sz,
+				hp = hp,
+				max_hp = hp,
+			},
+		)
+	}
+}
+
+// Lob one rocket from `from` toward `to`.
+mech_fire_rocket :: proc(from, to: raylib.Vector2, damage: f32) {
+	d := to - from
+	if raylib.Vector2Length(d) < 0.01 {
+		return
+	}
+	append(
+		&rockets,
+		rocket {
+			pos = from - {MECH_ROCKET_SIZE * 0.5, MECH_ROCKET_SIZE * 0.5},
+			vel = raylib.Vector2Normalize(d) * MECH_ROCKET_SPEED,
+			life = MECH_ROCKET_LIFE,
+			damage = damage * MECH_ROCKET_DMG_MULT,
+		},
+	)
 }
 
 // Spawn the arena's boss plus a light escort on its finale wave.
@@ -2061,6 +2134,9 @@ arena_cleared :: proc() {
 	settings_save()
 	show_banner(cstring("ARENA CLEARED"), raylib.GOLD, 4.0)
 	play(sounds.shop_buy)
+	// Wipe any FOUNDRY leftovers now the machine is down.
+	clear(&crystals)
+	clear(&rockets)
 }
 
 // Per-enemy steering. Movement is applied here; wall collision is resolved
@@ -2396,6 +2472,27 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 // the armored body takes no hp damage. `from` points from the enemy toward the
 // source of the damage. The result tells the caller what happened.
 apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enemy_Hit {
+	// MECHANIKTRON is impervious everywhere except its back weakpoint, and only
+	// while it's stunned. `from` points from the enemy toward the damage source,
+	// so a hit arriving opposite the machine's facing came from behind it.
+	if e.kind == .BOSS && e.boss_kind == .MECHANIKTRON {
+		e.flash = max(e.flash, 0.06)
+		if e.boss_stun > 0 {
+			face := e.boss_aux
+			if raylib.Vector2Length(face) > 0.01 && raylib.Vector2Length(from) > 0.01 {
+				if raylib.Vector2DotProduct(
+					   raylib.Vector2Normalize(from),
+					   raylib.Vector2Normalize(face),
+				   ) < -0.25 {
+					// Weakpoint struck: instant kill, bypassing its armour.
+					e.hp = 0
+					e.flash = 0.5
+					return .DAMAGE
+				}
+			}
+		}
+		return .BLOCKED
+	}
 	// A burrowed boss is underground: nothing reaches it until it surfaces.
 	if e.kind == .BOSS && e.boss_hidden {
 		return .BLOCKED
@@ -2647,8 +2744,12 @@ enemy_speed_mult :: proc(e: ^enemy) -> f32 {
 	return 1
 }
 
-// A shocked enemy is briefly stunned: it neither moves nor attacks.
+// A shocked enemy is briefly stunned: it neither moves nor attacks. The
+// MECHANIKTRON shrugs off stuns entirely -- it's a machine.
 enemy_stunned :: proc(e: ^enemy) -> bool {
+	if e.kind == .BOSS && e.boss_kind == .MECHANIKTRON {
+		return false
+	}
 	return .Shock in e.effects
 }
 
@@ -2674,6 +2775,10 @@ update_player_status :: proc(dT: f32) {
 // Stamp `set` onto an enemy, refreshing each effect's timer (a re-application
 // tops it back up but never stacks beyond one timer per effect).
 apply_status :: proc(e: ^enemy, set: Status_Set) {
+	// MECHANIKTRON is a machine: stuns, freezes and burns all slide off it.
+	if e.kind == .BOSS && e.boss_kind == .MECHANIKTRON {
+		return
+	}
 	if set == {} {
 		return
 	}
