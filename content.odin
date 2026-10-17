@@ -119,6 +119,45 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		color = raylib.MAROON,
 		charge_speed = 560,
 	},
+	// Tutorial practice targets. These never spawn in a real wave (see
+	// pick_enemy_kind). Speed is zero for everything except the patroller, which
+	// walks its route slowly; all of them copy a real kind's look so they read
+	// as familiar enemies.
+	.DUMMY_DPS = {
+		name = "DUMMY",
+		size = {50, 50},
+		speed = 0,
+		damage = 0,
+		hp = 60,
+		color = raylib.BLUE,
+	},
+	.DUMMY_RANGED = {
+		name = "TURRET",
+		size = {36, 36},
+		speed = 0,
+		damage = 4,
+		hp = 5,
+		color = raylib.VIOLET,
+		ranged = true,
+		preferred_range = 280,
+		fire_rate = 1.4,
+	},
+	.DUMMY_WEAK = {
+		name = "DUMMY",
+		size = {30, 30},
+		speed = 0,
+		damage = 0,
+		hp = 3,
+		color = raylib.ORANGE,
+	},
+	.DUMMY_PATROL = {
+		name = "DRIFTER",
+		size = {46, 46},
+		speed = 70,
+		damage = 0,
+		hp = 10,
+		color = raylib.MAROON,
+	},
 }
 
 // Primary-slot weapons: guns and melee blades in one pool. Guns fill the

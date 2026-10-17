@@ -34,6 +34,8 @@ Tutorial_Action :: enum {
 	REND,
 	BLOCK,
 	VOLT,
+	CARD, // picked one of the upgrade cards the tutorial dealt
+	SHOP_DONE, // left the shop the tutorial opened
 }
 
 Tutorial_Flags :: bit_set[Tutorial_Action]
@@ -72,12 +74,12 @@ MEDIUM_STEPS := [?]Tutorial_Step {
 	{"You have 3 weapon slots: PRIMARY, SECONDARY, and SIGNATURE. Press Q to cycle", .CYCLE, 0},
 	{"Test fire each slot on a dummy - every weapon has unique ammo, range and feel", .FIRE, 0},
 	{"Your SIGNATURE is a character-specific melee combo. Swing it now", .SIGNATURE, 0},
-	{"After clearing a wave, you'll choose an UPGRADE CARD (ATTACK, HEALTH, SPEED, PIERCE, etc.)", .NONE, 5.0},
+	{"Clearing a wave offers UPGRADE CARDS. Pick one to shape your build", .CARD, 0},
 	{"Some cards infuse attacks with STATUS EFFECTS: BURN, FREEZE, POISON, or SHOCK", .NONE, 5.0},
 	{"BURN and POISON deal damage over time. FREEZE slows enemies. SHOCK stuns them", .NONE, 5.0},
-	{"The FORTUNE utility gives you more card choices. Other utilities stack with your build", .NONE, 5.0},
-	{"Every 5th wave opens a SHOP. Spend coins on ammo, health, upgrades and rerolls", .NONE, 5.0},
-	{"The SHOCKED dummy is stunned - kill it and walk over its coins to collect", .PICKUP, 0},
+	{"The FORTUNE utility offers more card choices. Other utilities stack with your build", .NONE, 5.0},
+	{"Every 5th wave opens a SHOP. Buy an upgrade, then pick LEAVE to continue", .SHOP_DONE, 0},
+	{"That dummy is SHOCKED, so it's stunned. Kill it and walk over its coins to collect", .PICKUP, 0},
 	{"E/RMB = kick, SHIFT = dash. Clear waves, upgrade, survive. Good luck!", .NONE, 4.0},
 }
 
@@ -210,27 +212,104 @@ tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
 	tutorial_flags = {}
 	clear(&enemies)
 	spawn_tutorial_dummies()
+	tutorial_step_entered()
 }
 
-// Two stationary dummies placed either side of the player.
+// Two stationary dummies placed either side of the player. They hold a deep
+// health pool so there is always something to shoot, and they come back if the
+// player clears the room (see the respawn in the main loop).
 spawn_tutorial_dummies :: proc() {
 	pc := position + size * 0.5
 	for i in 0 ..< 2 {
 		off := f32(i) * 2 - 1
 		pos := pc + raylib.Vector2{off * 180, -80}
-		spawn_enemy_at(.GRUNT, false, 1, pos)
-		if len(enemies) > 0 {
-			e := &enemies[len(enemies) - 1]
-			e.training = true
-			// A beefy practice target that still dies so finishers can land.
-			e.hp = 60
-			e.max_hp = 60
-			e.speed = 0
-			// One dummy wears a permanent SHOCK so the lessons can show a live
-			// status effect (and it stays put, stunned, while you farm it).
-			if i == 1 {
+		spawn_tutorial_target(.DUMMY_DPS, pos)
+	}
+}
+
+// Spawn one practice dummy at `pos` and hand it back so the caller can tweak it
+// (effects, patrol route, aim). Returns nil if nothing was spawned. Only valid
+// until the next enemy is appended.
+spawn_tutorial_target :: proc(kind: Enemy_Kind, pos: raylib.Vector2) -> ^enemy {
+	spawn_enemy_at(kind, false, 1, pos)
+	if len(enemies) == 0 {
+		return nil
+	}
+	return &enemies[len(enemies) - 1]
+}
+
+// A DUMMY_PATROL that walks a short horizontal route in front of the player, for
+// lessons that want a moving target to lead or combo.
+spawn_patrol_dummy :: proc(pc: raylib.Vector2) {
+	e := spawn_tutorial_target(.DUMMY_PATROL, pc + {0, -160})
+	if e == nil {
+		return
+	}
+	c := e.position + e.size * 0.5
+	e.patrol_points[0] = c + {-140, 0}
+	e.patrol_points[1] = c + {140, 0}
+	e.patrol_count = 2
+	e.patrol_index = 1
+}
+
+// Stage the step we just entered. Some lessons need the real thing on screen --
+// a live target, a dealt hand of cards, or the actual shop -- not just a
+// description. Called from tutorial_start and tutorial_next (i.e. on every step
+// change).
+tutorial_step_entered :: proc() {
+	if !tutorial_mode {
+		return
+	}
+	// Clear any interactive staging from the previous step (e.g. cards still on
+	// screen because the fallback timer moved on).
+	clear(&cards)
+	pc := position + size * 0.5
+	switch tutorial_kind {
+	case .BASIC:
+		switch tutorial_step {
+		case 6: // "Kills drop coins...": a fragile target that always pays out.
+			spawn_tutorial_target(.DUMMY_WEAK, pc + {0, -170})
+		}
+	case .MEDIUM:
+		switch tutorial_step {
+		case 3: // card lesson: deal a real hand to pick from
+			spawn_cards(&cards, card_choices)
+		case 7: // shop lesson: open the actual shop, with coins to spend
+			currency = max(currency, 90)
+			build_shop()
+			state = .SHOP
+		case 8: // loot lesson: a permanently SHOCKED target to kill and loot
+			if e := spawn_tutorial_target(.DUMMY_WEAK, pc + {0, -170}); e != nil {
 				e.effects = {.Shock}
 				e.effect_timer[.Shock] = 9999
+			}
+		}
+	case .ADVANCED:
+		// Each character's script gets the target that best fits its lesson.
+		switch tutorial_char {
+		case .RR:
+			// BULWARK: a turret downrange to face and block.
+			if tutorial_step == 2 {
+				if t := spawn_tutorial_target(.DUMMY_RANGED, pc + {200, -180}); t != nil {
+					t.shoot_dir = raylib.Vector2Normalize(pc - (t.position + t.size * 0.5))
+				}
+			}
+		case .BUD:
+			// Combo practice against a target that won't just stand there.
+			if tutorial_step == 0 {
+				spawn_patrol_dummy(pc)
+			}
+		case .TRACER:
+			// REND: a moving target to stack Phase marks onto.
+			if tutorial_step == 2 {
+				spawn_patrol_dummy(pc)
+			}
+		case .NAVY:
+			// TAKE AIM: a distant turret to snipe from a standstill.
+			if tutorial_step == 6 {
+				if t := spawn_tutorial_target(.DUMMY_RANGED, pc + {240, -150}); t != nil {
+					t.shoot_dir = {1, 0}
+				}
 			}
 		}
 	}
@@ -271,6 +350,7 @@ tutorial_update :: proc(dT: f32) {
 tutorial_next :: proc() {
 	tutorial_step += 1
 	tutorial_timer = 0
+	tutorial_step_entered()
 }
 
 // RR's advanced tutorial steps through each Adaptation so the player can feel
@@ -349,4 +429,19 @@ tutorial_draw :: proc() {
 		raylib.DrawText(raylib.TextFormat("%s", txt[cut2:]), 16, 544, 18, raylib.RAYWHITE)
 	}
 	raylib.DrawText("ESC to leave the tutorial", 16, 578, 16, raylib.GRAY)
+}
+
+// Compact step hint for the shop, where the full bottom banner would cover the
+// shop's own controls line. Sits in the gap under the coin count.
+tutorial_draw_shop :: proc() {
+	steps := tutorial_steps()
+	if tutorial_step >= len(steps) {
+		return
+	}
+	txt := string(steps[tutorial_step].text)
+	fs: i32 = 18
+	for fs > 9 && raylib.MeasureText(raylib.TextFormat("%s", txt), fs) > 760 {
+		fs -= 1
+	}
+	draw_centered(raylib.TextFormat("%s", txt), 112, fs, raylib.SKYBLUE)
 }

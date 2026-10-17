@@ -1253,10 +1253,17 @@ main :: proc() {
 						apply_upgrade(cards[i].name)
 						play(sounds.card)
 						clear(&cards)
-						if !debug_mode {
-							new_wave(&enemies, wave)
+						if tutorial_mode {
+							// The tutorial dealt these cards to teach the
+							// mechanic; picking one is the lesson, not a
+							// genuine between-wave reward.
+							tutorial_note(.CARD)
+						} else {
+							if !debug_mode {
+								new_wave(&enemies, wave)
+							}
+							wave += 1
 						}
-						wave += 1
 						break
 					}
 				}
@@ -1332,24 +1339,16 @@ main :: proc() {
 
 			// Enemy AI: steer, push off terrain, then separate from each other.
 			for i in 0 ..< len(enemies) {
-				update_enemy(&enemies[i], dT)
-				// Phantom chargers pass straight through terrain mid-dash, but
-				// are still kept inside the arena.
-				if enemies[i].elite && enemies[i].kind == .CHARGER && enemies[i].state == .CHARGE {
-					e := &enemies[i]
-					e.position.x = clamp(
-						e.position.x,
-						f32(WALL_THICK),
-						f32(ARENA_W) - f32(WALL_THICK) - e.size.x,
-					)
-					e.position.y = clamp(
-						e.position.y,
-						f32(WALL_THICK),
-						f32(ARENA_H) - f32(WALL_THICK) - e.size.y,
-					)
-				} else {
-					resolve_obstacles(&enemies[i].position, enemies[i].size)
+				e := &enemies[i]
+				update_enemy(e, dT)
+				// Phantom chargers pass straight through terrain mid-dash.
+				if !(e.elite && e.kind == .CHARGER && e.state == .CHARGE) {
+					resolve_obstacles(&e.position, e.size)
 				}
+				// A dash, lunge, or knockback can carry a foe deep into (or clean
+				// through) a perimeter wall; resolve_obstacles then ejects it out
+				// the near edge or misses it entirely. Clip everyone back in.
+				clamp_to_arena(&e.position, e.size)
 			}
 			update_elite_abilities(&enemies, dT)
 			separate_enemies()
@@ -1377,7 +1376,9 @@ main :: proc() {
 							enemies[i].position + enemies[i].size * 0.5,
 						)
 						inv_timer = 0.5
-						play(sounds.player_hurt)
+						if !tutorial_mode {
+							play(sounds.player_hurt)
+						}
 					}
 					if health <= 0 {
 						game_over()
@@ -1411,7 +1412,9 @@ main :: proc() {
 					if inv_timer <= 0 {
 						apply_player_damage(b.damage, b.position)
 						inv_timer = 0.5
-						play(sounds.player_hurt)
+						if !tutorial_mode {
+							play(sounds.player_hurt)
+						}
 					}
 					unordered_remove(&enemy_bullets, i)
 				}
@@ -1895,10 +1898,16 @@ main :: proc() {
 					// Leave the shop and spawn the next wave.
 					state = .PLAYING
 					play(sounds.ui_select)
-					if !debug_mode {
-						new_wave(&enemies, wave)
+					if tutorial_mode {
+						// The tutorial opened this shop to teach it; leaving is
+						// the lesson, so don't spawn a real wave.
+						tutorial_note(.SHOP_DONE)
+					} else {
+						if !debug_mode {
+							new_wave(&enemies, wave)
+						}
+						wave += 1
 					}
-					wave += 1
 				} else if shop_selected == reroll_row {
 					if try_shop_reroll() {
 						play(sounds.shop_buy)
@@ -1915,6 +1924,9 @@ main :: proc() {
 			raylib.ClearBackground(raylib.BLACK)
 			draw_centered(cstring("SHOP"), 30, 44, raylib.WHITE)
 			draw_centered(raylib.TextFormat("COINS: %i", int(currency)), 84, 24, raylib.GOLD)
+			if tutorial_mode {
+				tutorial_draw_shop()
+			}
 			clicked := -1
 			for it, i in shop_items {
 				color := shop_tier_color(it.tier)
@@ -1976,10 +1988,14 @@ main :: proc() {
 				if clicked == leave_row {
 					state = .PLAYING
 					play(sounds.ui_select)
-					if !debug_mode {
-						new_wave(&enemies, wave)
+					if tutorial_mode {
+						tutorial_note(.SHOP_DONE)
+					} else {
+						if !debug_mode {
+							new_wave(&enemies, wave)
+						}
+						wave += 1
 					}
-					wave += 1
 				} else if clicked == reroll_row {
 					if try_shop_reroll() {
 						play(sounds.shop_buy)

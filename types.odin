@@ -123,17 +123,31 @@ enemy :: struct {
 	// the enemy is left alone, so the marks have to be spent, not banked.
 	phase_marks:   i32,
 	phase_time:    f32,
-	// Practice dummy (tutorial arenas): holds still, never attacks, and drops
-	// nothing when destroyed.
-	training:      bool,
+	// DUMMY_PATROL: a fixed patrol route. `patrol_count` of the first slots in
+	// `patrol_points` are live (world positions of the dummy's center) and
+	// `patrol_index` is the waypoint being walked toward. A fixed array (not
+	// [dynamic]) keeps the enemy plain-old-data, so removing/clearing enemies
+	// never leaks.
+	patrol_points: [DUMMY_PATROL_POINTS]raylib.Vector2,
+	patrol_count:  i32,
+	patrol_index:  i32,
+	// DUMMY_RANGED: the locked-in direction it fires. It never aims at the
+	// player, so a lesson can stand safely to one side of the firing line.
+	shoot_dir:     raylib.Vector2,
 }
 
+// Enemy kinds that exist only to be shot in tutorial arenas. `pick_enemy_kind`
+// never returns these, so they can't leak into a real wave.
 Enemy_Kind :: enum {
 	GRUNT,
 	RUNNER,
 	TANK,
 	RANGED,
 	CHARGER,
+	DUMMY_DPS,    // big, stationary target with a deep health pool
+	DUMMY_RANGED, // stationary; fires along a fixed direction on a timer
+	DUMMY_WEAK,   // fragile stationary target; dies to a single hit
+	DUMMY_PATROL, // walks a fixed patrol route forever
 }
 
 // What a hit on an enemy actually did, so callers can pick the right feedback.

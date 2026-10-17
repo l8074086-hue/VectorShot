@@ -52,3 +52,4 @@ x 2026-10-16 2026-10-16 Add screen shake with an intensity slider +roguelike @po
 x 2026-10-16 2026-10-16 Add blood spray on enemy hits +roguelike @polish @combat
 x 2026-10-16 2026-10-16 Add a master volume / mute option +roguelike @sounds @ui
 x 2026-10-17 2026-10-17 Rewrite tutorial texts to match real mechanics + make steps actionable missions +roguelike @ui @content
+x 2026-10-17 2026-10-17 Make tutorial lessons interactive (live dummies, real cards, real shop) + clip enemies back into the arena +roguelike @ui @content @enemies

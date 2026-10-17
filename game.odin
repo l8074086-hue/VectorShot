@@ -9,7 +9,7 @@ import "vendor:raylib"
 
 ARENA_W :: 1600
 ARENA_H :: 1200
-WALL_THICK :: 60
+WALL_THICK :: 80
 RELOAD_TIME :: 1.0
 MELEE_FLASH_TIME :: 0.15 // how long the swing arc is shown after a melee hit
 MUZZLE_FLASH_TIME :: 0.045 // how long a gun's muzzle flash lingers after firing
@@ -200,6 +200,10 @@ ELITE_BOOMERANG_SPEED :: 300
 ELITE_TANK_PLATES :: 3 // TANK: directional plates to shatter before hp is exposed
 ELITE_PLATE_ARC :: 0.70 // half-angle (radians) a hit must fall within to crack a plate
 
+// Tutorial practice dummies. A DUMMY_PATROL can be given up to this many
+// waypoints (see the enemy struct's fixed `patrol_points` array).
+DUMMY_PATROL_POINTS :: 8
+
 // Shop: how many offers are stocked, and the reroll limit/cost curve.
 SHOP_OFFER_COUNT :: 3
 SHOP_MAX_REROLLS :: 2
@@ -296,7 +300,12 @@ ammo_growth_mult: f32 = 1 // reserve-ammo scale (applied live to both slots)
 // inflicts; `status_power` deepens one element; `status_time_mult` stretches all
 // durations. Enemies keep their own active set + timers (see the enemy struct).
 attack_effects: Status_Set = {}
-status_power: [Status_Effect]f32 = {.Burn = 1, .Freeze = 1, .Poison = 1, .Shock = 1}
+status_power: [Status_Effect]f32 = {
+	.Burn   = 1,
+	.Freeze = 1,
+	.Poison = 1,
+	.Shock  = 1,
+}
 status_time_mult: f32 = 1
 
 // Melee. Swing stats come from the active weapon, the KICK, or Bud's FISTS;
@@ -590,8 +599,7 @@ melee_shape_hits :: proc(
 	switch shape {
 	case .SECTOR:
 		dist := raylib.Vector2Length(to)
-		return dist > 0.01 && dist <= reach + target_radius &&
-		       raylib.Vector2Angle(dir, to) <= arc
+		return dist > 0.01 && dist <= reach + target_radius && raylib.Vector2Angle(dir, to) <= arc
 	case .THRUST:
 		// Distance from the target centre to the swing segment, grown by both
 		// the blade's half-width and the target's radius. Clamping `along` keeps
@@ -871,12 +879,7 @@ draw_muzzle_volley_flash :: proc() {
 	raylib.DrawCircleV(muz, 3, raylib.Color{255, 250, 220, 255})
 	// Burst box, rotated to the strike.
 	center := pc + d * MUZZLE_VOLLEY_REACH
-	rec := raylib.Rectangle {
-		center.x,
-		center.y,
-		MUZZLE_VOLLEY_LENGTH,
-		MUZZLE_VOLLEY_WIDTH,
-	}
+	rec := raylib.Rectangle{center.x, center.y, MUZZLE_VOLLEY_LENGTH, MUZZLE_VOLLEY_WIDTH}
 	origin := raylib.Vector2{MUZZLE_VOLLEY_LENGTH * 0.5, MUZZLE_VOLLEY_WIDTH * 0.5}
 	rot := math.atan2_f32(d.y, d.x) * raylib.RAD2DEG
 	raylib.DrawRectanglePro(rec, origin, rot, raylib.Color{255, 210, 110, u8(130 * f)})
@@ -940,11 +943,7 @@ update_rr_adaptation :: proc() {
 	// player to NEEDLE for most of a run.
 	base := CHARACTERS[.RR]
 	offense := clamp(bonus_damage / (RR_ADAPT_CARDS * CARD_ATTACK_DAMAGE), 0, 1)
-	mobility := clamp(
-		(SPEED - base.speed) / max(RR_ADAPT_CARDS * CARD_SPEED_BONUS, 1),
-		0,
-		1,
-	)
+	mobility := clamp((SPEED - base.speed) / max(RR_ADAPT_CARDS * CARD_SPEED_BONUS, 1), 0, 1)
 	resilience := clamp(
 		(max_health - base.max_health) / max(RR_ADAPT_CARDS * CARD_HEALTH_BONUS, 1),
 		0,
@@ -1279,20 +1278,20 @@ spawn_enemy_at :: proc(kind: Enemy_Kind, elite: bool, wave: i32, pos: raylib.Vec
 	}
 
 	en := enemy {
-		position = pos,
-		size = sz,
-		velocity = {0, 0},
+		position  = pos,
+		size      = sz,
+		velocity  = {0, 0},
 		attacking = false,
-		color = s.color,
-		damage = damage,
-		hp = hp,
-		max_hp = hp,
-		id = next_enemy_id,
-		speed = speed,
-		kind = kind,
-		state = .CHASE,
-		elite = elite,
-		plates = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
+		color     = s.color,
+		damage    = damage,
+		hp        = hp,
+		max_hp    = hp,
+		id        = next_enemy_id,
+		speed     = speed,
+		kind      = kind,
+		state     = .CHASE,
+		elite     = elite,
+		plates    = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
 	}
 	if elite && kind == .TANK {
 		// Spread the plates evenly, with a random base so every Bulwark
@@ -1357,7 +1356,7 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
 	// Difficulty scales how many show up; never fewer than one.
-	num := max(i32(f32(wave)*DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
+	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
 	spawn_enemies(enemies, num, wave)
 }
 
@@ -1366,10 +1365,6 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 update_enemy :: proc(e: ^enemy, dT: f32) {
 	if e.flash > 0 {
 		e.flash -= dT
-	}
-	// Practice dummies hold position and never act.
-	if e.training {
-		return
 	}
 	s := ENEMIES[e.kind]
 	pc := position + size * 0.5
@@ -1499,6 +1494,40 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		case .RECOVER:
 			if e.state_timer <= 0 {
 				e.state = .CHASE
+			}
+		}
+
+	case .DUMMY_DPS, .DUMMY_WEAK:
+	// Stationary practice targets: they never move or attack.
+
+	case .DUMMY_RANGED:
+		// Fires along a fixed direction on a timer. It never turns to aim, so
+		// the player can stand safely to one side of its firing line.
+		e.fire_cooldown -= dT
+		if e.fire_cooldown <= 0 && raylib.Vector2Length(e.shoot_dir) > 0.01 {
+			append(
+				&enemy_bullets,
+				bullet {
+					position = ec - {5, 5},
+					size = {10, 10},
+					velocity = raylib.Vector2Normalize(e.shoot_dir) * 260,
+					damage = s.damage,
+					pierce = 0,
+				},
+			)
+			e.fire_cooldown = s.fire_rate
+		}
+
+	case .DUMMY_PATROL:
+		// Walks its fixed route forever; it never chases the player.
+		if e.patrol_count > 0 {
+			target := e.patrol_points[e.patrol_index % e.patrol_count]
+			to_wp := target - ec
+			d := raylib.Vector2Length(to_wp)
+			if d <= 6 {
+				e.patrol_index = (e.patrol_index + 1) % e.patrol_count
+			} else {
+				e.position += (to_wp / d) * spd * dT
 			}
 		}
 	}
@@ -1689,6 +1718,9 @@ separate_enemies :: proc() {
 				n := d / dist
 				a.position += n * push
 				b.position -= n * push
+				// Crowding must not shove anyone back out through the walls.
+				clamp_to_arena(&a.position, a.size)
+				clamp_to_arena(&b.position, b.size)
 			}
 		}
 	}
@@ -2139,7 +2171,13 @@ spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
 		play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
 		append(
 			&drops,
-			drop{position = pos, size = {10, 10}, kind = .CURRENCY, amount = f32(rand.int_range(2, 5)), life = 8.0},
+			drop {
+				position = pos,
+				size = {10, 10},
+				kind = .CURRENCY,
+				amount = f32(rand.int_range(2, 5)),
+				life = 8.0,
+			},
 		)
 		return
 	}
@@ -2205,10 +2243,7 @@ apply_upgrade :: proc(name: cstring) {
 	} else if name == "RELOAD" {
 		reload_time = max(reload_time * 0.85, reload_time_base * MIN_RELOAD_MULT)
 	} else if name == "DASHCD" {
-		dash_cooldown_max = max(
-			dash_cooldown_max * 0.85,
-			dash_cooldown_base * MIN_DASH_CD_MULT,
-		)
+		dash_cooldown_max = max(dash_cooldown_max * 0.85, dash_cooldown_base * MIN_DASH_CD_MULT)
 	} else if name == "MAG" {
 		mag_mult = min(mag_mult * 1.25, MAX_MAG_MULT)
 		grow_magazine(&primary, 1.25)
@@ -2590,14 +2625,7 @@ draw_melee_flash :: proc() {
 	switch melee_flash_shape {
 	case .SECTOR:
 		arc_deg := melee_flash_arc * raylib.RAD2DEG
-		raylib.DrawCircleSector(
-			pc,
-			melee_flash_range,
-			angle - arc_deg,
-			angle + arc_deg,
-			24,
-			col,
-		)
+		raylib.DrawCircleSector(pc, melee_flash_range, angle - arc_deg, angle + arc_deg, 24, col)
 	case .THRUST:
 		// A thin blade: a rectangle running from the body along the swing.
 		rec := raylib.Rectangle{pc.x, pc.y, melee_flash_range, melee_flash_arc * 2}
@@ -2671,13 +2699,23 @@ draw_held_gun :: proc(look: Weapon_Look) {
 	// Guns only; melee looks never reach here (melee draws via draw_melee_model).
 	#partial switch look {
 	case .PISTOL, .AUTO:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 0), wep_pt(hand, fwd, right, 17, 0), 6, metal)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, 0),
+			wep_pt(hand, fwd, right, 17, 0),
+			6,
+			metal,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 2), wep_pt(hand, fwd, right, 2, 11), 7, dark)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 18, 0), 6, raylib.GOLD)
 		}
 	case .REVOLVER:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 0), wep_pt(hand, fwd, right, 19, 0), 6, metal)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 4, 0),
+			wep_pt(hand, fwd, right, 19, 0),
+			6,
+			metal,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 8, 0), 6, dark)
 		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 8, 0), 6, steel)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 2), wep_pt(hand, fwd, right, 2, 12), 7, wood)
@@ -2685,56 +2723,161 @@ draw_held_gun :: proc(look: Weapon_Look) {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 20, 0), 6, raylib.GOLD)
 		}
 	case .DUAL:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, -5), wep_pt(hand, fwd, right, 15, -5), 5, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 5), wep_pt(hand, fwd, right, 15, 5), 5, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, -3), wep_pt(hand, fwd, right, 2, -11), 6, dark)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, -5),
+			wep_pt(hand, fwd, right, 15, -5),
+			5,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, 5),
+			wep_pt(hand, fwd, right, 15, 5),
+			5,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 4, -3),
+			wep_pt(hand, fwd, right, 2, -11),
+			6,
+			dark,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 3), wep_pt(hand, fwd, right, 2, 11), 6, dark)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 16, -5), 4, raylib.GOLD)
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 16, 5), 4, raylib.GOLD)
 		}
 	case .SMG:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 15, 0), 9, dark)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 15, 0), wep_pt(hand, fwd, right, 23, 0), 4, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 12, 4), wep_pt(hand, fwd, right, 10, 14), 5, steel)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -2, 0),
+			wep_pt(hand, fwd, right, 15, 0),
+			9,
+			dark,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 15, 0),
+			wep_pt(hand, fwd, right, 23, 0),
+			4,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 12, 4),
+			wep_pt(hand, fwd, right, 10, 14),
+			5,
+			steel,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 4, 4), wep_pt(hand, fwd, right, 2, 12), 6, dark)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 24, 0), 4, raylib.GOLD)
 		}
 	case .RIFLE:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 2), wep_pt(hand, fwd, right, 2, 2), 7, wood)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 22, 0), 6, dark)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 22, 0), wep_pt(hand, fwd, right, 33, 0), 3, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 14, 4), wep_pt(hand, fwd, right, 12, 14), 5, steel)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -10, 2),
+			wep_pt(hand, fwd, right, 2, 2),
+			7,
+			wood,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -2, 0),
+			wep_pt(hand, fwd, right, 22, 0),
+			6,
+			dark,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 22, 0),
+			wep_pt(hand, fwd, right, 33, 0),
+			3,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 14, 4),
+			wep_pt(hand, fwd, right, 12, 14),
+			5,
+			steel,
+		)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 34, 0), 4, raylib.GOLD)
 		}
 	case .SHOTGUN:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 2), wep_pt(hand, fwd, right, 2, 2), 8, wood)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 0), wep_pt(hand, fwd, right, 29, 0), 8, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 5), wep_pt(hand, fwd, right, 22, 5), 9, wood)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -10, 2),
+			wep_pt(hand, fwd, right, 2, 2),
+			8,
+			wood,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, 0),
+			wep_pt(hand, fwd, right, 29, 0),
+			8,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 13, 5),
+			wep_pt(hand, fwd, right, 22, 5),
+			9,
+			wood,
+		)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 30, 0), 7, raylib.GOLD)
 		}
 	case .MINIGUN:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 13, 0), 14, dark)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, -5), wep_pt(hand, fwd, right, 31, -5), 3, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 0), wep_pt(hand, fwd, right, 32, 0), 3, metal)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 13, 5), wep_pt(hand, fwd, right, 31, 5), 3, metal)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -2, 0),
+			wep_pt(hand, fwd, right, 13, 0),
+			14,
+			dark,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 13, -5),
+			wep_pt(hand, fwd, right, 31, -5),
+			3,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 13, 0),
+			wep_pt(hand, fwd, right, 32, 0),
+			3,
+			metal,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 13, 5),
+			wep_pt(hand, fwd, right, 31, 5),
+			3,
+			metal,
+		)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 32, 0), 5, raylib.GOLD)
 		}
 	case .CANNON:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -2, 0), wep_pt(hand, fwd, right, 17, 0), 18, dark)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 17, 0), wep_pt(hand, fwd, right, 27, 0), 14, steel)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -2, 0),
+			wep_pt(hand, fwd, right, 17, 0),
+			18,
+			dark,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 17, 0),
+			wep_pt(hand, fwd, right, 27, 0),
+			14,
+			steel,
+		)
 		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 27, 0), 8, metal)
 		if firing {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 29, 0), 10, raylib.GOLD)
 		}
 	case .SNIPER:
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -12, 2), wep_pt(hand, fwd, right, 2, 2), 7, wood)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -12, 2),
+			wep_pt(hand, fwd, right, 2, 2),
+			7,
+			wood,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, 0), wep_pt(hand, fwd, right, 20, 0), 6, dark)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 20, 0), wep_pt(hand, fwd, right, 42, 0), 3, metal)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 20, 0),
+			wep_pt(hand, fwd, right, 42, 0),
+			3,
+			metal,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 13, -7), 5, dark)
 		raylib.DrawCircleLinesV(wep_pt(hand, fwd, right, 13, -7), 5, steel)
 		if firing {
@@ -2769,11 +2912,36 @@ draw_melee_model :: proc(
 	#partial switch look {
 	case .DAGGER:
 		// Short blade: pommel, wrapped grip, crossguard, tapered point.
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -9, 0), wep_pt(hand, fwd, right, 0, 0), 6, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -8, 0), wep_pt(hand, fwd, right, 1, 0), 4, WEAPON_GRIP)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -6), wep_pt(hand, fwd, right, 0, 6), 4, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -5), wep_pt(hand, fwd, right, 0, 5), 2, WEAPON_METAL)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 19, 0), 9, WEAPON_OUTLINE)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -9, 0),
+			wep_pt(hand, fwd, right, 0, 0),
+			6,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -8, 0),
+			wep_pt(hand, fwd, right, 1, 0),
+			4,
+			WEAPON_GRIP,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 0, -6),
+			wep_pt(hand, fwd, right, 0, 6),
+			4,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 0, -5),
+			wep_pt(hand, fwd, right, 0, 5),
+			2,
+			WEAPON_METAL,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 1, 0),
+			wep_pt(hand, fwd, right, 19, 0),
+			9,
+			WEAPON_OUTLINE,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 19, 0), 5, col)
 		raylib.DrawLineEx(
 			wep_pt(hand, fwd, right, 3, 1.5),
@@ -2786,8 +2954,18 @@ draw_melee_model :: proc(
 	case .SPEAR:
 		// Long shaft with a leaf head; the shaft scales with reach.
 		l := clamp(stats.reach * 0.30, f32(26), f32(54))
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -l * 0.5, 0), wep_pt(hand, fwd, right, l * 0.5, 0), 5, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -l * 0.45, 0), wep_pt(hand, fwd, right, l * 0.5, 0), 3, WEAPON_WOOD)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -l * 0.5, 0),
+			wep_pt(hand, fwd, right, l * 0.5, 0),
+			5,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -l * 0.45, 0),
+			wep_pt(hand, fwd, right, l * 0.5, 0),
+			3,
+			WEAPON_WOOD,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, -l * 0.5, 0), 3, WEAPON_OUTLINE)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, -l * 0.5, 0), 2, WEAPON_METAL)
 		head := wep_pt(hand, fwd, right, l * 0.5, 0)
@@ -2800,11 +2978,26 @@ draw_melee_model :: proc(
 		raylib.DrawCircleV(tip, 2.5, col)
 	case .BATON:
 		// Rounded baton: a wrapped grip and a weighted head.
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, 14, 0), 9, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 0), wep_pt(hand, fwd, right, 14, 0), 6, WEAPON_DARK)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -11, 0),
+			wep_pt(hand, fwd, right, 14, 0),
+			9,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -10, 0),
+			wep_pt(hand, fwd, right, 14, 0),
+			6,
+			WEAPON_DARK,
+		)
 		for k in 0 ..< 3 {
 			x := -9 + f32(k) * 3
-			raylib.DrawLineEx(wep_pt(hand, fwd, right, x, -3), wep_pt(hand, fwd, right, x, 3), 2, WEAPON_STEEL)
+			raylib.DrawLineEx(
+				wep_pt(hand, fwd, right, x, -3),
+				wep_pt(hand, fwd, right, x, 3),
+				2,
+				WEAPON_STEEL,
+			)
 		}
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 17, 0), 8, WEAPON_OUTLINE)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 17, 0), 6, WEAPON_METAL)
@@ -2812,8 +3005,18 @@ draw_melee_model :: proc(
 	case .HAMMER:
 		// Wooden haft with a blocky steel head across the tip.
 		l := clamp(stats.reach * 0.20, f32(12), f32(18))
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -12, 0), wep_pt(hand, fwd, right, l, 0), 8, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, l, 0), 5, WEAPON_WOOD)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -12, 0),
+			wep_pt(hand, fwd, right, l, 0),
+			8,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -11, 0),
+			wep_pt(hand, fwd, right, l, 0),
+			5,
+			WEAPON_WOOD,
+		)
 		head := wep_pt(hand, fwd, right, l + 3, 0)
 		hw, hh := f32(11), f32(26)
 		raylib.DrawRectanglePro(
@@ -2838,15 +3041,45 @@ draw_melee_model :: proc(
 		)
 	case .BLADE:
 		// RR's Vector Edge: a long tech blade with an energy node.
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -11, 0), wep_pt(hand, fwd, right, 0, 0), 6, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -10, 0), wep_pt(hand, fwd, right, 1, 0), 4, WEAPON_GRIP)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -8), wep_pt(hand, fwd, right, 0, 8), 5, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 0, -7), wep_pt(hand, fwd, right, 0, 7), 3, WEAPON_METAL)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -11, 0),
+			wep_pt(hand, fwd, right, 0, 0),
+			6,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -10, 0),
+			wep_pt(hand, fwd, right, 1, 0),
+			4,
+			WEAPON_GRIP,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 0, -8),
+			wep_pt(hand, fwd, right, 0, 8),
+			5,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 0, -7),
+			wep_pt(hand, fwd, right, 0, 7),
+			3,
+			WEAPON_METAL,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 4, 0), 3.5, col)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 4, 0), 1.5, raylib.WHITE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 29, 0), 10, WEAPON_OUTLINE)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 1, 0),
+			wep_pt(hand, fwd, right, 29, 0),
+			10,
+			WEAPON_OUTLINE,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 1, 0), wep_pt(hand, fwd, right, 29, 0), 6, col)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 3, 2), wep_pt(hand, fwd, right, 28, 2), 1.5, raylib.WHITE)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 3, 2),
+			wep_pt(hand, fwd, right, 28, 2),
+			1.5,
+			raylib.WHITE,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 31, 0), 3.5, col)
 	case .CLAWS:
 		// Three phase prongs off a palm plate.
@@ -2862,12 +3095,42 @@ draw_melee_model :: proc(
 	case .BAYONET:
 		// A rifle body with a long blade fixed under the muzzle.
 		l := clamp(stats.reach * 0.24, f32(20), f32(32))
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -14, 2), wep_pt(hand, fwd, right, -5, 2), 7, WEAPON_WOOD)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -14, 0), wep_pt(hand, fwd, right, 10, 0), 8, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -13, 0), wep_pt(hand, fwd, right, 10, 0), 5, WEAPON_DARK)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 4), wep_pt(hand, fwd, right, 0, 12), 5, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 2, 4), wep_pt(hand, fwd, right, 1, 11), 3, WEAPON_STEEL)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 9, 0), wep_pt(hand, fwd, right, l, 0), 6, WEAPON_OUTLINE)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -14, 2),
+			wep_pt(hand, fwd, right, -5, 2),
+			7,
+			WEAPON_WOOD,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -14, 0),
+			wep_pt(hand, fwd, right, 10, 0),
+			8,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -13, 0),
+			wep_pt(hand, fwd, right, 10, 0),
+			5,
+			WEAPON_DARK,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, 4),
+			wep_pt(hand, fwd, right, 0, 12),
+			5,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 2, 4),
+			wep_pt(hand, fwd, right, 1, 11),
+			3,
+			WEAPON_STEEL,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 9, 0),
+			wep_pt(hand, fwd, right, l, 0),
+			6,
+			WEAPON_OUTLINE,
+		)
 		raylib.DrawLineEx(wep_pt(hand, fwd, right, 9, 0), wep_pt(hand, fwd, right, l, 0), 3, col)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, l + 1, 0), 2.5, col)
 	case .FISTS:
@@ -2877,14 +3140,34 @@ draw_melee_model :: proc(
 		for k in -1 ..= 1 {
 			raylib.DrawCircleV(wep_pt(hand, fwd, right, 8, f32(k) * 3.2), 2, WEAPON_METAL)
 		}
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -4, -5), wep_pt(hand, fwd, right, -4, 5), 4, col)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -4, -5),
+			wep_pt(hand, fwd, right, -4, 5),
+			4,
+			col,
+		)
 	case .BOOT:
 		// A boot: shin, rounded foot, and a sole edge.
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -9, 0), wep_pt(hand, fwd, right, 4, 0), 9, WEAPON_OUTLINE)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, -8, 0), wep_pt(hand, fwd, right, 4, 0), 6, WEAPON_DARK)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -9, 0),
+			wep_pt(hand, fwd, right, 4, 0),
+			9,
+			WEAPON_OUTLINE,
+		)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, -8, 0),
+			wep_pt(hand, fwd, right, 4, 0),
+			6,
+			WEAPON_DARK,
+		)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 7, 0), 6, WEAPON_OUTLINE)
 		raylib.DrawCircleV(wep_pt(hand, fwd, right, 7, 0), 5, WEAPON_DARK)
-		raylib.DrawLineEx(wep_pt(hand, fwd, right, 3, 4), wep_pt(hand, fwd, right, 11, 4), 2, WEAPON_STEEL)
+		raylib.DrawLineEx(
+			wep_pt(hand, fwd, right, 3, 4),
+			wep_pt(hand, fwd, right, 11, 4),
+			2,
+			WEAPON_STEEL,
+		)
 	case:
 		draw_melee_generic(stats, hand, fwd, right)
 	}
