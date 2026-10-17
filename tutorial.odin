@@ -33,6 +33,8 @@ Tutorial_Action :: enum {
 	MARK,
 	REND,
 	BLOCK,
+	NEEDLE, // RR's PRECISION blink (E)
+	DESTROY, // destroyed the lesson's target (RR's OFFENSE turret)
 	VOLT,
 	CARD, // picked one of the upgrade cards the tutorial dealt
 	ELEMENT_CARD, // picked a STATUS (element) card the tutorial dealt
@@ -100,22 +102,34 @@ RR_STEPS := [?]Tutorial_Step {
 	{
 		"RR's ADAPTATION follows your build - whichever stat you invest in most determines his stance",
 		.NONE,
-		5.0,
+		7.0,
 	},
-	{"OFFENSE (most damage): Vector Edge is cuts/sweeps leading to a shock smash", .NONE, 5.0},
-	{"RESILIENCE (most max HP): hold E/RMB to raise BULWARK and block frontal damage", .BLOCK, 0},
-	{"PRECISION (spread reduction): E becomes NEEDLE - a short blink to reposition", .NONE, 5.0},
 	{
-		"MOBILITY (most speed): his blade strikes and reach adapt to hit and close faster",
-		.NONE,
-		5.0,
+		"OFFENSE (most damage): Vector Edge cuts, sweeps, then a shock smash - destroy the turret",
+		.DESTROY,
+		20.0,
 	},
-	{"BURST dash grants SECOND WIND - amplifies your current stance by 50% briefly", .NONE, 5.0},
 	{
-		"Adapt to the fight - stack the stat that counters enemies. Press Q to swap slots",
-		.NONE,
-		4.0,
+		"RESILIENCE (most max HP): face the turret and hold E/RMB to raise BULWARK and block its shots",
+		.BLOCK,
+		20.0,
 	},
+	{
+		"PRECISION (spread reduction): press E/RMB to NEEDLE-blink out of the firing line",
+		.NEEDLE,
+		20.0,
+	},
+	{
+		"MOBILITY (most speed): press SHIFT to BURST-dash - his blade reaches and closes faster",
+		.DASH,
+		20.0,
+	},
+	{
+		"BURST dash also grants SECOND WIND - it amplifies whichever Adaptation you are on",
+		.NONE,
+		7.0,
+	},
+	{"Adapt to the fight - stack the stat that counters enemies. Press Q to swap slots", .NONE, 5.0},
 }
 
 BUD_STEPS := [?]Tutorial_Step {
@@ -345,6 +359,26 @@ set_patrol_route :: proc(e: ^enemy) {
 	e.patrol_index = 1
 }
 
+// A practice turret that fires straight at where the player is standing, so a
+// lesson can be done while under fire. `durable` raises its health so it keeps
+// shooting for the whole step; an OFFENSE lesson leaves it killable instead.
+spawn_tutorial_turret :: proc(
+	pc: raylib.Vector2,
+	offset: raylib.Vector2,
+	durable := true,
+) -> ^enemy {
+	t := spawn_tutorial_target(.DUMMY_RANGED, pc + offset)
+	if t == nil {
+		return nil
+	}
+	t.shoot_dir = raylib.Vector2Normalize(pc - (t.position + t.size * 0.5))
+	if durable {
+		t.hp = 9999
+		t.max_hp = 9999
+	}
+	return t
+}
+
 // Tag a dummy with a status that never expires, for the status-effects demo.
 // The health pool is raised too, so BURN/POISON damage-over-time can't kill the
 // exhibit before the player has seen it.
@@ -393,8 +427,10 @@ tutorial_step_entered :: proc() {
 		return
 	}
 	// Clear any interactive staging from the previous step (e.g. cards still on
-	// screen because the fallback timer moved on).
+	// screen because the fallback timer moved on), and forget actions from
+	// earlier steps so each action step needs its own fresh input.
 	clear(&cards)
+	tutorial_flags = {}
 	pc := position + size * 0.5
 	switch tutorial_kind {
 	case .BASIC:
@@ -452,11 +488,28 @@ tutorial_step_entered :: proc() {
 		// Each character's script gets the target that best fits its lesson.
 		switch tutorial_char {
 		case .RR:
-			// BULWARK: a turret downrange to face and block.
-			if tutorial_step == 2 {
-				if t := spawn_tutorial_target(.DUMMY_RANGED, pc + {200, -180}); t != nil {
-					t.shoot_dir = raylib.Vector2Normalize(pc - (t.position + t.size * 0.5))
-				}
+			// Every Adaptation gets a live turret firing at the player, and the
+			// step only clears when RR answers it the way that form is meant to:
+			// OFFENSE destroys it, RESILIENCE blocks a shot, PRECISION blinks,
+			// MOBILITY dashes. Staging is cleared first so each lesson starts
+			// from a clean arena.
+			switch tutorial_step {
+			case 1:
+				// OFFENSE: a killable turret to take apart with the Vector Edge.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -220}, false)
+			case 2:
+				// RESILIENCE: a sturdy turret to face and BULWARK its shots.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -240})
+			case 3:
+				// PRECISION: a turret to blink out of the firing line.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -240})
+			case 4:
+				// MOBILITY: a turret set further out to dash toward.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -210})
 			}
 		case .BUD:
 			// Combo practice against a target that won't just stand there.
@@ -483,7 +536,7 @@ tutorial_step_entered :: proc() {
 
 // An action step the player can't perform (e.g. R on a full magazine, or a
 // character form they can't reach) shouldn't trap them; after this long the
-// step moves on by itself.
+// step moves on by itself. A step may set its own longer grace period in `hold`.
 TUTORIAL_ACTION_TIMEOUT :: 14.0
 
 // Advance the step cursor when the current step's requirement is met. Returns
@@ -503,9 +556,11 @@ tutorial_update :: proc(dT: f32) {
 	} else if s.action in tutorial_flags {
 		tutorial_next()
 	} else {
-		// Fallback: give plenty of time, then move on regardless.
+		// Fallback: give plenty of time, then move on regardless. Action steps
+		// that want a longer grace period (a form test) set it in `hold`.
+		fallback := s.hold > 0 ? s.hold : TUTORIAL_ACTION_TIMEOUT
 		tutorial_timer += dT
-		if tutorial_timer >= TUTORIAL_ACTION_TIMEOUT {
+		if tutorial_timer >= fallback {
 			tutorial_next()
 		}
 	}

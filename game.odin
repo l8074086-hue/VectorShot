@@ -1068,20 +1068,23 @@ gf_assist_aim :: proc(aim: raylib.Vector2) -> raylib.Vector2 {
 // The single funnel for player damage. BUD's "Guard Up" blunts hits arriving
 // from the direction he's facing (aim); RR's Resilience adaptation blunts all.
 apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
-	// Tutorial arenas are a safe sandbox: the player cannot be hurt.
-	if tutorial_mode {
-		return
-	}
 	// RR's BULWARK guard (E held): everything arriving from the front is
-	// cancelled outright. Checked first so a blocked hit costs nothing at all --
-	// the slow on his move speed is the whole price of the stance.
+	// cancelled outright. Checked before the tutorial sandbox so a blocked shot
+	// still registers (the tutorial's RESILIENCE lesson keys off it), and first
+	// overall so a blocked hit costs nothing at all -- the slow on his move
+	// speed is the whole price of the stance.
 	if rr_block {
 		to := from - (position + size * 0.5)
 		if raylib.Vector2Length(to) < 0.01 ||
 		   raylib.Vector2Angle(aim_dir, raylib.Vector2Normalize(to)) < RR_BLOCK_ARC {
 			block_flash = BLOCK_FLASH_TIME
+			tutorial_note(.BLOCK)
 			return
 		}
+	}
+	// Tutorial arenas are a safe sandbox: the player cannot be hurt.
+	if tutorial_mode {
+		return
 	}
 	dmg := amount
 	if character == .BUD {
@@ -1638,6 +1641,11 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 	// Feed the practice dummy's damage-per-second bar.
 	if e.kind == .DUMMY_DPS && amount > 0 {
 		e.dps_window += amount
+	}
+	// RR's OFFENSE lesson clears when its turret goes down. Noted on the lethal
+	// hit here (the single damage funnel); no-op outside that tutorial.
+	if e.kind == .DUMMY_RANGED && e.hp <= 0 {
+		tutorial_note(.DESTROY)
 	}
 	// Feedback for real number hits only (marking lights deal 0 and stay silent):
 	// a floating number, a blood spray, and a little kick to the camera.

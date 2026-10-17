@@ -1170,17 +1170,17 @@ main :: proc() {
 			rr_block = false
 			if character == .RR && rr_adaptation == .RESILIENCE {
 				// BULWARK: hold E to guard the front. Damage arriving from ahead
-				// is cancelled outright, but he is slowed while it is up.
+				// is cancelled outright, but he is slowed while it is up. A hit
+				// actually cancelled notes the tutorial's BLOCK lesson (see
+				// apply_player_damage), so merely holding the guard isn't enough.
 				rr_block = kick_held
-				if rr_block {
-					tutorial_note(.BLOCK)
-				}
 			} else if character == .RR && rr_adaptation == .PRECISION {
 				// NEEDLE: a short blink instead of a kick, rewarding the pick
 				// with mobility.
 				if kick_pressed && rr_blink_cd <= 0 {
 					rr_blink_cd = RR_NEEDLE_BLINK_CD
 					play(sounds.dash)
+					tutorial_note(.NEEDLE)
 					// Blink the way he is already moving, or along the aim if he
 					// is standing still, so it repositions rather than aims.
 					bd := last_dir
