@@ -354,9 +354,10 @@ relic_pick_draw :: proc() {
 	raylib.DrawRectangleRec(raylib.Rectangle{x, y, w, h}, raylib.Color{28, 24, 16, 250})
 	raylib.DrawRectangleLinesEx(raylib.Rectangle{x, y, w, h}, 3, raylib.GOLD)
 	r := RELICS[pending_relic]
-	draw_centered(cstring("RELIC CHEST"), i32(y) + 20, 24, raylib.GOLD)
-	draw_centered(r.name, i32(y) + 56, 28, raylib.RAYWHITE)
-	draw_centered(r.desc, i32(y) + 96, 17, raylib.LIGHTGRAY)
+	cx := i32(x + w * 0.5)
+	draw_text_cx(cstring("RELIC CHEST"), cx, i32(y) + 20, 24, raylib.GOLD)
+	draw_text_cx(r.name, cx, i32(y) + 56, 28, raylib.RAYWHITE)
+	draw_text_cx(r.desc, cx, i32(y) + 96, 17, raylib.LIGHTGRAY)
 	// Two buttons.
 	bw: f32 = 180
 	bh: f32 = 44
@@ -384,9 +385,9 @@ relic_pick_draw :: proc() {
 	} else {
 		raylib.DrawRectangleLinesEx(discard_rect, 2, raylib.GRAY)
 	}
-	draw_centered(cstring("ACCEPT"), i32(by) + 12, 22, raylib.LIME)
-	draw_centered(cstring("DISCARD"), i32(by) + 12, 22, raylib.LIGHTGRAY)
-	draw_centered(cstring("ENTER accept   -   ESC discard"), i32(y + h) - 16, 14, raylib.DARKGRAY)
+	draw_text_cx(cstring("ACCEPT"), i32(accept_rect.x + accept_rect.width * 0.5), i32(by) + 11, 22, raylib.LIME)
+	draw_text_cx(cstring("DISCARD"), i32(discard_rect.x + discard_rect.width * 0.5), i32(by) + 11, 22, raylib.LIGHTGRAY)
+	draw_text_cx(cstring("ENTER accept   -   ESC discard"), cx, i32(y + h) - 16, 14, raylib.DARKGRAY)
 }
 
 // Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper

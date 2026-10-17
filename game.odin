@@ -4022,6 +4022,14 @@ draw_centered :: proc(text: cstring, y, size: i32, color: raylib.Color) {
 	raylib.DrawText(text, 400 - width / 2, y, size, color)
 }
 
+// Like draw_centered, but centres the text on an arbitrary x. Use this for
+// overlays drawn straight to the window (whose width may not be the 800-wide
+// game canvas that draw_centered assumes).
+draw_text_cx :: proc(text: cstring, cx, y, size: i32, color: raylib.Color) {
+	width := raylib.MeasureText(text, size)
+	raylib.DrawText(text, cx - width / 2, y, size, color)
+}
+
 // Human-readable name for RR's current Adaptation, shown on the HUD.
 rr_adaptation_name :: proc() -> cstring {
 	switch rr_adaptation {
