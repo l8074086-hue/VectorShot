@@ -30,6 +30,187 @@ draw_floor_mark :: proc(m: floor_mark, col: raylib.Color) {
 	}
 }
 
+// In-game settings panel (opened with Backspace during a run). A compact overlay
+// over the frozen game: volume, screen shake, the visual toggles, a Resume
+// button, and a Return-to-Menu button. Rows: 0 volume, 1 screen shake,
+// 2 damage numbers, 3 blood, 4 hurt vignette, 5 resume, 6 return to menu.
+INGAME_PANEL_ROWS :: 7
+
+// Panel box in screen space, centered on the window.
+ingame_panel_geometry :: proc() -> (x, y, w, h: f32) {
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	w = 640
+	h = 130 + f32(INGAME_PANEL_ROWS) * 46
+	x = (sw - w) * 0.5
+	y = (sh - h) * 0.5
+	return
+}
+
+// One row's clickable rect, in screen space.
+ingame_panel_row_rect :: proc(row: int) -> raylib.Rectangle {
+	gx, gy, gw, _ := ingame_panel_geometry()
+	ry := gy + 96 + f32(row) * 46
+	return raylib.Rectangle{gx + 24, ry, gw - 48, 40}
+}
+
+// Label + current value for a row (value is empty for the two buttons).
+ingame_panel_row_text :: proc(row: int) -> (label: cstring, value: cstring) {
+	switch row {
+	case 0:
+		return "Master volume", raylib.TextFormat("%i%%", i32(settings.master_volume * 100))
+	case 1:
+		return "Screen shake", raylib.TextFormat("%i%%", i32(settings.screen_shake * 100))
+	case 2:
+		return "Damage numbers", settings.damage_numbers ? cstring("ON") : cstring("OFF")
+	case 3:
+		return "Blood", settings.blood ? cstring("ON") : cstring("OFF")
+	case 4:
+		return "Hurt vignette", settings.hurt_vignette ? cstring("ON") : cstring("OFF")
+	case 5:
+		return "RESUME", cstring("")
+	case 6:
+		return "RETURN TO MAIN MENU", cstring("")
+	}
+	return cstring(""), cstring("")
+}
+
+// Perform a row's action (toggle, or one of the two buttons). Shared by the
+// keyboard (ENTER) and the mouse (click).
+ingame_panel_activate :: proc(row: int) {
+	switch row {
+	case 2:
+		settings.damage_numbers = !settings.damage_numbers
+		settings_save()
+	case 3:
+		settings.blood = !settings.blood
+		settings_save()
+	case 4:
+		settings.hurt_vignette = !settings.hurt_vignette
+		settings_save()
+	case 5:
+		ingame_panel_open = false
+	case 6:
+		ingame_panel_open = false
+		play(sounds.ui_select)
+		end_run()
+	}
+}
+
+// Keyboard handling for the panel. Runs once per frame while it's open; the world
+// is frozen because the PLAYING case skips its update while the panel is up.
+ingame_panel_update :: proc() {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+		ingame_panel_sel = (ingame_panel_sel - 1 + INGAME_PANEL_ROWS) % INGAME_PANEL_ROWS
+		play(sounds.ui_move)
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+		ingame_panel_sel = (ingame_panel_sel + 1) % INGAME_PANEL_ROWS
+		play(sounds.ui_move)
+	}
+	changed := false
+	left := raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+		raylib.IsKeyPressed(raylib.KeyboardKey.A)
+	right := raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+		raylib.IsKeyPressed(raylib.KeyboardKey.D)
+	if left || right {
+		step := right ? 0.05 : f32(-0.05)
+		switch ingame_panel_sel {
+		case 0:
+			settings.master_volume = clamp(settings.master_volume + step, 0, 1)
+			changed = true
+		case 1:
+			settings.screen_shake = clamp(settings.screen_shake + step, 0, 1)
+			changed = true
+		case:
+		}
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+		ingame_panel_activate(ingame_panel_sel)
+	}
+	if changed {
+		settings_save()
+	}
+}
+
+// Render the panel as a screen-space overlay over the frozen game, and handle
+// mouse hover/click on the rows.
+draw_ingame_panel :: proc() {
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	raylib.DrawRectangleRec(raylib.Rectangle{0, 0, sw, sh}, raylib.Color{0, 0, 0, 160})
+	gx, gy, gw, gh := ingame_panel_geometry()
+	box := raylib.Rectangle{gx, gy, gw, gh}
+	raylib.DrawRectangleRec(box, raylib.Color{24, 24, 34, 245})
+	raylib.DrawRectangleLinesEx(box, 3, raylib.SKYBLUE)
+	raylib.DrawText(cstring("PAUSED"), i32(gx + 24), i32(gy + 22), 26, raylib.WHITE)
+	raylib.DrawText(
+		cstring("in-run settings"),
+		i32(gx + 24),
+		i32(gy + 54),
+		16,
+		raylib.DARKGRAY,
+	)
+	mp := raylib.GetMousePosition()
+	clicked := raylib.IsMouseButtonPressed(.LEFT)
+	for row in 0 ..< INGAME_PANEL_ROWS {
+		rect := ingame_panel_row_rect(row)
+		selected := row == ingame_panel_sel
+		bg := raylib.Color{34, 34, 48, 255}
+		if selected {
+			bg = raylib.Color{48, 48, 84, 255}
+		}
+		raylib.DrawRectangleRec(rect, bg)
+		label, value := ingame_panel_row_text(row)
+		raylib.DrawText(
+			label,
+			i32(rect.x + 14),
+			i32(rect.y + 10),
+			20,
+			selected ? raylib.YELLOW : raylib.RAYWHITE,
+		)
+		if value != cstring("") {
+			vw := raylib.MeasureText(value, 20)
+			raylib.DrawText(
+				value,
+				i32(rect.x + rect.width - 14) - vw,
+				i32(rect.y + 10),
+				20,
+				selected ? raylib.SKYBLUE : raylib.GRAY,
+			)
+		}
+		// Value bar for the two sliders.
+		if row == 0 || row == 1 {
+			frac := row == 0 ? settings.master_volume : settings.screen_shake
+			bw := (rect.width - 28) * clamp(frac, 0, 1)
+			raylib.DrawRectangle(
+				i32(rect.x + 14),
+				i32(rect.y + 32),
+				i32(rect.width - 28),
+				4,
+				raylib.DARKGRAY,
+			)
+			raylib.DrawRectangle(i32(rect.x + 14), i32(rect.y + 32), i32(bw), 4, raylib.SKYBLUE)
+		}
+		if raylib.CheckCollisionPointRec(mp, rect) {
+			if clicked {
+				ingame_panel_sel = row
+				ingame_panel_activate(row)
+			}
+		}
+	}
+	raylib.DrawText(
+		cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust   -   BACKSPACE to resume"),
+		i32(gx + 24),
+		i32(gy + gh - 30),
+		15,
+		raylib.GRAY,
+	)
+}
+
 main :: proc() {
 	windowX: i32 = 800
 	windowY: i32 = 600
@@ -84,6 +265,14 @@ main :: proc() {
 		if console_open {
 			dT = 0
 			console_update()
+		}
+
+		// In-game settings panel: Backspace toggles it during a run. While open the
+		// world is frozen (the PLAYING case skips its update) and the panel is drawn
+		// as an overlay over the last frame.
+		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.BACKSPACE) {
+			ingame_panel_open = !ingame_panel_open
+			play(sounds.ui_move)
 		}
 
 		// Hitstop: a heavy hit (kill, finisher, barrel) stalls the world for a
@@ -1075,6 +1264,13 @@ main :: proc() {
 				}
 			}
 		case .PLAYING:
+			// In-game settings panel is up: handle its input and freeze the world by
+			// skipping this frame's update+draw. The canvas texture keeps the last
+			// frame, which the present step redraws with the panel over it.
+			if ingame_panel_open {
+				ingame_panel_update()
+				break
+			}
 			camera.target = position + size * 0.5
 			camera.offset = {400, 300}
 			camera.zoom = 1
@@ -2515,6 +2711,11 @@ main :: proc() {
 				}
 				raylib.DrawRectangleLinesEx(rect, band, raylib.Color{255, 40, 40, alpha})
 			}
+		}
+		// In-game settings panel overlay (Backspace), drawn in screen space on top of
+		// the frozen frame.
+		if ingame_panel_open {
+			draw_ingame_panel()
 		}
 		raylib.EndDrawing()
 	}

@@ -257,6 +257,10 @@ difficulty: Difficulty = .NORMAL
 main_menu_sel: int = 0
 settings_sel: int = 0
 mission_sel: int = 0 // grid cursor on the Mission Control screen
+// In-game settings panel, toggled with Backspace during a run. While it's open the
+// world is frozen and the panel is drawn as an overlay over the last frame.
+ingame_panel_open: bool = false
+ingame_panel_sel: int = 0
 quit_requested: bool = false
 
 // Tutorial state. The select screen picks a tier (and a character for the
