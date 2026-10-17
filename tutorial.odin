@@ -431,6 +431,7 @@ tutorial_step_entered :: proc() {
 	// earlier steps so each action step needs its own fresh input.
 	clear(&cards)
 	tutorial_flags = {}
+	tutorial_settle = -1
 	pc := position + size * 0.5
 	switch tutorial_kind {
 	case .BASIC:
@@ -539,6 +540,10 @@ tutorial_step_entered :: proc() {
 // step moves on by itself. A step may set its own longer grace period in `hold`.
 TUTORIAL_ACTION_TIMEOUT :: 14.0
 
+// Once a step's action is met, linger this long before advancing, so the prompt
+// doesn't blink past the instant the player does the thing.
+TUTORIAL_ACTION_DWELL :: 1.5
+
 // Advance the step cursor when the current step's requirement is met. Returns
 // true when the whole script is finished (caller can then end the tutorial).
 tutorial_update :: proc(dT: f32) {
@@ -554,7 +559,14 @@ tutorial_update :: proc(dT: f32) {
 			tutorial_next()
 		}
 	} else if s.action in tutorial_flags {
-		tutorial_next()
+		// Requirement met: hold a beat so the advance reads clearly.
+		if tutorial_settle < 0 {
+			tutorial_settle = 0
+		}
+		tutorial_settle += dT
+		if tutorial_settle >= TUTORIAL_ACTION_DWELL {
+			tutorial_next()
+		}
 	} else {
 		// Fallback: give plenty of time, then move on regardless. Action steps
 		// that want a longer grace period (a form test) set it in `hold`.
@@ -624,6 +636,10 @@ tutorial_draw :: proc() {
 		18,
 		raylib.SKYBLUE,
 	)
+	// Confirmation while the step lingers after being completed.
+	if s.action != .NONE && tutorial_settle >= 0 {
+		raylib.DrawText("NICE!", 716, 482, 18, raylib.LIME)
+	}
 	// The hint wraps into at most three lines for longer tutorials.
 	txt := string(s.text)
 	// Find the last space at or before `up_to` (falling back to a hard cut).

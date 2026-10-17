@@ -248,6 +248,7 @@ tutorial_kind: Tutorial_Kind = .BASIC
 tutorial_char: Character = .RR
 tutorial_step: int = 0
 tutorial_timer: f32 = 0
+tutorial_settle: f32 = -1 // counts up once a step's action is met, holding a beat
 tutorial_flags: Tutorial_Flags
 
 // "GF mode" (Ctrl+G): a hidden comfort toggle for players who aren't used to
