@@ -3135,6 +3135,13 @@ draw_held_gun :: proc(look: Weapon_Look) {
 	}
 	fwd = raylib.Vector2Normalize(fwd)
 	right := raylib.Vector2{-fwd.y, fwd.x}
+	// The weapon models are drawn with the grip at +right (below the barrel when
+	// facing right). Aiming left flips that perpendicular to point up, which
+	// renders the gun upside down, so mirror the frame to keep the grip beneath
+	// the barrel no matter which way the player faces.
+	if fwd.x < 0 {
+		right = -right
+	}
 	hand := position + size * 0.5 + fwd * (size.x * 0.28)
 
 	metal := raylib.Color{104, 112, 128, 255}
@@ -3671,6 +3678,11 @@ draw_held_melee :: proc(ws: Weapon_Stats) {
 	}
 	fwd = raylib.Vector2Normalize(fwd)
 	right := raylib.Vector2{-fwd.y, fwd.x}
+	// Mirror the held melee model when facing left, same as draw_held_gun, so
+	// the blade/claws never read upside down.
+	if fwd.x < 0 {
+		right = -right
+	}
 	hand := position + size * 0.5 + fwd * (size.x * 0.34)
 	look := ws.look
 	if active_slot == SLOT_SIGNATURE {
