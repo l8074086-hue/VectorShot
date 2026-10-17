@@ -976,48 +976,103 @@ main :: proc() {
 				raylib.EndTextureMode()
 				if back {skill_state = .MAIN}
 			case .ARENA:
-				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
-				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-					arena = Arena_Kind((int(arena) + 1) % len(ARENAS))
+				// Grid of themed map cards (every arena visible at once), mirroring the
+				// Mission Control layout so nothing falls off the bottom of the canvas.
+				// Arrows / number keys move the selection, ENTER or a click confirms and
+				// returns to the wizard menu.
+				ARENA_COLS :: 3
+				ARENA_CW: i32 = 240
+				ARENA_CH: i32 = 116
+				sel := int(arena)
+				n := len(ARENAS)
+				if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+					if sel%ARENA_COLS > 0 {
+						sel -= 1
+					}
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+					if sel%ARENA_COLS < ARENA_COLS-1 && sel+1 < n {
+						sel += 1
+					}
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 				   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-					arena = Arena_Kind((int(arena) - 1 + len(ARENAS)) % len(ARENAS))
-				}
-				for key, idx in NUMBER_KEYS {
-					if idx < len(ARENAS) && raylib.IsKeyPressed(key) {
-						arena = Arena_Kind(idx)
+					if sel >= ARENA_COLS {
+						sel -= ARENA_COLS
 					}
 				}
-				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
-					skill_state = .MAIN
+				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+					if sel+ARENA_COLS < n {
+						sel += ARENA_COLS
+					}
 				}
+				for key, idx in NUMBER_KEYS {
+					if idx < n && raylib.IsKeyPressed(key) {
+						sel = idx
+					}
+				}
+				arena = Arena_Kind(sel)
+				confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+					raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
 				raylib.BeginTextureMode(target)
 				raylib.ClearBackground(raylib.BLACK)
-				draw_centered(cstring("SELECT ARENA"), 60, 40, raylib.WHITE)
-				for a in Arena_Kind {
-					color := arena == a ? raylib.VIOLET : raylib.DARKGRAY
-					y := 140 + i32(a) * 80
-					// Little palette swatch so the theme is visible before picking.
-					raylib.DrawRectangle(120, y + 4, 34, 34, ARENAS[a].floor_dark)
-					raylib.DrawRectangleLines(120, y + 4, 34, 34, ARENAS[a].wall)
-					ck, hv := ui_row(
-						raylib.TextFormat("%i)  %s", int(a) + 1, string(ARENAS[a].name)),
-						y,
-						28,
-						color,
+				draw_centered(cstring("SELECT ARENA"), 40, 40, raylib.WHITE)
+				for ai in Arena_Kind {
+					a := int(ai)
+					col := i32(a) % ARENA_COLS
+					row := i32(a) / ARENA_COLS
+					x := 20 + col*(ARENA_CW+20)
+					y := 110 + row*(ARENA_CH+14)
+					rect := raylib.Rectangle{f32(x), f32(y), f32(ARENA_CW), f32(ARENA_CH)}
+					pal := ARENAS[ai]
+					selected := a == sel
+					raylib.DrawRectangleRec(rect, raylib.Color{20, 20, 28, 255})
+					border := raylib.DARKGRAY
+					if selected {
+						border = raylib.VIOLET
+					}
+					raylib.DrawRectangleLinesEx(rect, 3, border)
+					// Themed preview: floor tile, a wall bar, and a couple of cover blobs.
+					sx := x + 12
+					sy := y + 12
+					raylib.DrawRectangle(sx, sy, ARENA_CW-24, 46, pal.floor_dark)
+					raylib.DrawRectangle(sx, sy+36, ARENA_CW-24, 10, pal.wall)
+					raylib.DrawCircleV({f32(sx+32), f32(sy+22)}, 12, pal.cover)
+					raylib.DrawCircleV({f32(sx+84), f32(sy+22)}, 12, pal.cover)
+					name_col := selected ? raylib.YELLOW : raylib.RAYWHITE
+					raylib.DrawText(
+						raylib.TextFormat("%i)  %s", a+1, string(pal.name)),
+						x+12,
+						y+66,
+						20,
+						name_col,
 					)
-					if (mouse_moved && hv) || ck {arena = a}
-					draw_centered(ARENAS[a].desc, y + 30, 18, raylib.GRAY)
+					raylib.DrawText(pal.desc, x+12, y+92, 13, raylib.GRAY)
+					if raylib.CheckCollisionRecs(mouse, rect) {
+						if mouse_moved {
+							sel = a
+							arena = Arena_Kind(sel)
+						}
+						if raylib.IsMouseButtonPressed(.LEFT) {
+							sel = a
+							arena = Arena_Kind(sel)
+							confirm = true
+						}
+					}
 				}
-				back, _ := ui_row(
-					cstring("UP/DOWN or 1-9 to pick, ENTER / click here to go back"),
-					540,
-					22,
+				draw_centered(
+					cstring("ARROWS or 1-7 to pick   -   ENTER to confirm"),
+					560,
+					16,
 					raylib.GRAY,
 				)
 				raylib.EndTextureMode()
-				if back {skill_state = .MAIN}
+				if confirm {
+					skill_state = .MAIN
+				}
 			}
 		case .PLAYING:
 			camera.target = position + size * 0.5
