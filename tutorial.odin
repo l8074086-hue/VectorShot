@@ -315,6 +315,11 @@ tutorial_saved_utility: Utility
 // locks his Adaptation to RESILIENCE, which turns E into BULWARK and makes the
 // basic "kick" step impossible.) Advanced uses the character picked up front.
 tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
+	// Tutorials are always plain sandbox runs: drop any mission selected on the
+	// Mission Control screen so its objective/HUD never leaks into a lesson.
+	active_mission = -1
+	mission_cleared_this_run = false
+	mission_banner = 0
 	tutorial_saved_char = character
 	tutorial_saved_gun = gun
 	tutorial_saved_secondary = secondary_kind

@@ -32,6 +32,9 @@ Settings :: struct {
 	screen_shake:   f32, // 0..1 intensity (0 disables shake entirely)
 	blood:          bool,
 	control_scheme: Control_Scheme,
+	// Bitmask of cleared missions (bit i = MISSIONS[i] done). Mission progress is
+	// persisted alongside preferences since it must survive restarts.
+	missions_done:  u32,
 }
 
 settings := Settings {
@@ -44,6 +47,7 @@ settings := Settings {
 	screen_shake   = 0.4,
 	blood          = true,
 	control_scheme = .MOUSE,
+	missions_done  = 0,
 }
 
 // Volume the mixer should use right now (mute folds in here).
@@ -122,6 +126,8 @@ settings_load :: proc() {
 			case "keyboard":
 				settings.control_scheme = .KEYBOARD
 			}
+		case "missions_done":
+			settings.missions_done = u32(parse_f32(val, f32(settings.missions_done)))
 		case "difficulty":
 			switch val {
 			case "easy":
@@ -161,6 +167,7 @@ settings_save :: proc() {
 		difficulty == .EASY ? "easy" : (difficulty == .HARD ? "hard" : "normal"),
 	)
 	fmt.sbprintf(&sb, "assists=%v\n", gf_mode)
+	fmt.sbprintf(&sb, "missions_done=%i\n", i32(settings.missions_done))
 
 	_ = os.write_entire_file(SETTINGS_PATH, strings.to_string(sb))
 }

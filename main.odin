@@ -87,20 +87,20 @@ main :: proc() {
 
 		#partial switch state {
 		case .MAIN_MENU:
-			// Four options; UP/DOWN or 1-4 to pick, ENTER or a click to confirm.
+			// Five options; UP/DOWN or 1-5 to pick, ENTER or a click to confirm.
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-				main_menu_sel = (main_menu_sel + 1) % 4
+				main_menu_sel = (main_menu_sel + 1) % 5
 				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-				main_menu_sel = (main_menu_sel - 1 + 4) % 4
+				main_menu_sel = (main_menu_sel - 1 + 5) % 5
 				play(sounds.ui_move)
 			}
 			confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER)
 			for key, idx in NUMBER_KEYS {
-				if idx < 4 && raylib.IsKeyPressed(key) {
+				if idx < 5 && raylib.IsKeyPressed(key) {
 					main_menu_sel = idx
 					confirm = true
 				}
@@ -111,48 +111,60 @@ main :: proc() {
 			draw_centered(cstring("VECTORSHOT"), 158, 22, raylib.DARKGRAY)
 			k0, h0 := ui_row(
 				cstring("START RUN"),
-				250,
+				230,
 				32,
 				main_menu_sel == 0 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k1, h1 := ui_row(
-				cstring("TUTORIAL"),
-				305,
+				cstring("MISSIONS"),
+				285,
 				32,
 				main_menu_sel == 1 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k2, h2 := ui_row(
-				cstring("SETTINGS"),
-				360,
+				cstring("TUTORIAL"),
+				340,
 				32,
 				main_menu_sel == 2 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k3, h3 := ui_row(
-				cstring("QUIT"),
-				415,
+				cstring("SETTINGS"),
+				395,
 				32,
 				main_menu_sel == 3 ? raylib.RAYWHITE : raylib.GRAY,
 			)
-			draw_centered(cstring("UP / DOWN to choose   -   ENTER to select"), 490, 18, raylib.DARKGRAY)
+			k4, h4 := ui_row(
+				cstring("QUIT"),
+				450,
+				32,
+				main_menu_sel == 4 ? raylib.RAYWHITE : raylib.GRAY,
+			)
+			draw_centered(cstring("UP / DOWN to choose   -   ENTER to select"), 520, 18, raylib.DARKGRAY)
 			raylib.EndTextureMode()
 			if mouse_moved {
 				if h0 {main_menu_sel = 0}
 				if h1 {main_menu_sel = 1}
 				if h2 {main_menu_sel = 2}
 				if h3 {main_menu_sel = 3}
+				if h4 {main_menu_sel = 4}
 			}
 			if k0 || (confirm && main_menu_sel == 0) {
 				play(sounds.ui_select)
+				active_mission = -1 // plain endless run
 				state = .DIFFICULTY
 			} else if k1 || (confirm && main_menu_sel == 1) {
 				play(sounds.ui_select)
+				mission_sel = 0
+				state = .MISSION_CONTROL
+			} else if k2 || (confirm && main_menu_sel == 2) {
+				play(sounds.ui_select)
 				tutorial_select_sel = 0
 				state = .TUTORIAL_SELECT
-			} else if k2 || (confirm && main_menu_sel == 2) {
+			} else if k3 || (confirm && main_menu_sel == 3) {
 				play(sounds.ui_select)
 				settings_sel = 0
 				state = .SETTINGS
-			} else if k3 || (confirm && main_menu_sel == 3) {
+			} else if k4 || (confirm && main_menu_sel == 4) {
 				quit_requested = true
 			}
 		case .DIFFICULTY:
@@ -210,6 +222,123 @@ main :: proc() {
 				play(sounds.ui_select)
 				skill_state = .MAIN
 				state = .SKILL_SELECT
+			}
+		case .MISSION_CONTROL:
+			// Grid of selectable missions ("levels"). Arrows or a click move the
+			// cursor; ENTER launches the highlighted mission into difficulty pick.
+			MISSION_COLS :: 3
+			CARD_W: i32 = 240
+			CARD_H: i32 = 100
+			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+				if mission_sel % MISSION_COLS > 0 {
+					mission_sel -= 1
+					play(sounds.ui_move)
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+				if mission_sel % MISSION_COLS < MISSION_COLS - 1 &&
+				   mission_sel + 1 < len(MISSIONS) {
+					mission_sel += 1
+					play(sounds.ui_move)
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+				if mission_sel >= MISSION_COLS {
+					mission_sel -= MISSION_COLS
+					play(sounds.ui_move)
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+				if mission_sel + MISSION_COLS < len(MISSIONS) {
+					mission_sel += MISSION_COLS
+					play(sounds.ui_move)
+				}
+			}
+			confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER)
+			back := raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE)
+			raylib.BeginTextureMode(target)
+			raylib.ClearBackground(raylib.BLACK)
+			draw_centered(cstring("MISSION CONTROL"), 40, 40, raylib.WHITE)
+			cleared := 0
+			for idx in 0 ..< len(MISSIONS) {
+				if mission_done(idx) {
+					cleared += 1
+				}
+			}
+			draw_centered(
+				raylib.TextFormat("%i / %i CLEARED", cleared, len(MISSIONS)),
+				88,
+				18,
+				raylib.DARKGRAY,
+			)
+			launch := false
+			for idx in 0 ..< len(MISSIONS) {
+				m := MISSIONS[idx]
+				col := i32(idx % MISSION_COLS)
+				row := i32(idx / MISSION_COLS)
+				x := 20 + col * (CARD_W + 20)
+				y := 130 + row * (CARD_H + 12)
+				rect := raylib.Rectangle{f32(x), f32(y), f32(CARD_W), f32(CARD_H)}
+				done := mission_done(idx)
+				selected := mission_sel == idx
+				// Body + border: cyan when selected, green when cleared, else gray.
+				raylib.DrawRectangleRec(rect, raylib.Color{22, 22, 30, 255})
+				border := raylib.DARKGRAY
+				if done {
+					border = raylib.GREEN
+				}
+				if selected {
+					border = raylib.SKYBLUE
+				}
+				raylib.DrawRectangleLinesEx(rect, 3, border)
+				name_col := selected ? raylib.YELLOW : raylib.RAYWHITE
+				raylib.DrawText(m.name, x + 10, y + 8, 20, name_col)
+				raylib.DrawText(mission_objective_text(m), x + 10, y + 36, 15, raylib.LIGHTGRAY)
+				// Arena + wave-density modifier + payout, on one line.
+				label := raylib.TextFormat("%s    +%i", string(ARENAS[m.arena].name), m.reward)
+				if m.density > 1.0 {
+					label = raylib.TextFormat(
+						"%s  x%.1f    +%i",
+						string(ARENAS[m.arena].name),
+						m.density,
+						m.reward,
+					)
+				}
+				raylib.DrawText(label, x + 10, y + 60, 14, raylib.GOLD)
+				if done {
+					raylib.DrawText(cstring("CLEARED"), x + CARD_W - 76, y + 8, 15, raylib.GREEN)
+				}
+				if raylib.CheckCollisionRecs(mouse, rect) {
+					if mouse_moved {
+						mission_sel = idx
+					}
+					if raylib.IsMouseButtonPressed(.LEFT) {
+						mission_sel = idx
+						confirm = true
+					}
+				}
+				if selected && confirm {
+					launch = true
+				}
+			}
+			draw_centered(
+				cstring("ARROWS to browse   -   ENTER to deploy   -   ESC to go back"),
+				590,
+				16,
+				raylib.DARKGRAY,
+			)
+			raylib.EndTextureMode()
+			if launch {
+				play(sounds.ui_select)
+				active_mission = mission_sel
+				state = .DIFFICULTY
+			} else if back {
+				play(sounds.ui_select)
+				state = .MAIN_MENU
 			}
 		case .TUTORIAL_SELECT:
 			// Pick a tutorial tier. ADVANCED then asks which character to teach.
@@ -1513,6 +1642,10 @@ main :: proc() {
 				}
 				// In debug (not shop wave), skip the card reward after wave 1.
 			}
+			// Mission Control: a selected "level" checks its objective every frame
+			// and clears itself (paying the reward) the moment it's met. No-op on a
+			// normal endless run.
+			mission_check_complete()
 			// Tutorials: respawn a fresh dummy when the field is clear, and
 			// advance the step script.
 			if tutorial_mode {
@@ -1888,6 +2021,50 @@ main :: proc() {
 					)
 					raylib.DrawRectangleLines(220, 74, 120, 8, raylib.GRAY)
 					raylib.DrawText(cstring("KNEE CHARGING"), 348, 70, 14, raylib.ORANGE)
+				}
+			}
+			// Mission Control HUD: the active "level" and live progress toward its
+			// objective, plus a completion banner the moment it clears.
+			if m := current_mission(); m != nil {
+				cur, total := mission_progress()
+				obj := cstring("WAVE")
+				if m.objective == .KILLS {
+					obj = "KILLS"
+				} else if m.objective == .ELITES {
+					obj = "ELITES"
+				}
+				obj_col := raylib.SKYBLUE
+				if mission_cleared_this_run {
+					obj_col = raylib.GREEN
+				}
+				raylib.DrawText(
+					raylib.TextFormat(
+						"%s  %s %i/%i",
+						string(m.name),
+						string(obj),
+						cur,
+						total,
+					),
+					10,
+					58,
+					15,
+					obj_col,
+				)
+			}
+			if mission_banner > 0 {
+				m := current_mission()
+				if m != nil {
+					bk := clamp(mission_banner / 2.5, 0, 1)
+					bc := raylib.GOLD
+					if mission_cleared_this_run && mission_banner > 1.0 {
+						bc = raylib.GREEN
+					}
+					draw_centered(
+						raylib.TextFormat("MISSION COMPLETE  +%i", m.reward),
+						170,
+						34,
+						raylib.Color{bc.r, bc.g, bc.b, u8(255 * bk)},
+					)
 				}
 			}
 			// E is the universal kick -- unless one of RR's blade forms replaces

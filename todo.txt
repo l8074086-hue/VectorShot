@@ -1,4 +1,3 @@
-(A) 2026-10-13 Mission control panel (levels) +roguelike @levels @main-menu
 (B) 2026-10-14 Add a relic / passive-item system +roguelike @items
 (B) 2026-10-14 Add elemental ammo types +roguelike @guns @combat
 (B) 2026-10-14 Add a combo & score multiplier +roguelike @combat @score

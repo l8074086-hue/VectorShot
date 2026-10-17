@@ -967,3 +967,109 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{216, 240, 250, 255},
 	},
 }
+
+// --- missions (Mission Control "levels") ------------------------------------
+//
+// A mission is a goal layered on top of a normal endless run: pick one, it
+// forces the arena, tweaks how dense the waves are, and pays `reward` the moment
+// you meet its objective. Clearing a mission never ends the run -- it just
+// records the clear and keeps going, so you can always push further.
+//
+// `density` is the wave modifier: 1.0 is the normal difficulty-scaled count,
+// higher values crowd the arena. Objective/target per the Objective_Kind enum.
+// Kept under 32 entries so completion fits an i32 bitmask.
+MISSIONS := [?]Mission {
+	{
+		name = "FIRST CONTACT",
+		objective = .SURVIVE,
+		target = 3,
+		arena = .GRASSLAND,
+		density = 1.0,
+		reward = 20,
+	},
+	{
+		name = "CLEANUP",
+		objective = .KILLS,
+		target = 25,
+		arena = .GRASSLAND,
+		density = 1.0,
+		reward = 25,
+	},
+	{
+		name = "LONG HAUL",
+		objective = .SURVIVE,
+		target = 8,
+		arena = .GRASSLAND,
+		density = 1.0,
+		reward = 45,
+	},
+	{
+		name = "ELITE SQUAD",
+		objective = .ELITES,
+		target = 5,
+		arena = .CANYON,
+		density = 1.0,
+		reward = 40,
+	},
+	{
+		name = "TIGHT LANES",
+		objective = .SURVIVE,
+		target = 6,
+		arena = .CANYON,
+		density = 1.3,
+		reward = 45,
+	},
+	{
+		name = "BLOODBATH",
+		objective = .KILLS,
+		target = 60,
+		arena = .CANYON,
+		density = 1.5,
+		reward = 60,
+	},
+	{
+		name = "PILLAR GRID",
+		objective = .SURVIVE,
+		target = 5,
+		arena = .RUINS,
+		density = 1.2,
+		reward = 35,
+	},
+	{
+		name = "HUNTER",
+		objective = .ELITES,
+		target = 12,
+		arena = .RUINS,
+		density = 1.2,
+		reward = 70,
+	},
+	{
+		name = "BOULDERS",
+		objective = .SURVIVE,
+		target = 7,
+		arena = .GLACIER,
+		density = 1.3,
+		reward = 50,
+	},
+	{
+		name = "FROZEN WATCH",
+		objective = .KILLS,
+		target = 45,
+		arena = .GLACIER,
+		density = 1.3,
+		reward = 55,
+	},
+}
+
+// One-line objective text for a mission, e.g. "Survive to wave 8".
+mission_objective_text :: proc(m: Mission) -> cstring {
+	switch m.objective {
+	case .SURVIVE:
+		return raylib.TextFormat("Survive to wave %i", m.target)
+	case .KILLS:
+		return raylib.TextFormat("Kill %i enemies", m.target)
+	case .ELITES:
+		return raylib.TextFormat("Kill %i elites", m.target)
+	}
+	return ""
+}

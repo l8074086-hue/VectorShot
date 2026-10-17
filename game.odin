@@ -256,6 +256,7 @@ difficulty: Difficulty = .NORMAL
 // Menu navigation state (mouse + keyboard share these selections).
 main_menu_sel: int = 0
 settings_sel: int = 0
+mission_sel: int = 0 // grid cursor on the Mission Control screen
 quit_requested: bool = false
 
 // Tutorial state. The select screen picks a tier (and a character for the
@@ -386,6 +387,13 @@ utility: Utility = .VITALITY
 currency: i32 = 0
 arena: Arena_Kind = .GRASSLAND
 
+// Active mission ("level") for this run. -1 means an ordinary endless run with no
+// objective. Set by the Mission Control screen and on START RUN; read by the HUD,
+// new_wave (for density) and mission_check_complete.
+active_mission: int = -1
+mission_cleared_this_run: bool = false
+mission_banner: f32 = 0
+
 // Per-run tallies, surfaced on the results screen and reset by start_run.
 run_time: f32 = 0
 run_kills: i32 = 0
@@ -490,6 +498,13 @@ start_run :: proc(stats: Run_Stats) {
 	reset_run_stats()
 	last_dir = {0, -1}
 	aim_dir = {0, -1}
+	// A selected mission forces its arena and resets its per-run clear flag,
+	// regardless of what the loadout screen had chosen.
+	mission_cleared_this_run = false
+	mission_banner = 0
+	if m := current_mission(); m != nil {
+		arena = m.arena
+	}
 	clear_run_entities()
 	build_arena(arena)
 	update_rr_adaptation()
@@ -511,6 +526,90 @@ count_kill :: proc(elite: bool) {
 	if elite {
 		run_elite_kills += 1
 	}
+}
+
+// --- missions ---------------------------------------------------------------
+
+// Is a mission (level) selected for this run?
+mission_active :: proc() -> bool {
+	return active_mission >= 0 && active_mission < len(MISSIONS)
+}
+
+// The selected mission, or nil when running an ordinary endless run.
+current_mission :: proc() -> ^Mission {
+	if !mission_active() {
+		return nil
+	}
+	return &MISSIONS[active_mission]
+}
+
+// Has this mission already been recorded as cleared (across all sessions)?
+mission_done :: proc(index: int) -> bool {
+	if index < 0 || index >= len(MISSIONS) {
+		return false
+	}
+	return (settings.missions_done & (u32(1) << u32(index))) != 0
+}
+
+// Current progress toward the active mission's objective as (current, target),
+// for the HUD readout.
+mission_progress :: proc() -> (cur: i32, total: i32) {
+	m := current_mission()
+	if m == nil {
+		return 0, 0
+	}
+	switch m.objective {
+	case .SURVIVE:
+		return min(wave, m.target), m.target
+	case .KILLS:
+		return min(run_kills, m.target), m.target
+	case .ELITES:
+		return min(run_elite_kills, m.target), m.target
+	}
+	return 0, 0
+}
+
+// Is the active mission's objective met? SURVIVE counts the wave you are on;
+// the kill objectives read the live run tallies.
+mission_objective_met :: proc() -> bool {
+	m := current_mission()
+	if m == nil {
+		return false
+	}
+	switch m.objective {
+	case .SURVIVE:
+		return wave >= m.target
+	case .KILLS:
+		return run_kills >= m.target
+	case .ELITES:
+		return run_elite_kills >= m.target
+	}
+	return false
+}
+
+// Check the objective each frame and, the first time it's met, clear the mission:
+// flip its bit in the saved progress, pay the reward, and show the banner. The run
+// keeps going as normal survival afterwards. Re-clearing an already-cleared
+// mission still pays the reward (it's per-run), but only records once.
+mission_check_complete :: proc() {
+	if mission_banner > 0 {
+		mission_banner -= raylib.GetFrameTime()
+	}
+	m := current_mission()
+	if m == nil || mission_cleared_this_run {
+		return
+	}
+	if !mission_objective_met() {
+		return
+	}
+	mission_cleared_this_run = true
+	mission_banner = 2.5
+	if !mission_done(active_mission) {
+		settings.missions_done |= u32(1) << u32(active_mission)
+		settings_save()
+	}
+	currency += m.reward
+	play(sounds.wave_start)
 }
 
 // Snapshot the finished run for the results screen.
@@ -1420,8 +1519,12 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
-	// Difficulty scales how many show up; never fewer than one.
+	// Difficulty scales how many show up; never fewer than one. An active
+	// mission's density modifier then crowds (or thins) the wave on top.
 	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
+	if m := current_mission(); m != nil {
+		num = max(i32(f32(num) * m.density + 0.5), 1)
+	}
 	spawn_enemies(enemies, num, wave)
 }
 

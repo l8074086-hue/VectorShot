@@ -4,6 +4,7 @@ import "vendor:raylib"
 GameState :: enum {
 	MAIN_MENU,
 	DIFFICULTY,
+	MISSION_CONTROL,
 	TUTORIAL_SELECT,
 	TUTORIAL,
 	SETTINGS,
@@ -320,6 +321,28 @@ Arena_Stats :: struct {
 	wall:        raylib.Color,
 	cover:       raylib.Color, // tree/boulder body
 	cover_top:   raylib.Color, // tree/boulder highlight
+}
+
+// What a mission (level) asks you to do. `target` is a wave number for SURVIVE
+// and an enemy count for KILLS/ELITES.
+Objective_Kind :: enum {
+	SURVIVE, // reach wave N
+	KILLS,    // kill N enemies
+	ELITES,   // kill N elites
+}
+
+// A selectable mission ("level") on the Mission Control screen. Each pairs an
+// objective with a forced arena and a wave-density modifier, and pays a coin
+// bonus the moment the objective is met mid-run (the run then continues as
+// normal endless survival). Progress (which missions are cleared) lives in
+// settings.missions_done as a bitmask.
+Mission :: struct {
+	name:      cstring,
+	objective: Objective_Kind,
+	target:    i32,
+	arena:     Arena_Kind,
+	density:   f32, // enemy-count multiplier applied to this mission's waves
+	reward:    i32, // bonus coins granted on completion
 }
 
 // What a weapon slot actually is. Guns spend ammo and fire bullets; melee
