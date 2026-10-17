@@ -95,6 +95,9 @@ SIGNATURE_COMBO_WINDOW :: 0.55
 // winds up over this long, and its damage grows with the charge (see `charged`).
 KNEE_CHARGE_TIME :: 0.40
 KNEE_CHARGE_BONUS :: 1.00 // +100% damage at full charge
+// Charge a thrown knee needs before the tutorial counts it as a real wound-up
+// knee, rather than a tap on the chain's last link.
+KNEE_CHARGE_NOTE :: 0.5
 // Navy's "Take Aim": no move input at all gives complete accuracy (spread 0).
 // Synergy: Navy <-> BLINK. His redeploy blink goes further, comes back sooner,
 // and instantly finishes a reload so he lands topped up.
@@ -626,6 +629,11 @@ melee_shape_hits :: proc(
 note_attack :: proc() {
 	if character == .TRACER {
 		traceur_charge = clamp(traceur_charge + TRACEUR_PER_ATTACK, 0, 1)
+		// Noted only here, never on the SLIDE refill: this lesson is about
+		// attacks winding her up, so dashing must not satisfy it.
+		if traceur_charge >= 1 {
+			tutorial_note(.HEART)
+		}
 	}
 }
 
@@ -689,6 +697,11 @@ swing_cooldown :: proc(stats: Weapon_Stats) -> f32 {
 melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = false) {
 	// Charged strikes (Bud's flying knee) hit harder the longer they wound up.
 	charge := stats.charged ? combo_charge : 0
+	// A strike thrown with real charge is what Bud's KNEE lesson is waiting for:
+	// a tap on the chain's last link is not a charged knee.
+	if stats.charged && charge >= KNEE_CHARGE_NOTE {
+		tutorial_note(.KNEE)
+	}
 	// Committed strikes (the knee, the bayonet lunge) shove the attacker
 	// forward first, so the hitbox and flash start where the strike lands.
 	if stats.lunge > 0 {
@@ -772,6 +785,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 			// glass-cannon build can sustain the close-range commitment.
 			if marked {
 				health = min(health + PHASE_REND_HEAL, max_health)
+				tutorial_note(.MARK_KILL)
 			}
 			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
 			unordered_remove(&enemies, i)
@@ -1069,6 +1083,7 @@ gf_assist_aim :: proc(aim: raylib.Vector2) -> raylib.Vector2 {
 // The single funnel for player damage. BUD's "Guard Up" blunts hits arriving
 // from the direction he's facing (aim); RR's Resilience adaptation blunts all.
 apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
+	guarded := false
 	// RR's BULWARK guard (E held): everything arriving from the front is
 	// cancelled outright. Checked before the tutorial sandbox so a blocked shot
 	// still registers (the tutorial's RESILIENCE lesson keys off it), and first
@@ -1083,17 +1098,24 @@ apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
 			return
 		}
 	}
+	// Bud's "Guard Up": hits arriving from the direction he's facing are blunted.
+	// Like BULWARK above, this is evaluated before the tutorial sandbox so his
+	// GUARD lesson keys off a shot that was genuinely caught by the cone.
+	if character == .BUD {
+		to := from - (position + size * 0.5)
+		if raylib.Vector2Length(to) > 0.01 &&
+		   raylib.Vector2Angle(aim_dir, raylib.Vector2Normalize(to)) < BUD_GUARD_ARC {
+			tutorial_note(.GUARD)
+			guarded = true
+		}
+	}
 	// Tutorial arenas are a safe sandbox: the player cannot be hurt.
 	if tutorial_mode {
 		return
 	}
 	dmg := amount
-	if character == .BUD {
-		to := from - (position + size * 0.5)
-		if raylib.Vector2Length(to) > 0.01 &&
-		   raylib.Vector2Angle(aim_dir, raylib.Vector2Normalize(to)) < BUD_GUARD_ARC {
-			dmg *= 1 - BUD_GUARD_REDUCTION
-		}
+	if guarded {
+		dmg *= 1 - BUD_GUARD_REDUCTION
 	}
 	if character == .RR && rr_adaptation == .RESILIENCE {
 		dmg *= 1 - min(RR_ADAPT_RESILIENCE * rr_adapt_scale(), 1)

@@ -56,3 +56,4 @@ x 2026-10-17 2026-10-17 Make tutorial lessons interactive (live dummies, real ca
 x 2026-10-17 2026-10-17 Teach status effects on live dummies + a pick-an-element try-it step; add HP/DPS bars to practice dummies +roguelike @ui @content @enemies
 x 2026-10-17 2026-10-17 Make RR Advanced tutorial test every Adaptation hands-on vs a live turret (kill/block/blink/dash) +roguelike @ui @content @enemies
 x 2026-10-17 2026-10-17 Hold completed tutorial steps for a beat before advancing (with a NICE! cue) +roguelike @ui
+x 2026-10-17 2026-10-17 Give Bud and Tracer Advanced tutorials the same hands-on treatment: live targets for combo/knee/guard and marks/rend/kill/heart/slide +roguelike @ui @content @enemies

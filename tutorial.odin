@@ -35,6 +35,11 @@ Tutorial_Action :: enum {
 	BLOCK,
 	NEEDLE, // RR's PRECISION blink (E)
 	DESTROY, // destroyed the lesson's target (RR's OFFENSE turret)
+	COMBO, // chained the signature combo to its third link (Bud's ELBOW)
+	KNEE, // landed Bud's flying KNEE with real charge wound up
+	GUARD, // took a hit inside Bud's GUARD UP cone
+	MARK_KILL, // killed a PHASE-marked target with REND (Tracer's heal)
+	HEART, // spun TRACEUR'S HEART all the way up with attacks
 	VOLT,
 	CARD, // picked one of the upgrade cards the tutorial dealt
 	ELEMENT_CARD, // picked a STATUS (element) card the tutorial dealt
@@ -133,36 +138,76 @@ RR_STEPS := [?]Tutorial_Step {
 }
 
 BUD_STEPS := [?]Tutorial_Step {
-	{"Press Q to equip Bud's FISTS. Attack to start the JAB-HOOK-ELBOW-KNEE combo", .SIGNATURE, 0},
-	{"Keep attacking within the combo window. Missing it resets back to JAB", .NONE, 4.0},
-	{"The 4th strike (KNEE) is CHARGED - hold briefly while armed to wind it up", .NONE, 5.0},
 	{
-		"A fully charged KNEE lunges forward and sends enemies flying with massive knockback",
+		"Bud fights bare-handed. Press Q to equip his FISTS - SPACE throws JAB, HOOK, ELBOW, KNEE",
 		.NONE,
-		4.0,
+		7.0,
 	},
-	{"GUARD UP: Bud blocks frontal hits, taking reduced damage. Face enemies head-on", .NONE, 5.0},
-	{"E or RMB gives a fast KICK you can weave between combo strikes", .KICK, 0},
 	{
-		"Holding a gun makes Bud UNHAPPY - worse accuracy and damage. Stick to his fists",
-		.NONE,
-		5.0,
+		"Chain them: keep pressing inside the combo window to carry the chain all the way to the ELBOW",
+		.COMBO,
+		20.0,
 	},
-	{"Keep the chain rolling - pressure is key", .NONE, 3.5},
+	{
+		"The 4th strike (KNEE) is CHARGED - let it wind up while it's armed, then throw it",
+		.KNEE,
+		20.0,
+	},
+	{
+		"A fully charged KNEE doubles its damage and hurls enemies flying with massive knockback",
+		.NONE,
+		6.0,
+	},
+	{
+		"GUARD UP: face the turret and let a shot land head-on - damage inside the cone is cut 25%",
+		.GUARD,
+		20.0,
+	},
+	{
+		"E or RMB gives a fast KICK you can weave between his combo strikes",
+		.KICK,
+		20.0,
+	},
+	{
+		"Holding a gun makes Bud UNHAPPY - worse accuracy, damage and speed. Stick to his fists",
+		.NONE,
+		7.0,
+	},
+	{"Keep the chain rolling - pressure is key", .NONE, 4.0},
 }
 
 TRACER_STEPS := [?]Tutorial_Step {
-	{"Press Q for TRACER'S PHASE CLAWS. CLAW and CROSS apply PHASE MARKS", .MARK, 0},
-	{"Marks deal no direct damage - they stack and fade if you don't detonate them", .NONE, 4.0},
 	{
-		"REND (3rd strike) detonates all marks for burst damage plus splash to nearby enemies",
-		.REND,
-		0,
+		"Press Q for TRACER'S PHASE CLAWS. CLAW and CROSS land PHASE MARKS on what they touch",
+		.NONE,
+		7.0,
 	},
-	{"Killing a marked enemy with REND heals Tracer for 8 HP", .NONE, 4.0},
-	{"TRACEUR'S HEART: attacks build speed up to +50%. Keep the pressure on", .NONE, 5.0},
-	{"SLIDE dash instantly refills Traceur's Heart - slide into fights at full speed", .NONE, 5.0},
-	{"Glass cannon: strike hard, reposition with SHIFT", .NONE, 3.5},
+	{
+		"Get close and claw it - the lights deal no damage at all, they only stack marks",
+		.MARK,
+		20.0,
+	},
+	{
+		"REND is the 3rd strike: it detonates every mark for burst damage and splashes marks nearby",
+		.REND,
+		20.0,
+	},
+	{
+		"Finish a MARKED target with REND and Tracer heals 8 HP - stack the marks, then finish it",
+		.MARK_KILL,
+		20.0,
+	},
+	{
+		"TRACEUR'S HEART: every attack spins her up to +50% speed. Keep attacking until it tops out",
+		.HEART,
+		20.0,
+	},
+	{
+		"Her SLIDE dash instantly refills Traceur's Heart - slide into fights at top speed",
+		.DASH,
+		20.0,
+	},
+	{"Glass cannon: strike hard, reposition with SHIFT", .NONE, 4.0},
 }
 
 NAVY_STEPS := [?]Tutorial_Step {
@@ -340,14 +385,16 @@ spawn_tutorial_target :: proc(kind: Enemy_Kind, pos: raylib.Vector2) -> ^enemy {
 	return &enemies[len(enemies) - 1]
 }
 
-// A DUMMY_PATROL that walks a short horizontal route in front of the player, for
-// lessons that want a moving target to lead or combo.
-spawn_patrol_dummy :: proc(pc: raylib.Vector2) {
-	e := spawn_tutorial_target(.DUMMY_PATROL, pc + {0, -160})
+// A stationary punching bag for melee lessons, with enough health that a whole
+// combo chain (and a charged finisher) can land on it without it dying halfway
+// through the lesson.
+spawn_tutorial_bag :: proc(pc: raylib.Vector2, offset: raylib.Vector2) {
+	e := spawn_tutorial_target(.DUMMY_DPS, pc + offset)
 	if e == nil {
 		return
 	}
-	set_patrol_route(e)
+	e.hp = 9999
+	e.max_hp = 9999
 }
 
 // Give a DUMMY_PATROL a short horizontal route centered on where it stands.
@@ -513,14 +560,57 @@ tutorial_step_entered :: proc() {
 				spawn_tutorial_turret(pc, {0, -210})
 			}
 		case .BUD:
-			// Combo practice against a target that won't just stand there.
-			if tutorial_step == 0 {
-				spawn_patrol_dummy(pc)
+			// Each step is a real test against a live target: carry the combo to
+			// the ELBOW, land a charged KNEE, then take a shot inside his guard
+			// cone. The arena is cleared first so each lesson starts clean.
+			switch tutorial_step {
+			case 1:
+				// Combo: something to chain all four links into.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -95})
+			case 2:
+				// Charged KNEE: the lunge covers the gap, so set it downrange.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -170})
+			case 4:
+				// GUARD UP: a live turret to eat a shot from, facing it head-on.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -240})
+			case 5:
+				// KICK: something to shove around between the combo links.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -85})
 			}
 		case .TRACER:
-			// REND: a moving target to stack Phase marks onto.
-			if tutorial_step == 2 {
-				spawn_patrol_dummy(pc)
+			// Every step is a live test too: land a mark, detonate it, kill the
+			// marked target to heal, then spin the Heart and slide back in.
+			switch tutorial_step {
+			case 1:
+				// Marks: the lights deal no damage, so this bag shows the mark
+				// count stacking up without dying under the lesson.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -85})
+			case 2:
+				// REND: the detonator itself.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -85})
+			case 3:
+				// Marked kill: a target light enough that REND is what finishes
+				// it -- an unmarked REND leaves it alive to try again. Set close
+				// in, since each light shoves it back a little.
+				clear(&enemies)
+				spawn_tutorial_target(.DUMMY_WEAK, pc + {0, -55})
+			case 4:
+				// Traceur's Heart: keep swinging until it tops out. Zero the meter
+				// on entry so the step is always a real spin-up, never a leftover
+				// charge carried over from the marked-kill lesson.
+				clear(&enemies)
+				spawn_tutorial_bag(pc, {0, -95})
+				traceur_charge = 0
+			case 5:
+				// SLIDE: a turret to slide into at full speed.
+				clear(&enemies)
+				spawn_tutorial_turret(pc, {0, -240})
 			}
 		case .NAVY:
 			// TAKE AIM: a distant turret to snipe from a standstill.

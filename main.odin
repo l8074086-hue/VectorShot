@@ -1036,6 +1036,11 @@ main :: proc() {
 				if active_slot == SLOT_SIGNATURE {
 					tutorial_note(.FIRE)
 					tutorial_note(.SIGNATURE)
+					// Combo window held this far: the chain reached its third
+					// link (Bud's ELBOW) instead of resetting to the first.
+					if combo_index >= 2 {
+						tutorial_note(.COMBO)
+					}
 					// Signature combo: every press throws the next strike of the
 					// character's own melee chain. The index about to land says
 					// whether it is the chain's finisher, which RR's Second Wind
