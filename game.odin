@@ -110,6 +110,9 @@ KNEE_CHARGE_BONUS :: 1.00 // +100% damage at full charge
 // Charge a thrown knee needs before the tutorial counts it as a real wound-up
 // knee, rather than a tap on the chain's last link.
 KNEE_CHARGE_NOTE :: 0.5
+// How long an enemy's muzzle flash holds after it fires. Short and bright, just
+// enough to sell where the shot came from.
+ENEMY_MUZZLE_FLASH_TIME :: 0.09
 // Navy's "Take Aim": no move input at all gives complete accuracy (spread 0).
 // Synergy: Navy <-> BLINK. His redeploy blink goes further, comes back sooner,
 // and instantly finishes a reload so he lands topped up.
@@ -1428,6 +1431,9 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 	if e.flash > 0 {
 		e.flash -= dT
 	}
+	if e.muzzle > 0 {
+		e.muzzle -= dT
+	}
 	// DUMMY_DPS training readout: roll the damage-per-second window for its bar.
 	// Done before the stun early-out so a SHOCKED dummy still re-samples.
 	if e.kind == .DUMMY_DPS {
@@ -1540,6 +1546,9 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 				)
 			}
 			e.fire_cooldown = s.fire_rate
+			// Flash the barrel the shot actually left from (see enemy draw).
+			e.muzzle = ENEMY_MUZZLE_FLASH_TIME
+			e.muzzle_dir = dir
 		}
 
 	case .CHARGER:
@@ -1577,17 +1586,20 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		// the player can stand safely to one side of its firing line.
 		e.fire_cooldown -= dT
 		if e.fire_cooldown <= 0 && raylib.Vector2Length(e.shoot_dir) > 0.01 {
+			fire_dir := raylib.Vector2Normalize(e.shoot_dir)
 			append(
 				&enemy_bullets,
 				bullet {
 					position = ec - {5, 5},
 					size = {10, 10},
-					velocity = raylib.Vector2Normalize(e.shoot_dir) * 260,
+					velocity = fire_dir * 260,
 					damage = s.damage,
 					pierce = 0,
 				},
 			)
 			e.fire_cooldown = s.fire_rate
+			e.muzzle = ENEMY_MUZZLE_FLASH_TIME
+			e.muzzle_dir = fire_dir
 		}
 
 	case .DUMMY_PATROL:

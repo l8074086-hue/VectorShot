@@ -317,15 +317,16 @@ main :: proc() {
 			}
 		case .SETTINGS:
 			// Rows: 0 volume, 1 mute, 2 fullscreen, 3 difficulty, 4 assists,
-			// 5 FPS, 6 damage numbers, 7 shake, 8 blood, 9 controls, 10 back.
+			// 5 FPS, 6 damage numbers, 7 hurt vignette, 8 shake, 9 blood,
+			// 10 controls, 11 back.
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-				settings_sel = (settings_sel + 1) % 11
+				settings_sel = (settings_sel + 1) % 12
 				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-				settings_sel = (settings_sel - 1 + 11) % 11
+				settings_sel = (settings_sel - 1 + 12) % 12
 				play(sounds.ui_move)
 			}
 			changed := false
@@ -344,7 +345,7 @@ main :: proc() {
 						(int(difficulty) + (right ? 1 : -1) + len(Difficulty)) % len(Difficulty),
 					)
 					changed = true
-				case 7:
+				case 8:
 					settings.screen_shake = clamp(settings.screen_shake + step, 0, 1)
 					changed = true
 				case:
@@ -354,9 +355,9 @@ main :: proc() {
 				raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
-			draw_centered(cstring("SETTINGS"), 42, 44, raylib.WHITE)
+			draw_centered(cstring("SETTINGS"), 36, 44, raylib.WHITE)
 			// 0: volume slider.
-			vol := ui_slider(0, cstring("Master volume"), 116, 106, 420, 180, settings.master_volume)
+			vol := ui_slider(0, cstring("Master volume"), 116, 100, 420, 180, settings.master_volume)
 			if vol != settings.master_volume {
 				settings.master_volume = vol
 				changed = true
@@ -364,59 +365,65 @@ main :: proc() {
 			k1, h1 := ui_setting_row(
 				cstring("Mute"),
 				settings.muted ? cstring("ON") : cstring("OFF"),
-				150,
+				142,
 				settings_sel == 1,
 			)
 			k2, h2 := ui_setting_row(
 				cstring("Fullscreen"),
 				settings.fullscreen ? cstring("ON") : cstring("OFF"),
-				190,
+				179,
 				settings_sel == 2,
 			)
 			k3, h3 := ui_setting_row(
 				cstring("Difficulty"),
 				raylib.TextFormat("%s", difficulty_name(difficulty)),
-				230,
+				216,
 				settings_sel == 3,
 			)
 			k4, h4 := ui_setting_row(
 				cstring("Comfort assists (GF)"),
 				gf_mode ? cstring("ON") : cstring("OFF"),
-				270,
+				253,
 				settings_sel == 4,
 			)
 			k5, h5 := ui_setting_row(
 				cstring("Show FPS"),
 				settings.show_fps ? cstring("ON") : cstring("OFF"),
-				310,
+				290,
 				settings_sel == 5,
 			)
 			k6, h6 := ui_setting_row(
 				cstring("Damage numbers"),
 				settings.damage_numbers ? cstring("ON") : cstring("OFF"),
-				350,
+				327,
 				settings_sel == 6,
 			)
-			// 7: screen-shake slider.
-			shk := ui_slider(1, cstring("Screen shake"), 116, 386, 420, 180, settings.screen_shake)
+			k7, h7 := ui_setting_row(
+				cstring("Hurt vignette"),
+				settings.hurt_vignette ? cstring("ON") : cstring("OFF"),
+				364,
+				settings_sel == 7,
+			)
+			// 8: screen-shake slider.
+			shk := ui_slider(1, cstring("Screen shake"), 116, 404, 420, 180, settings.screen_shake)
 			if shk != settings.screen_shake {
 				settings.screen_shake = shk
 				changed = true
 			}
-			k8, h8 := ui_setting_row(
+			k9, h9 := ui_setting_row(
 				cstring("Blood"),
 				settings.blood ? cstring("ON") : cstring("OFF"),
-				430,
-				settings_sel == 8,
-			)
-			k9, h9 := ui_setting_row(
-				cstring("Controls"),
-				settings.control_scheme == .MOUSE ? cstring("MOUSE") : cstring("KEYBOARD"),
-				470,
+				444,
 				settings_sel == 9,
 			)
-			k10, h10 := ui_setting_row(cstring("BACK"), cstring(""), 520, settings_sel == 10)
-			draw_centered(cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust"), 560, 16, raylib.GRAY)
+			k10, h10 := ui_setting_row(
+				cstring("Controls"),
+				settings.control_scheme == .MOUSE ? cstring("MOUSE") : cstring("KEYBOARD"),
+				481,
+				settings_sel == 10,
+			)
+			k11, h11 := ui_setting_row(cstring("BACK"), cstring(""), 524, settings_sel == 11)
+			draw_centered(cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust"), 566, 16, raylib.GRAY)
 			raylib.EndTextureMode()
 
 			if mouse_moved {
@@ -426,9 +433,10 @@ main :: proc() {
 				if h4 {settings_sel = 4}
 				if h5 {settings_sel = 5}
 				if h6 {settings_sel = 6}
-				if h8 {settings_sel = 8}
+				if h7 {settings_sel = 7}
 				if h9 {settings_sel = 9}
 				if h10 {settings_sel = 10}
+				if h11 {settings_sel = 11}
 			}
 			// Clicking a row toggles/cycles it, except the two sliders.
 			if k1 || (toggle_sel && settings_sel == 1) {
@@ -457,16 +465,20 @@ main :: proc() {
 				settings.damage_numbers = !settings.damage_numbers
 				changed = true
 			}
-			if k8 || (toggle_sel && settings_sel == 8) {
-				settings.blood = !settings.blood
+			if k7 || (toggle_sel && settings_sel == 7) {
+				settings.hurt_vignette = !settings.hurt_vignette
 				changed = true
 			}
 			if k9 || (toggle_sel && settings_sel == 9) {
+				settings.blood = !settings.blood
+				changed = true
+			}
+			if k10 || (toggle_sel && settings_sel == 10) {
 				settings.control_scheme =
 					settings.control_scheme == .MOUSE ? .KEYBOARD : .MOUSE
 				changed = true
 			}
-			if k10 || (toggle_sel && settings_sel == 10) ||
+			if k11 || (toggle_sel && settings_sel == 11) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 				play(sounds.ui_select)
 				state = .MAIN_MENU
@@ -1587,6 +1599,16 @@ main :: proc() {
 					body.a = 110
 				}
 				raylib.DrawRectangleV(e.position, e.size, body)
+				// Muzzle flash at the barrel this enemy last fired from, so
+				// incoming fire is traceable to its source.
+				if e.muzzle > 0 {
+					ec := e.position + e.size * 0.5
+					er := max(e.size.x, e.size.y) * 0.5
+					mp := ec + e.muzzle_dir * (er + 3)
+					mf := clamp(e.muzzle / ENEMY_MUZZLE_FLASH_TIME, 0, 1)
+					raylib.DrawCircleV(mp, 8 * mf, raylib.Color{255, 170, 60, u8(120 * mf)})
+					raylib.DrawCircleV(mp, 4.5 * mf, raylib.Color{255, 245, 200, u8(230 * mf)})
+				}
 				// Tracer's PHASE marks: a cross slashed across the body. The
 				// first mark is one diagonal, the second completes the X, and
 				// extra marks thicken it -- so a charged REND reads at a glance.
@@ -2171,7 +2193,7 @@ main :: proc() {
 		// Player-hurt wash: a red vignette over the whole screen, drawn in screen
 		// space so it covers the letterbox too. Heaviest at the moment of the hit
 		// and fading out over PLAYER_HURT_FLASH_TIME.
-		if hurt_flash > 0 {
+		if hurt_flash > 0 && settings.hurt_vignette {
 			k := hurt_flash / PLAYER_HURT_FLASH_TIME
 			// Square the falloff so most of the fade is a faint tint, with only
 			// the first frames really flaring.

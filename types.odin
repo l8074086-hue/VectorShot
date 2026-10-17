@@ -108,6 +108,10 @@ enemy :: struct {
 	elite_step:    i32, // RUNNER: dashes left in the current burst
 	ability_timer: f32,
 	flash:         f32,
+	// Muzzle flash: counts down after this enemy fires, and remembers the way it
+	// fired so the flash draws at the barrel it shot from. Purely visual.
+	muzzle:        f32,
+	muzzle_dir:    raylib.Vector2,
 	// Bulwark (elite TANK): each crystal plate guards one world-space direction.
 	// A hit arriving from roughly that direction shatters it; while any plate
 	// remains the armored body shrugs off hp damage.

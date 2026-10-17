@@ -28,6 +28,7 @@ Settings :: struct {
 	fullscreen:     bool,
 	show_fps:       bool,
 	damage_numbers: bool,
+	hurt_vignette: bool, // red edge wash when the player is hit (0 disables it)
 	screen_shake:   f32, // 0..1 intensity (0 disables shake entirely)
 	blood:          bool,
 	control_scheme: Control_Scheme,
@@ -39,6 +40,7 @@ settings := Settings {
 	fullscreen     = true,
 	show_fps       = false,
 	damage_numbers = true,
+	hurt_vignette = true,
 	screen_shake   = 0.4,
 	blood          = true,
 	control_scheme = .MOUSE,
@@ -107,6 +109,8 @@ settings_load :: proc() {
 			settings.show_fps = parse_bool(val, settings.show_fps)
 		case "damage_numbers":
 			settings.damage_numbers = parse_bool(val, settings.damage_numbers)
+		case "hurt_vignette":
+			settings.hurt_vignette = parse_bool(val, settings.hurt_vignette)
 		case "screen_shake":
 			settings.screen_shake = clamp(parse_f32(val, settings.screen_shake), 0, 1)
 		case "blood":
@@ -143,6 +147,7 @@ settings_save :: proc() {
 	fmt.sbprintf(&sb, "fullscreen=%v\n", settings.fullscreen)
 	fmt.sbprintf(&sb, "show_fps=%v\n", settings.show_fps)
 	fmt.sbprintf(&sb, "damage_numbers=%v\n", settings.damage_numbers)
+	fmt.sbprintf(&sb, "hurt_vignette=%v\n", settings.hurt_vignette)
 	fmt.sbprintf(&sb, "screen_shake=%.3f\n", settings.screen_shake)
 	fmt.sbprintf(&sb, "blood=%v\n", settings.blood)
 	fmt.sbprintf(
