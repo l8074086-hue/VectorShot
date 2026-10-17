@@ -2729,6 +2729,11 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 				if e.kind == .DUMMY_DPS {
 					e.dps_window += dmg
 				}
+				// Splitters queue their halves here too (this path bypasses
+				// apply_enemy_damage), so a burn kill still splits.
+				if e.kind == .SPLITTER && e.hp <= 0 {
+					append(&pending_splits, e.position)
+				}
 				if e.hp <= 0 {
 					spawn_kill_rewards(e.position, e.elite, e.color, e.kind)
 					unordered_remove(enemies, i)

@@ -82,7 +82,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 10,
 		hp = 2,
 		color = raylib.BLUE,
-		spawn_weight = 10,
+		spawn_weight = 14,
 		unlock_wave = 1,
 	},
 	.RUNNER = {
@@ -92,7 +92,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 6,
 		hp = 1,
 		color = raylib.ORANGE,
-		spawn_weight = 28,
+		spawn_weight = 18,
 		unlock_wave = 2,
 	},
 	.RANGED = {
@@ -105,7 +105,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		ranged = true,
 		preferred_range = 280,
 		fire_rate = 1.4,
-		spawn_weight = 20,
+		spawn_weight = 16,
 		unlock_wave = 2,
 	},
 	.TANK = {
@@ -115,7 +115,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 20,
 		hp = 8,
 		color = raylib.DARKGREEN,
-		spawn_weight = 8,
+		spawn_weight = 7,
 		unlock_wave = 5,
 	},
 	.CHARGER = {
@@ -126,7 +126,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		hp = 4,
 		color = raylib.MAROON,
 		charge_speed = 560,
-		spawn_weight = 16,
+		spawn_weight = 12,
 		unlock_wave = 4,
 	},
 	// Splitters burst into two halves when killed, so chipping one down spreads the
@@ -138,7 +138,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 8,
 		hp = 5,
 		color = raylib.PURPLE,
-		spawn_weight = 12,
+		spawn_weight = 9,
 		unlock_wave = 6,
 	},
 	// Orbiters ring the arena around the player, weaving in for a hit and peeling
@@ -150,7 +150,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		damage = 10,
 		hp = 4,
 		color = raylib.LIME,
-		spawn_weight = 14,
+		spawn_weight = 10,
 		unlock_wave = 8,
 	},
 	// Snipers hold the far ring, telegraph with a flash, then fire one fast aimed
@@ -165,7 +165,7 @@ ENEMIES := [Enemy_Kind]Enemy_Stats {
 		ranged = true,
 		preferred_range = 400,
 		fire_rate = 2.4,
-		spawn_weight = 10,
+		spawn_weight = 8,
 		unlock_wave = 10,
 	},
 	// The boss is never rolled from the spawn table (weight 0); it is placed by
