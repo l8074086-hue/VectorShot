@@ -37,6 +37,7 @@ main :: proc() {
 	defer delete(barrels)
 	defer delete(trees)
 	defer delete(explosions)
+	defer delete(sparks)
 	defer delete(shop_items)
 
 	camera: raylib.Camera2D
@@ -55,6 +56,16 @@ main :: proc() {
 		if console_open {
 			dT = 0
 			console_update()
+		}
+
+		// Hitstop: a heavy hit (kill, finisher, barrel) stalls the world for a
+		// few frames so the impact lands before the player is moving again.
+		// Counted in real time and scaled rather than zeroed, so it reads as
+		// punch and never as input lag. Only during a run, so menus and the
+		// skill-select screen are untouched.
+		if hitstop > 0 && state == .PLAYING {
+			hitstop -= raylib.GetFrameTime()
+			dT *= 0.12
 		}
 
 		// Fit the 800x600 canvas into the (possibly fullscreen) window, keeping
@@ -982,6 +993,19 @@ main :: proc() {
 					unordered_remove(&explosions, i)
 				}
 			}
+			// Impact sparks: fly out, damp hard and fade. They live in the same
+			// (paused) world clock as everything else, so hitstop freezes them too.
+			for i := len(sparks) - 1; i >= 0; i -= 1 {
+				sparks[i].life -= dT
+				sparks[i].pos += sparks[i].vel * dT
+				sparks[i].vel *= 1 - 9 * dT
+				if sparks[i].life <= 0 {
+					unordered_remove(&sparks, i)
+				}
+			}
+			// The player's red wash runs on real time, not world time: it should
+			// still fade during a hitstop rather than freezing the feedback.
+			hurt_flash = max(hurt_flash - raylib.GetFrameTime(), 0)
 			// Floating damage numbers drift up and fade.
 			for i := len(damage_numbers) - 1; i >= 0; i -= 1 {
 				damage_numbers[i].life -= dT
@@ -1321,7 +1345,7 @@ main :: proc() {
 						apply_status(e, bullets[i].effects)
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
-							spawn_kill_rewards(e.position, e.elite)
+							spawn_kill_rewards(e.position, e.elite, e.color)
 							unordered_remove(&enemies, j)
 						}
 						// Spend a pierce charge, or die on this hit.
@@ -1669,6 +1693,22 @@ main :: proc() {
 					)
 					raylib.DrawCircleSectorLines(c, r, a - 70, a + 70, 12, raylib.WHITE)
 				} else {
+					// Tracer streak plus a soft glow, so shots read as fast lines
+					// rather than floating rectangles.
+					bc := b.position + b.size * 0.5
+					sp := raylib.Vector2Length(b.velocity)
+					if sp > 1 {
+						dir := b.velocity / sp
+						// Tail length scales with speed, capped so a slow heavy
+						// round doesn't smear across the arena.
+						raylib.DrawLineEx(
+							bc - dir * min(sp * 0.02, 20),
+							bc - dir * 2,
+							b.size.x * 0.9,
+							raylib.Color{255, 240, 150, 120},
+						)
+					}
+					raylib.DrawCircleV(bc, b.size.x * 0.45, raylib.Color{255, 255, 210, 110})
 					raylib.DrawRectangleV(b.position, b.size, raylib.YELLOW)
 				}
 			}
@@ -1685,6 +1725,13 @@ main :: proc() {
 				c := x.color
 				c.a = u8(f32(c.a) * f)
 				raylib.DrawCircleV(x.pos, x.radius * (1 - f), c)
+			}
+			// Impact sparks: additive-looking flecks that shrink as they die.
+			for s in sparks {
+				f := clamp(s.life / s.max_life, 0, 1)
+				c := s.color
+				c.a = u8(f32(c.a) * f)
+				raylib.DrawCircleV(s.pos, s.size * (0.4 + 0.6 * f), c)
 			}
 			// Blood spray, fading as it dries.
 			for b in blood {
@@ -2121,6 +2168,30 @@ main :: proc() {
 			0,
 			raylib.WHITE,
 		)
+		// Player-hurt wash: a red vignette over the whole screen, drawn in screen
+		// space so it covers the letterbox too. Heaviest at the moment of the hit
+		// and fading out over PLAYER_HURT_FLASH_TIME.
+		if hurt_flash > 0 {
+			k := hurt_flash / PLAYER_HURT_FLASH_TIME
+			// Square the falloff so most of the fade is a faint tint, with only
+			// the first frames really flaring.
+			a := 210 * k * k
+			// Concentrated at the edges: a few nested outlines, each thicker and
+			// fainter, so the middle of the screen stays readable. Hugged to the
+			// presented canvas rect so it never bleeds into the letterbox bars.
+			band: f32 = max(view_w, view_h) * 0.07
+			for i in 0 ..< 4 {
+				inset := f32(i) * band
+				alpha := u8(a / f32(5 - i))
+				rect := raylib.Rectangle {
+					view_x + inset,
+					view_y + inset,
+					view_w - inset * 2,
+					view_h - inset * 2,
+				}
+				raylib.DrawRectangleLinesEx(rect, band, raylib.Color{255, 40, 40, alpha})
+			}
+		}
 		raylib.EndDrawing()
 	}
 }

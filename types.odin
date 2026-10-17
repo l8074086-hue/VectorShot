@@ -223,6 +223,18 @@ explosion :: struct {
 	color:    raylib.Color,
 }
 
+// A short-lived bright fleck thrown off by an impact or a kill. Sparks are the
+// game's universal "something connected" cue: unlike the blood spray they are
+// always on, because they carry hit confirmation rather than gore.
+spark :: struct {
+	pos:      raylib.Vector2,
+	vel:      raylib.Vector2,
+	life:     f32,
+	max_life: f32,
+	size:     f32,
+	color:    raylib.Color,
+}
+
 // Floating damage number (enemy hp lost), drifting up and fading out. Purely
 // informational, gated by the damage-numbers setting.
 damage_number :: struct {

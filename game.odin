@@ -39,6 +39,18 @@ DIFF_SPAWN_MULT := [3]f32{0.75, 1.0, 1.25} // wave size scale
 DAMAGE_NUMBER_TIME :: 0.7
 DAMAGE_NUMBER_MAX :: 48
 BLOOD_MAX :: 240
+// Impact sparks: hard-capped like the other fx pools so a wall of fire can never
+// grow the list without limit.
+SPARK_MAX :: 320
+// How long the full-screen red flash holds after the player takes a hit.
+PLAYER_HURT_FLASH_TIME :: 0.28
+// Hitstop: heavy hits stall the world for a few frames so the impact lands
+// before the player is moving again. Deliberately short -- this is punch, not a
+// pause, and it must never read as input lag.
+HITSTOP_KILL :: 0.045
+HITSTOP_FINISHER :: 0.075
+HITSTOP_BARREL :: 0.09
+HITSTOP_MAX :: 0.12
 BLOOD_GRAVITY :: 340
 SHAKE_DECAY :: 9.0 // how fast a shake magnitude bleeds off (units/second)
 BLOOD_COLOR :: raylib.Color{158, 22, 22, 255}
@@ -397,6 +409,11 @@ trees: [dynamic]tree
 explosions: [dynamic]explosion
 damage_numbers: [dynamic]damage_number
 blood: [dynamic]blood_drop
+sparks: [dynamic]spark
+// Red wash over the whole screen when the player is hit (see PLAYER_HURT_FLASH).
+hurt_flash: f32 = 0
+// Remaining hitstop, in seconds of real time (see add_hitstop).
+hitstop: f32 = 0
 // Screen shake: a decaying magnitude the camera jitters by, scaled by the
 // screen-shake setting and amplified by events (hits, explosions).
 shake: f32 = 0
@@ -753,6 +770,12 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 		if hit != .DAMAGE {
 			play_enemy_hit(hit)
 		}
+		// A finisher that actually connects earns a beat of hitstop, so the
+		// chain's payoff lands before the player is moving again. Marking
+		// lights deal nothing, so they never qualify.
+		if finisher && dmg > 0.01 {
+			add_hitstop(HITSTOP_FINISHER)
+		}
 		// Melee carries the player's on-hit status set just like bullets do.
 		apply_status(&enemies[i], attack_effects)
 		// Phase Claws: lights stack marks, REND spends them and splashes.
@@ -787,7 +810,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 				health = min(health + PHASE_REND_HEAL, max_health)
 				tutorial_note(.MARK_KILL)
 			}
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -796,7 +819,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 	if stats.phase_detonate {
 		for i := len(enemies) - 1; i >= 0; i -= 1 {
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -877,7 +900,7 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 		play_enemy_hit(apply_enemy_damage(&enemies[i], damage, -d))
 		apply_status(&enemies[i], attack_effects)
 		if enemies[i].hp <= 0 {
-			spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+			spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -1127,6 +1150,11 @@ apply_player_damage :: proc(amount: f32, from: raylib.Vector2) {
 		dmg *= GF_DAMAGE_MULT
 	}
 	health -= dmg
+	// Red wash for a hit that actually connected (blocked and sandboxed hits
+	// return above, before this point).
+	if dmg > 0 {
+		hurt_flash = PLAYER_HURT_FLASH_TIME
+	}
 }
 
 // PRECISION is only a useful offer while the active weapon still has spread to
@@ -1200,8 +1228,11 @@ clear_run_entities :: proc() {
 	clear(&explosions)
 	clear(&damage_numbers)
 	clear(&blood)
+	clear(&sparks)
 	shake = 0
 	shake_mag = 0
+	hurt_flash = 0
+	hitstop = 0
 	clear(&shop_items)
 }
 
@@ -1625,7 +1656,7 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 			continue
 		}
 		// The victim dies (and still drops); the Devourer heals off it.
-		spawn_kill_rewards(enemies[best].position, false)
+		spawn_kill_rewards(enemies[best].position, false, enemies[best].color)
 		e.hp = min(e.hp + e.max_hp * ELITE_DEVOUR_HEAL, e.max_hp)
 		e.flash = 0.25
 		e.ability_timer = ELITE_DEVOUR_COOLDOWN
@@ -1671,10 +1702,14 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 		tutorial_note(.DESTROY)
 	}
 	// Feedback for real number hits only (marking lights deal 0 and stay silent):
-	// a floating number, a blood spray, and a little kick to the camera.
+	// a floating number, a blood spray, a spark burst in the enemy's own colour,
+	// and a little kick to the camera. Sparks are ungated so a confirmed hit
+	// always reads, even with the blood spray turned off.
 	if amount > 0.01 {
-		spawn_damage_number(e.position + e.size * 0.5, amount)
-		spawn_blood(e.position + e.size * 0.5, from)
+		hit_at := e.position + e.size * 0.5
+		spawn_damage_number(hit_at, amount)
+		spawn_blood(hit_at, from)
+		spawn_sparks(hit_at, from, e.color, 5)
 		add_shake(min(amount * 0.35, 5))
 	}
 	return .DAMAGE
@@ -1749,6 +1784,62 @@ spawn_blood :: proc(pos: raylib.Vector2, dir: raylib.Vector2) {
 			},
 		)
 	}
+}
+
+// Throw a cone of bright flecks along `dir`. This is the game's universal impact
+// cue -- always on (unlike the blood spray) so a confirmed hit always reads, even
+// with gore turned off.
+spawn_sparks :: proc(pos: raylib.Vector2, dir: raylib.Vector2, col: raylib.Color, count: int) {
+	d := dir
+	if raylib.Vector2Length(d) < 0.01 {
+		d = {1, 0}
+	} else {
+		d = raylib.Vector2Normalize(d)
+	}
+	for _ in 0 ..< count {
+		if len(sparks) >= SPARK_MAX {
+			ordered_remove(&sparks, 0)
+		}
+		sp := raylib.Vector2Rotate(d, rand.float32_range(-1.1, 1.1)) * rand.float32_range(90, 340)
+		life := rand.float32_range(0.12, 0.32)
+		append(
+			&sparks,
+			spark {
+				pos = pos,
+				vel = sp,
+				life = life,
+				max_life = life,
+				size = rand.float32_range(1.5, 3.5),
+				color = col,
+			},
+		)
+	}
+}
+
+// Stall the world briefly so a heavy impact lands. Keeps the strongest pending
+// stall, and never stacks past HITSTOP_MAX (which also caps how sluggish the
+// game can ever feel from stacked kills).
+add_hitstop :: proc(t: f32) {
+	hitstop = min(max(hitstop, t), HITSTOP_MAX)
+}
+
+// A dying enemy's payoff: a hot flash ring plus a spray of shards in its own
+// colour, so a kill is visible even when it happens off to the side of the fight.
+spawn_death_burst :: proc(pos: raylib.Vector2, col: raylib.Color, elite: bool) {
+	r := f32(30)
+	if elite {
+		r = 54
+	}
+	life: f32 = 0.18
+	if elite {
+		life = 0.3
+	}
+	append(
+		&explosions,
+		explosion {pos = pos, life = life, max_life = life, radius = r, color = raylib.WHITE},
+	)
+	spawn_sparks(pos, {0, -1}, col, 14 if elite else 8)
+	add_hitstop(HITSTOP_BARREL if elite else HITSTOP_KILL)
 }
 
 // Soft body separation: overlapping enemies push each other apart instead of
@@ -1871,7 +1962,7 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 					e.dps_window += dmg
 				}
 				if e.hp <= 0 {
-					spawn_kill_rewards(e.position, e.elite)
+					spawn_kill_rewards(e.position, e.elite, e.color)
 					unordered_remove(enemies, i)
 				}
 			}
@@ -2162,7 +2253,7 @@ explode_at :: proc(center: raylib.Vector2) {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24
 			}
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(enemies[i].position, enemies[i].elite)
+				spawn_kill_rewards(enemies[i].position, enemies[i].elite, enemies[i].color)
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -2217,8 +2308,10 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 }
 
 // Standard rewards for killing something. Call right before removing an enemy.
-// Elites leave a guaranteed pile of coins on top of the usual rolls.
-spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false) {
+// Elites leave a guaranteed pile of coins on top of the usual rolls. `col` is
+// the dying enemy's colour, used for the death burst's shards.
+spawn_kill_rewards :: proc(pos: raylib.Vector2, elite := false, col: raylib.Color = raylib.WHITE) {
+	spawn_death_burst(pos, col, elite)
 	// Practice dummies must not skew run stats, but they still drop a small
 	// coin pile so the loot lesson is something you actually kill and collect.
 	if tutorial_mode {
