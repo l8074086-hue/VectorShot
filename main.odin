@@ -211,6 +211,57 @@ draw_ingame_panel :: proc() {
 	)
 }
 
+// Minimum letterbox bar width (in screen px) before the character/passive HUD is
+// moved out of the canvas and into the left pillarbox bar.
+CHAR_PASSIVE_MIN_BAR :: 150
+
+// Small value bar used by the character passives (Heart, knee charge).
+draw_passive_bar :: proc(ox, oy: f32, frac: f32, col: raylib.Color) {
+	raylib.DrawRectangle(i32(ox), i32(oy), 120, 8, raylib.DARKGRAY)
+	raylib.DrawRectangle(i32(ox), i32(oy), i32(120 * clamp(frac, 0, 1)), 8, col)
+	raylib.DrawRectangleLines(i32(ox), i32(oy), 120, 8, raylib.GRAY)
+}
+
+// Character name, passive name, and the live passive bar/label. Drawn either in
+// the canvas top-left (4:3 windows with no pillarbox) or out in the left
+// letterbox bar to keep the gameplay canvas clear. `ox`/`oy` is the top-left
+// anchor in whatever space the caller is currently drawing.
+draw_char_passive :: proc(ox, oy: f32) {
+	raylib.DrawText(
+		cstring(CHARACTERS[character].name),
+		i32(ox),
+		i32(oy),
+		20,
+		CHARACTERS[character].color,
+	)
+	raylib.DrawText(
+		cstring(CHARACTERS[character].passive),
+		i32(ox),
+		i32(oy + 22),
+		14,
+		raylib.LIGHTGRAY,
+	)
+	if character == .TRACER {
+		draw_passive_bar(ox, oy + 42, traceur_charge, raylib.GOLD)
+	} else if character == .RR {
+		// Vector Edge reshapes to the Adaptation, so name the form too.
+		label := raylib.TextFormat(
+			"ADAPT: %s (%s)",
+			string(rr_adaptation_name()),
+			string(RR_EDGE_NAMES[rr_adaptation]),
+		)
+		col := raylib.SKYBLUE
+		if rr_surge > 0 {
+			label = raylib.TextFormat("%s [SURGE]", label)
+			col = raylib.GOLD
+		}
+		raylib.DrawText(label, i32(ox), i32(oy + 42), 14, col)
+	} else if character == .BUD && signature_next_charged() {
+		draw_passive_bar(ox, oy + 42, combo_charge, raylib.ORANGE)
+		raylib.DrawText(cstring("KNEE CHARGING"), i32(ox + 128), i32(oy + 40), 14, raylib.ORANGE)
+	}
+}
+
 main :: proc() {
 	windowX: i32 = 800
 	windowY: i32 = 600
@@ -2294,59 +2345,11 @@ main :: proc() {
 				raylib.DrawText(cstring("RELOADING"), 560, 54, 18, raylib.ORANGE)
 			}
 			raylib.DrawText(raylib.TextFormat("$ %i", int(currency)), 10, 34, 20, raylib.GOLD)
-			raylib.DrawText(
-				raylib.TextFormat("%s", string(CHARACTERS[character].name)),
-				220,
-				34,
-				20,
-				CHARACTERS[character].color,
-			)
-			// Passive readout: its name, plus live state for the ones that build up.
-			raylib.DrawText(
-				raylib.TextFormat("%s", string(CHARACTERS[character].passive)),
-				220,
-				56,
-				14,
-				raylib.LIGHTGRAY,
-			)
-			if character == .TRACER {
-				// Traceur's Heart charge bar.
-				raylib.DrawRectangle(220, 74, 120, 8, raylib.DARKGRAY)
-				raylib.DrawRectangle(
-					220,
-					74,
-					i32(120 * clamp(traceur_charge, 0, 1)),
-					8,
-					raylib.GOLD,
-				)
-				raylib.DrawRectangleLines(220, 74, 120, 8, raylib.GRAY)
-			} else if character == .RR {
-				// Vector Edge reshapes to the Adaptation, so name the form too.
-				label := raylib.TextFormat(
-					"ADAPT: %s (%s)",
-					string(rr_adaptation_name()),
-					string(RR_EDGE_NAMES[rr_adaptation]),
-				)
-				col := raylib.SKYBLUE
-				if rr_surge > 0 {
-					label = raylib.TextFormat("%s [SURGE]", label)
-					col = raylib.GOLD
-				}
-				raylib.DrawText(label, 220, 72, 14, col)
-			} else if character == .BUD {
-				// Flying-knee charge bar, shown while the knee is armed.
-				if signature_next_charged() {
-					raylib.DrawRectangle(220, 74, 120, 8, raylib.DARKGRAY)
-					raylib.DrawRectangle(
-						220,
-						74,
-						i32(120 * clamp(combo_charge, 0, 1)),
-						8,
-						raylib.ORANGE,
-					)
-					raylib.DrawRectangleLines(220, 74, 120, 8, raylib.GRAY)
-					raylib.DrawText(cstring("KNEE CHARGING"), 348, 70, 14, raylib.ORANGE)
-				}
+			// Character/passive HUD is drawn in the left letterbox bar by the
+			// present step when there's room; only fall back to the canvas here on
+			// 4:3 windows with no pillarbox.
+			if view_x < CHAR_PASSIVE_MIN_BAR {
+				draw_char_passive(220, 34)
 			}
 			// Mission Control HUD: the active "level" and live progress toward its
 			// objective, plus a completion banner the moment it clears.
@@ -2692,13 +2695,26 @@ main :: proc() {
 			0,
 			raylib.WHITE,
 		)
-		// Falling snow: a screen-space foreground overlay so it reads as drifting
-		// down from the sky over the top-down arena. Only on snow arenas, and only
-		// during a run.
+		// Falling snow: a screen-space foreground overlay, scissored to the
+		// presented canvas rect so it never bleeds into the letterbox bars. Only
+		// on snow arenas, and only during a run.
 		if state == .PLAYING && arena_has_snow() {
+			raylib.BeginScissorMode(
+				i32(view_x),
+				i32(view_y),
+				i32(view_w),
+				i32(view_h),
+			)
 			for s in snow {
 				raylib.DrawCircleV(s.pos, s.size, raylib.Color{240, 248, 255, 200})
 			}
+			raylib.EndScissorMode()
+		}
+		// Character/passive HUD, moved into the left pillarbox bar so the gameplay
+		// canvas stays clear. Drawn in screen space; skipped on 4:3 windows where
+		// the canvas HUD already drew it.
+		if state == .PLAYING && view_x >= CHAR_PASSIVE_MIN_BAR {
+			draw_char_passive(14, 20)
 		}
 		// Player-hurt wash: a red vignette over the whole screen, drawn in screen
 		// space so it covers the letterbox too. Heaviest at the moment of the hit
