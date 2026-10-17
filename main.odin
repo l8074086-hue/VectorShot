@@ -295,10 +295,30 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 	}
 }
 
+// Leave the shop: back to PLAYING, spawning the next wave (or noting the tutorial
+// lesson if a tutorial opened it). Shared by ENTER, a click on LEAVE, and ESC.
+leave_shop :: proc() {
+	state = .PLAYING
+	play(sounds.ui_select)
+	if tutorial_mode {
+		// The tutorial opened this shop to teach it; leaving is the lesson, so don't
+		// spawn a real wave.
+		tutorial_note(.SHOP_DONE)
+	} else {
+		if !debug_mode {
+			new_wave(&enemies, wave)
+		}
+		wave += 1
+	}
+}
+
 main :: proc() {
 	windowX: i32 = 800
 	windowY: i32 = 600
 	raylib.InitWindow(windowX, windowY, "Roguelike")
+	// Disable raylib's default ESC-to-close: ESC is UI "back" everywhere in this
+	// game, and quitting is an explicit QUIT menu row (or the window X button).
+	raylib.SetExitKey(raylib.KeyboardKey.KEY_NULL)
 	raylib.SetTargetFPS(60)
 	defer raylib.CloseWindow()
 	// Load the player's settings, then match the window to the stored
@@ -532,6 +552,11 @@ main :: proc() {
 				play(sounds.ui_select)
 				skill_state = .MAIN
 				state = .SKILL_SELECT
+			}
+			// ESC backs out to the main menu.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				play(sounds.ui_select)
+				state = .MAIN_MENU
 			}
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
@@ -958,6 +983,15 @@ main :: proc() {
 				settings_save()
 			}
 		case .SKILL_SELECT:
+			// ESC is "back" everywhere: out of a sub-screen to the skill-select
+			// summary, and out of the summary to the previous state.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				if skill_state != .MAIN {
+					skill_state = .MAIN
+				} else {
+					state = .DIFFICULTY
+				}
+			}
 			// Menu navigation + confirm blips, shared by every skill screen.
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
@@ -2073,6 +2107,12 @@ main :: proc() {
 					continue
 				}
 			}
+			// ESC opens the in-game settings panel (a normal run has nothing to
+			// "leave", so pausing is the useful back action). The tutorial above
+			// handles its own ESC-to-exit.
+			if !tutorial_mode && raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				ingame_panel_open = true
+			}
 
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
@@ -2553,21 +2593,13 @@ main :: proc() {
 					play(sounds.ui_move)
 				}
 			}
+			// ESC leaves the shop (back to the run), same as choosing LEAVE.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				leave_shop()
+			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 				if shop_selected == leave_row {
-					// Leave the shop and spawn the next wave.
-					state = .PLAYING
-					play(sounds.ui_select)
-					if tutorial_mode {
-						// The tutorial opened this shop to teach it; leaving is
-						// the lesson, so don't spawn a real wave.
-						tutorial_note(.SHOP_DONE)
-					} else {
-						if !debug_mode {
-							new_wave(&enemies, wave)
-						}
-						wave += 1
-					}
+					leave_shop()
 				} else if shop_selected == reroll_row {
 					if try_shop_reroll() {
 						play(sounds.shop_buy)
@@ -2646,16 +2678,7 @@ main :: proc() {
 			if clicked >= 0 {
 				shop_selected = clicked
 				if clicked == leave_row {
-					state = .PLAYING
-					play(sounds.ui_select)
-					if tutorial_mode {
-						tutorial_note(.SHOP_DONE)
-					} else {
-						if !debug_mode {
-							new_wave(&enemies, wave)
-						}
-						wave += 1
-					}
+					leave_shop()
 				} else if clicked == reroll_row {
 					if try_shop_reroll() {
 						play(sounds.shop_buy)
@@ -2670,7 +2693,8 @@ main :: proc() {
 			}
 
 		case .GAME_OVER:
-			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 				play(sounds.ui_select)
 				end_run()
 			} else if raylib.IsKeyPressed(raylib.KeyboardKey.R) {
