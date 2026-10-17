@@ -416,7 +416,13 @@ trail: [dynamic]trail_point
 drops: [dynamic]drop
 walls: [dynamic]raylib.Rectangle
 barrels: [dynamic]barrel
-trees: [dynamic]tree
+props: [dynamic]prop
+// Decorative floor scatter (grass/pebbles/cracks/embers). Cleared and rebuilt
+// per arena; drawn before walls so it never covers cover.
+floor_marks: [dynamic]floor_mark
+// Deterministic seed for arena generation, so a given map looks the same every
+// time you load it (mixed with the global rand for gameplay randomness).
+arena_seed: u32 = 0
 explosions: [dynamic]explosion
 damage_numbers: [dynamic]damage_number
 blood: [dynamic]blood_drop
@@ -1383,7 +1389,7 @@ box_blocked :: proc(p: raylib.Vector2, sz: raylib.Vector2) -> bool {
 			return true
 		}
 	}
-	for t in trees {
+	for t in props {
 		if raylib.CheckCollisionRecs(r, {t.pos.x, t.pos.y, t.size.x, t.size.y}) {
 			return true
 		}
@@ -2141,10 +2147,57 @@ bullet_register_hit :: proc(b: ^bullet, id: i32) {
 // Environment
 // ---------------------------------------------------------------------------
 
+// Deterministic RNG for arena decoration. A map's grass/crack/rock scatter stays
+// identical every time it's loaded, without touching the global random stream
+// that gameplay uses.
+arena_rng :: proc() -> u32 {
+	arena_seed = arena_seed * 1664525 + 1013904223
+	return arena_seed >> 16
+}
+
+arena_rng_f :: proc(lo, hi: f32) -> f32 {
+	return lo + (hi - lo) * (f32(arena_rng()) / 65535.0)
+}
+
+// Scatter decorative floor marks (grass tufts, pebbles, cracks, embers). These
+// never collide -- they just keep big flat floors from reading as a checkerboard.
+scatter_floor :: proc(decor: Floor_Decor, count: int) {
+	for _ in 0 ..< count {
+		append(
+			&floor_marks,
+			floor_mark {
+				pos = {arena_rng_f(80, ARENA_W - 80), arena_rng_f(80, ARENA_H - 80)},
+				size = arena_rng_f(3, 8),
+				kind = decor,
+			},
+		)
+	}
+}
+
+// Does this box overlap any wall or already-placed prop? Hand-authored layouts
+// are easy to get a few pixels wrong, so props and barrels are filtered through
+// this at build time: nothing ever spawns embedded inside solid cover.
+spot_blocked :: proc(box: raylib.Rectangle) -> bool {
+	for w in walls {
+		if raylib.CheckCollisionRecs(box, w) {
+			return true
+		}
+	}
+	for p in props {
+		if raylib.CheckCollisionRecs(box, {p.pos.x, p.pos.y, p.size.x, p.size.y}) {
+			return true
+		}
+	}
+	return false
+}
+
 build_arena :: proc(kind: Arena_Kind) {
 	clear(&walls)
 	clear(&barrels)
-	clear(&trees)
+	clear(&props)
+	clear(&floor_marks)
+	// Deterministic per-map seed so decoration is stable across loads.
+	arena_seed = u32(kind) * 1664525 + 1013904223
 
 	t := f32(WALL_THICK)
 	// Border is shared by every layout.
@@ -2153,110 +2206,159 @@ build_arena :: proc(kind: Arena_Kind) {
 	append(&walls, raylib.Rectangle{0, 0, t, ARENA_H})
 	append(&walls, raylib.Rectangle{ARENA_W - t, 0, t, ARENA_H})
 
+	pal := ARENAS[kind]
+	scatter_floor(pal.decor, 300)
+
 	// Interior cover differs per arena. The center of every layout is left open
-	// so the player always spawns with room to move.
+	// so the player always spawns with room to move. Walls go in first; props and
+	// barrels are then placed through spot_blocked so nothing lands inside a wall.
 	switch kind {
 	case .GRASSLAND:
 		rects := [?]raylib.Rectangle {
-			{300, 220, 220, 40},
-			{1080, 220, 220, 40},
-			{300, 940, 220, 40},
-			{1080, 940, 220, 40},
-			{760, 260, 80, 220},
-			{760, 720, 80, 220},
-			{480, 560, 220, 80},
-			{900, 560, 220, 80},
+			{180, 300, 200, 36}, {1220, 300, 200, 36},
+			{180, 864, 200, 36}, {1220, 864, 200, 36},
+			{700, 180, 200, 36}, {700, 984, 200, 36},
 		}
-		spots := [?]raylib.Vector2 {
-			{250, 600},
-			{1350, 600},
-			{800, 190},
-			{800, 1010},
-			{560, 380},
-			{1040, 380},
-			{560, 820},
-			{1040, 820},
+		trees := [?]raylib.Vector2 {
+			{260, 220}, {360, 180}, {520, 240}, {180, 460},
+			{1340, 220}, {1240, 180}, {1080, 240}, {1420, 460},
+			{260, 1000}, {380, 1040}, {520, 980}, {180, 760},
+			{1340, 1000}, {1220, 1040}, {1080, 980}, {1420, 760},
+			{800, 180}, {800, 1020},
 		}
-		barrel_spots := [?]raylib.Vector2 {
-			{600, 300},
-			{1000, 300},
-			{600, 900},
-			{1000, 900},
-			{400, 600},
-			{1200, 600},
+		rocks := [?]raylib.Vector2 {
+			{430, 420}, {1170, 420}, {430, 780}, {1170, 780},
+			{640, 300}, {960, 300}, {640, 900}, {960, 900},
+		}
+		barrels := [?]raylib.Vector2 {
+			{700, 320}, {900, 320}, {700, 880}, {900, 880},
+			{520, 600}, {1080, 600},
 		}
 		add_walls(rects[:])
-		add_trees(spots[:])
-		add_barrels(barrel_spots[:])
+		add_props(trees[:], .TREE, 48)
+		add_props(rocks[:], .ROCK, 46)
+		add_barrels(barrels[:])
 
 	case .CANYON:
 		rects := [?]raylib.Rectangle {
-			{220, 300, 560, 44},
-			{820, 300, 560, 44},
-			{220, 880, 560, 44},
-			{820, 880, 560, 44},
-			{520, 450, 44, 300},
-			{1036, 450, 44, 300},
+			{220, 300, 560, 44}, {820, 300, 560, 44},
+			{220, 880, 560, 44}, {820, 880, 560, 44},
+			{520, 450, 44, 300}, {1036, 450, 44, 300},
 		}
-		spots := [?]raylib.Vector2{{250, 200}, {1350, 200}, {250, 1000}, {1350, 1000}}
-		barrel_spots := [?]raylib.Vector2 {
-			{400, 420},
-			{1200, 420},
-			{400, 780},
-			{1200, 780},
-			{800, 340},
-			{800, 860},
-			{600, 620},
-			{1000, 620},
+		mesas := [?]raylib.Vector2 {
+			{300, 180}, {1300, 180}, {300, 1020}, {1300, 1020},
+			{660, 420}, {940, 420}, {660, 780}, {940, 780},
+		}
+		crates := [?]raylib.Vector2{{400, 600}, {1200, 600}}
+		barrels := [?]raylib.Vector2 {
+			{400, 420}, {1200, 420}, {400, 780}, {1200, 780},
+			{800, 340}, {800, 860}, {600, 620}, {1000, 620},
 		}
 		add_walls(rects[:])
-		add_trees(spots[:])
-		add_barrels(barrel_spots[:])
+		add_props(mesas[:], .ROCK, 52)
+		add_props(crates[:], .CRATE, 40)
+		add_barrels(barrels[:])
 
 	case .RUINS:
 		rects := [?]raylib.Rectangle {
-			{285, 285, 70, 70},
-			{765, 285, 70, 70},
-			{1245, 285, 70, 70},
-			{285, 565, 70, 70},
-			{1245, 565, 70, 70},
-			{285, 845, 70, 70},
-			{765, 845, 70, 70},
-			{1245, 845, 70, 70},
+			{285, 285, 70, 70}, {765, 285, 70, 70}, {1245, 285, 70, 70},
+			{285, 565, 70, 70}, {1245, 565, 70, 70},
+			{285, 845, 70, 70}, {765, 845, 70, 70}, {1245, 845, 70, 70},
 		}
-		spots := [?]raylib.Vector2{{540, 300}, {1060, 300}, {540, 900}, {1060, 900}}
-		barrel_spots := [?]raylib.Vector2{{800, 320}, {800, 880}, {520, 600}, {1080, 600}}
+		rubble := [?]raylib.Vector2 {
+			{620, 480}, {980, 480}, {620, 720}, {980, 720},
+		}
+		barrels := [?]raylib.Vector2 {
+			{450, 425}, {1150, 425}, {450, 775}, {1150, 775},
+			{800, 180}, {800, 1020}, {180, 600}, {1420, 600},
+		}
 		add_walls(rects[:])
-		add_trees(spots[:])
-		add_barrels(barrel_spots[:])
+		add_props(rubble[:], .ROCK, 44)
+		add_barrels(barrels[:])
 
 	case .GLACIER:
 		rects := [?]raylib.Rectangle {
-			{300, 500, 300, 44},
-			{1000, 500, 300, 44},
-			{300, 656, 300, 44},
-			{1000, 656, 300, 44},
-			{760, 190, 80, 180},
-			{760, 830, 80, 180},
+			{300, 500, 300, 44}, {1000, 500, 300, 44},
+			{300, 656, 300, 44}, {1000, 656, 300, 44},
+			{760, 190, 80, 180}, {760, 830, 80, 180},
 		}
-		spots := [?]raylib.Vector2 {
-			{240, 260},
-			{1360, 260},
-			{240, 940},
-			{1360, 940},
-			{560, 300},
-			{1040, 300},
-			{560, 900},
-			{1040, 900},
-			{420, 420},
-			{1180, 420},
-			{420, 780},
-			{1180, 780},
+		pines := [?]raylib.Vector2 {
+			{240, 260}, {360, 220}, {1360, 260}, {1240, 220},
+			{240, 940}, {360, 980}, {1360, 940}, {1240, 980},
+			{560, 300}, {1040, 300}, {560, 900}, {1040, 900},
 		}
-		barrel_spots := [?]raylib.Vector2{{800, 260}, {800, 940}}
+		ice := [?]raylib.Vector2{{420, 420}, {1180, 420}, {420, 780}, {1180, 780}}
+		barrels := [?]raylib.Vector2{{800, 420}, {800, 780}, {200, 600}, {1400, 600}}
 		add_walls(rects[:])
-		add_trees(spots[:])
-		add_barrels(barrel_spots[:])
+		add_props(pines[:], .PINE, 46)
+		add_props(ice[:], .ROCK, 46)
+		add_barrels(barrels[:])
+
+	case .FOUNDRY:
+		rects := [?]raylib.Rectangle {
+			{220, 260, 220, 120}, {1160, 260, 220, 120},
+			{220, 820, 220, 120}, {1160, 820, 220, 120},
+			{660, 220, 280, 80}, {660, 900, 280, 80},
+			{440, 560, 120, 80}, {1040, 560, 120, 80},
+		}
+		crates := [?]raylib.Vector2 {
+			{300, 460}, {300, 540}, {1300, 460}, {1300, 540},
+			{760, 420}, {840, 420}, {760, 740}, {840, 740},
+			{520, 340}, {1080, 340}, {520, 860}, {1080, 860},
+		}
+		barrels := [?]raylib.Vector2 {
+			{620, 480}, {980, 480}, {620, 720}, {980, 720},
+			{420, 300}, {1180, 300}, {420, 900}, {1180, 900},
+		}
+		add_walls(rects[:])
+		add_props(crates[:], .CRATE, 40)
+		add_barrels(barrels[:])
+
+	case .FOREST:
+		logs := [?]raylib.Rectangle {
+			{400, 300, 120, 40}, {1080, 300, 120, 40},
+			{400, 860, 120, 40}, {1080, 860, 120, 40},
+		}
+		trees := [?]raylib.Vector2 {
+			{240, 200}, {320, 260}, {180, 300}, {400, 180},
+			{1360, 200}, {1280, 260}, {1420, 300}, {1200, 180},
+			{240, 1000}, {320, 940}, {180, 900}, {400, 1020},
+			{1360, 1000}, {1280, 940}, {1420, 900}, {1200, 1020},
+			{560, 240}, {600, 300}, {1000, 240}, {960, 300},
+			{560, 960}, {600, 900}, {1000, 960}, {960, 900},
+		}
+		pines := [?]raylib.Vector2{
+			{700, 180}, {900, 180}, {700, 1020}, {900, 1020},
+			{140, 600}, {1460, 600},
+		}
+		barrels := [?]raylib.Vector2{{800, 240}, {800, 960}, {480, 600}, {1120, 600}}
+		add_walls(logs[:])
+		add_props(trees[:], .TREE, 48)
+		add_props(pines[:], .PINE, 46)
+		add_barrels(barrels[:])
+
+	case .SWAMP:
+		stumps := [?]raylib.Rectangle {
+			{360, 320, 80, 80}, {1160, 320, 80, 80},
+			{360, 800, 80, 80}, {1160, 800, 80, 80},
+		}
+		reeds := [?]raylib.Vector2 {
+			{240, 240}, {300, 300}, {1360, 240}, {1300, 300},
+			{240, 960}, {300, 900}, {1360, 960}, {1300, 900},
+			{520, 280}, {1080, 280}, {520, 920}, {1080, 920},
+		}
+		mounds := [?]raylib.Vector2 {
+			{440, 460}, {1160, 460}, {440, 740}, {1160, 740},
+			{800, 260}, {800, 940},
+		}
+		barrels := [?]raylib.Vector2{
+			{640, 420}, {960, 420}, {640, 780}, {960, 780},
+			{200, 600}, {1400, 600},
+		}
+		add_walls(stumps[:])
+		add_props(reeds[:], .PINE, 46)
+		add_props(mounds[:], .ROCK, 46)
+		add_barrels(barrels[:])
 	}
 }
 
@@ -2267,15 +2369,27 @@ add_walls :: proc(rects: []raylib.Rectangle) {
 	}
 }
 
-add_trees :: proc(spots: []raylib.Vector2) {
+// Place static cover. A prop that would land inside a wall (or an identical
+// earlier prop) is skipped, so hand-authored coordinates can be approximate.
+add_props :: proc(spots: []raylib.Vector2, kind: Prop_Kind, size: f32) {
 	for p in spots {
-		append(&trees, tree{pos = {p.x - 22, p.y - 22}, size = {44, 44}})
+		r := raylib.Rectangle{p.x - size * 0.5, p.y - size * 0.5, size, size}
+		if spot_blocked(r) {
+			continue
+		}
+		append(&props, prop{pos = {r.x, r.y}, size = {r.width, r.height}, kind = kind})
 	}
 }
 
+// Explosive barrels. Same safety filter as props, so a barrel is never buried in
+// a wall or under a boulder -- each map ends up with its own reachable clusters.
 add_barrels :: proc(spots: []raylib.Vector2) {
 	for p in spots {
-		append(&barrels, barrel{pos = {p.x - 16, p.y - 16}, size = {32, 32}, hp = 6})
+		r := raylib.Rectangle{p.x - 16, p.y - 16, 32, 32}
+		if spot_blocked(r) {
+			continue
+		}
+		append(&barrels, barrel{pos = {r.x, r.y}, size = {r.width, r.height}, hp = 6})
 	}
 }
 
@@ -2287,7 +2401,7 @@ resolve_obstacles :: proc(pos: ^raylib.Vector2, sz: raylib.Vector2) {
 	for b in barrels {
 		resolve_against_rect(pos, sz, {b.pos.x, b.pos.y, b.size.x, b.size.y})
 	}
-	for t in trees {
+	for t in props {
 		resolve_against_rect(pos, sz, {t.pos.x, t.pos.y, t.size.x, t.size.y})
 	}
 }
@@ -2327,7 +2441,7 @@ resolve_against_rect :: proc(pos: ^raylib.Vector2, sz: raylib.Vector2, r: raylib
 	}
 }
 
-// Walls and trees are solid to projectiles (barrels are handled separately so
+// Walls and props are solid to projectiles (barrels are handled separately so
 // they can soak a hit and take damage).
 bullet_blocked_by_terrain :: proc(rect: raylib.Rectangle) -> bool {
 	for w in walls {
@@ -2335,7 +2449,7 @@ bullet_blocked_by_terrain :: proc(rect: raylib.Rectangle) -> bool {
 			return true
 		}
 	}
-	for t in trees {
+	for t in props {
 		if raylib.CheckCollisionRecs(rect, {t.pos.x, t.pos.y, t.size.x, t.size.y}) {
 			return true
 		}

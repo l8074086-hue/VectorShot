@@ -3,6 +3,33 @@ import "core:math"
 import "core:math/rand"
 import "vendor:raylib"
 
+// One piece of decorative floor scatter. Drawn flat (non-colliding) so a big
+// open floor reads as terrain -- grass blades, pebbles, cracks, embers -- rather
+// than a bare checkerboard.
+draw_floor_mark :: proc(m: floor_mark, col: raylib.Color) {
+	c := raylib.Color{col.r, col.g, col.b, 190}
+	switch m.kind {
+	case .GRASS:
+		// Three small blades fanning out from the base.
+		for k in -1 ..= 1 {
+			bx := m.pos.x + f32(k) * m.size * 0.5
+			raylib.DrawLineEx({bx, m.pos.y + m.size}, {bx + f32(k) * 2, m.pos.y - m.size}, 2, c)
+		}
+	case .PEBBLE:
+		raylib.DrawCircleV(m.pos, m.size * 0.5, c)
+	case .CRACK:
+		// A short zigzag fracture.
+		raylib.DrawLineEx({m.pos.x - m.size, m.pos.y}, {m.pos.x, m.pos.y - m.size}, 1, c)
+		raylib.DrawLineEx({m.pos.x, m.pos.y - m.size}, {m.pos.x + m.size, m.pos.y}, 1, c)
+	case .SNOW:
+		raylib.DrawCircleV(m.pos, m.size * 0.5, c)
+	case .EMBER:
+		// Hot flecks get a faint glow ring so they read as glowing embers.
+		raylib.DrawCircleV(m.pos, m.size * 0.4, raylib.Color{255, 200, 120, 220})
+		raylib.DrawCircleV(m.pos, m.size * 0.9, raylib.Color{255, 120, 40, 60})
+	}
+}
+
 main :: proc() {
 	windowX: i32 = 800
 	windowY: i32 = 600
@@ -35,7 +62,8 @@ main :: proc() {
 	defer delete(drops)
 	defer delete(walls)
 	defer delete(barrels)
-	defer delete(trees)
+	defer delete(props)
+	defer delete(floor_marks)
 	defer delete(explosions)
 	defer delete(sparks)
 	defer delete(shop_items)
@@ -1681,16 +1709,58 @@ main :: proc() {
 					raylib.DrawRectangleV({tx, ty}, {tile, tile}, tint)
 				}
 			}
+			// Decorative floor scatter, drawn under walls and cover.
+			for m in floor_marks {
+				draw_floor_mark(m, pal.decor_col)
+			}
 			// Walls.
 			for w in walls {
 				raylib.DrawRectangleRec(w, pal.wall)
 			}
-			// Trees / boulders (round static cover).
-			for t in trees {
+			// Static cover (trees, pines, boulders, crates) -- drawn by kind so
+			// each arena reads as a place instead of a pile of identical circles.
+			for t in props {
 				c := t.pos + t.size * 0.5
-				raylib.DrawRectangleV({c.x - 6, c.y - 2}, {12, 20}, trunk)
-				raylib.DrawCircleV({c.x, c.y}, 22, pal.cover)
-				raylib.DrawCircleV({c.x - 7, c.y - 7}, 13, pal.cover_top)
+				switch t.kind {
+				case .TREE:
+					raylib.DrawRectangleV({c.x - 6, c.y - 2}, {12, 20}, trunk)
+					raylib.DrawCircleV(c, 24, pal.cover)
+					raylib.DrawCircleV({c.x - 8, c.y - 8}, 14, pal.cover_top)
+				case .PINE:
+					// Stacked triangles read as an evergreen from the top-down view.
+					raylib.DrawRectangleV({c.x - 5, c.y + 4}, {10, 18}, trunk)
+					raylib.DrawTriangle(
+						{c.x, c.y - 26},
+						{c.x - 20, c.y + 10},
+						{c.x + 20, c.y + 10},
+						pal.cover,
+					)
+					raylib.DrawTriangle(
+						{c.x, c.y - 12},
+						{c.x - 14, c.y + 16},
+						{c.x + 14, c.y + 16},
+						pal.cover_top,
+					)
+				case .ROCK:
+					raylib.DrawCircleV(c, 23, pal.cover)
+					raylib.DrawCircleV({c.x - 7, c.y - 6}, 12, pal.cover_top)
+					raylib.DrawCircleV({c.x + 9, c.y + 8}, 9, pal.cover)
+				case .CRATE:
+					raylib.DrawRectangleV(t.pos, t.size, pal.cover)
+					raylib.DrawRectangleLinesEx(
+						{t.pos.x, t.pos.y, t.size.x, t.size.y},
+						2,
+						pal.cover_top,
+					)
+					// Cross-brace so a crate doesn't read as a plain box.
+					raylib.DrawLineEx(t.pos, t.pos + t.size, 2, pal.cover_top)
+					raylib.DrawLineEx(
+						{t.pos.x + t.size.x, t.pos.y},
+						{t.pos.x, t.pos.y + t.size.y},
+						2,
+						pal.cover_top,
+					)
+				}
 			}
 			// Barrels.
 			for b in barrels {

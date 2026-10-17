@@ -214,9 +214,37 @@ barrel :: struct {
 	hp:   f32,
 }
 
-tree :: struct {
+// Static cover. All kinds are solid to movement and bullets (they live in the
+// same "props" list the obstacle resolver walks) but draw differently so an
+// arena reads as a place rather than a pile of identical circles.
+Prop_Kind :: enum {
+	TREE,  // round canopy on a trunk
+	PINE,  // conical evergreen
+	ROCK,  // boulder
+	CRATE, // square supply crate
+}
+
+prop :: struct {
 	pos:  raylib.Vector2,
 	size: raylib.Vector2,
+	kind: Prop_Kind,
+}
+
+// Scattered floor detail (grass tufts, pebbles, cracks, embers...). Purely
+// decorative: it never collides, it just stops large flat floors reading as a
+// flat checkerboard.
+Floor_Decor :: enum {
+	GRASS,  // grass tufts
+	PEBBLE, // scattered stones
+	CRACK,  // hairline fractures
+	SNOW,   // snow patches
+	EMBER,  // glowing hot flecks
+}
+
+floor_mark :: struct {
+	pos:  raylib.Vector2,
+	size: f32,
+	kind: Floor_Decor,
 }
 
 // Purely visual blast marker shown after a barrel pops.
@@ -311,6 +339,9 @@ Arena_Kind :: enum {
 	CANYON,
 	RUINS,
 	GLACIER,
+	FOUNDRY,
+	FOREST,
+	SWAMP,
 }
 
 Arena_Stats :: struct {
@@ -319,8 +350,10 @@ Arena_Stats :: struct {
 	floor_dark:  raylib.Color,
 	floor_light: raylib.Color,
 	wall:        raylib.Color,
-	cover:       raylib.Color, // tree/boulder body
-	cover_top:   raylib.Color, // tree/boulder highlight
+	cover:       raylib.Color, // prop body
+	cover_top:   raylib.Color, // prop highlight
+	decor:       Floor_Decor,  // kind of floor scatter
+	decor_col:   raylib.Color, // floor scatter tint
 }
 
 // What a mission (level) asks you to do. `target` is a wave number for SURVIVE

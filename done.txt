@@ -60,3 +60,4 @@ x 2026-10-17 2026-10-17 Give Bud and Tracer Advanced tutorials the same hands-on
 x 2026-10-17 2026-10-17 Combat juice: bullet tracers+glow, impact sparks, enemy death bursts, player hurt vignette, and hitstop on kills/finishers/barrels +roguelike @ui @fx
 x 2026-10-17 2026-10-17 Add Hurt vignette video setting (toggle) and enemy muzzle flashes when they fire +roguelike @ui @fx @settings
 x 2026-10-17 2026-10-17 Mission Control panel: selectable mission "levels" with objectives, arena+density modifiers, coin rewards, and persisted clears +roguelike @levels @main-menu @ui
+x 2026-10-17 2026-10-17 Rework arenas: real grassland floor, prop kinds (tree/pine/rock/crate), scatter decor, per-map barrel/prop placement with a no-spawn-in-walls filter; add FOUNDRY/FOREST/SWAMP maps +roguelike @levels @environment @maps
