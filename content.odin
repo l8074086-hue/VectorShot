@@ -940,6 +940,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{40, 70, 40, 255},
 		.GRASS,
 		{92, 150, 78, 255},
+		.NONE,
 	},
 	.CANYON    = {
 		"CANYON",
@@ -951,6 +952,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{196, 134, 78, 255},
 		.PEBBLE,
 		{178, 128, 84, 255},
+		.NONE,
 	},
 	.RUINS     = {
 		"RUINS",
@@ -962,17 +964,19 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{160, 156, 148, 255},
 		.CRACK,
 		{140, 136, 128, 255},
+		.NONE,
 	},
 	.GLACIER   = {
 		"GLACIER",
 		"SPARSE WALLS, DENSE BOULDERS",
-		{26, 40, 52, 255},
-		{32, 48, 62, 255},
-		{86, 118, 146, 255},
-		{180, 216, 236, 255},
-		{230, 246, 252, 255},
+		{38, 52, 66, 255},
+		{52, 68, 84, 255},
+		{110, 132, 154, 255},
+		{148, 172, 196, 255},
+		{205, 224, 240, 255},
 		.SNOW,
-		{210, 232, 248, 255},
+		{225, 238, 250, 255},
+		.SNOW,
 	},
 	.FOUNDRY   = {
 		"FOUNDRY",
@@ -984,6 +988,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{168, 96, 56, 255},
 		.EMBER,
 		{255, 150, 60, 255},
+		.NONE,
 	},
 	.FOREST    = {
 		"FOREST",
@@ -995,6 +1000,7 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{30, 60, 30, 255},
 		.GRASS,
 		{80, 140, 66, 255},
+		.NONE,
 	},
 	.SWAMP     = {
 		"SWAMP",
@@ -1006,8 +1012,10 @@ ARENAS := [Arena_Kind]Arena_Stats {
 		{44, 58, 40, 255},
 		.PEBBLE,
 		{96, 118, 82, 255},
+		.NONE,
 	},
 }
+
 
 
 // --- missions (Mission Control "levels") ------------------------------------

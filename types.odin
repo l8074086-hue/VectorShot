@@ -344,6 +344,21 @@ Arena_Kind :: enum {
 	SWAMP,
 }
 
+// Ambient sky weather for an arena. Drawn as a screen-space foreground overlay on
+// top of the game, so it reads as "falling from the sky" over the top-down view.
+Weather_Kind :: enum {
+	NONE,
+	SNOW,
+}
+
+// One falling snow particle. Positions are in screen space and wrap around, so
+// the field is cheap and endless.
+snowflake :: struct {
+	pos:  raylib.Vector2,
+	vel:  raylib.Vector2,
+	size: f32,
+}
+
 Arena_Stats :: struct {
 	name:        cstring,
 	desc:        cstring,
@@ -354,6 +369,7 @@ Arena_Stats :: struct {
 	cover_top:   raylib.Color, // prop highlight
 	decor:       Floor_Decor,  // kind of floor scatter
 	decor_col:   raylib.Color, // floor scatter tint
+	weather:     Weather_Kind, // ambient sky effect, if any
 }
 
 // What a mission (level) asks you to do. `target` is a wave number for SURVIVE

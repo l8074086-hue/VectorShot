@@ -245,6 +245,7 @@ main :: proc() {
 	defer delete(barrels)
 	defer delete(props)
 	defer delete(floor_marks)
+	defer delete(snow)
 	defer delete(explosions)
 	defer delete(sparks)
 	defer delete(shop_items)
@@ -1281,6 +1282,9 @@ main :: proc() {
 			shake = shake_mag * settings.screen_shake
 			// Count active play time for the results screen.
 			run_time += dT
+			// Ambient falling snow (GLACIER). Screen-space, ticked here so it
+			// freezes with the rest of the world when the panel is open.
+			update_snow(dT)
 			// GF mode (Ctrl+G): a hidden comfort toggle. Ctrl is read directly so
 			// the plain-G debug key below can tell the two apart.
 			gf_ctrl :=
@@ -2688,6 +2692,14 @@ main :: proc() {
 			0,
 			raylib.WHITE,
 		)
+		// Falling snow: a screen-space foreground overlay so it reads as drifting
+		// down from the sky over the top-down arena. Only on snow arenas, and only
+		// during a run.
+		if state == .PLAYING && arena_has_snow() {
+			for s in snow {
+				raylib.DrawCircleV(s.pos, s.size, raylib.Color{240, 248, 255, 200})
+			}
+		}
 		// Player-hurt wash: a red vignette over the whole screen, drawn in screen
 		// space so it covers the letterbox too. Heaviest at the moment of the hit
 		// and fading out over PLAYER_HURT_FLASH_TIME.

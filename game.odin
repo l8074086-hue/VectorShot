@@ -391,6 +391,11 @@ utility: Utility = .VITALITY
 currency: i32 = 0
 arena: Arena_Kind = .GRASSLAND
 
+// Ambient falling snow (screen space), enabled per-arena via ARENAS[].weather.
+// Snowflakes drift down and wrap, so the field is cheap and endless.
+SNOW_COUNT :: 120
+snow: [dynamic]snowflake
+
 // Active mission ("level") for this run. -1 means an ordinary endless run with no
 // objective. Set by the Mission Control screen and on START RUN; read by the HUD,
 // new_wave (for density) and mission_check_complete.
@@ -2200,6 +2205,8 @@ build_arena :: proc(kind: Arena_Kind) {
 	clear(&barrels)
 	clear(&props)
 	clear(&floor_marks)
+	// Seed the ambient snow field to match this map's weather.
+	seed_snow()
 	// Deterministic per-map seed so decoration is stable across loads.
 	arena_seed = u32(kind) * 1664525 + 1013904223
 
@@ -2394,6 +2401,66 @@ add_barrels :: proc(spots: []raylib.Vector2) {
 			continue
 		}
 		append(&barrels, barrel{pos = {r.x, r.y}, size = {r.width, r.height}, hp = 6})
+	}
+}
+
+// --- ambient weather ---------------------------------------------------------
+
+// Does the current arena have falling snow?
+arena_has_snow :: proc() -> bool {
+	return ARENAS[arena].weather == .SNOW
+}
+
+// One snowflake, randomly placed. `anywhere` scatters across the whole screen
+// (initial fill); otherwise it spawns just above the top edge to fall in.
+snow_emit :: proc(sw, sh: f32, anywhere: bool) {
+	y := rand.float32_range(0, sh)
+	if !anywhere {
+		y = -10
+	}
+	append(
+		&snow,
+		snowflake {
+			pos = {rand.float32_range(0, sw), y},
+			vel = {rand.float32_range(-16, 16), rand.float32_range(30, 80)},
+			size = rand.float32_range(1.0, 3.0),
+		},
+	)
+}
+
+// Fill (or clear) the snow field to match the current arena's weather. Called
+// from build_arena so every map switch reseeds correctly.
+seed_snow :: proc() {
+	clear(&snow)
+	if !arena_has_snow() {
+		return
+	}
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	for _ in 0 ..< SNOW_COUNT {
+		snow_emit(sw, sh, true)
+	}
+}
+
+// Drift every flake down and recycle any that fall off the bottom back to the top.
+update_snow :: proc(dT: f32) {
+	if len(snow) == 0 {
+		return
+	}
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	for i in 0 ..< len(snow) {
+		s := &snow[i]
+		s.pos += s.vel * dT
+		if s.pos.x < 0 {
+			s.pos.x += sw
+		} else if s.pos.x > sw {
+			s.pos.x -= sw
+		}
+		if s.pos.y > sh {
+			s.pos.y = -10
+			s.pos.x = rand.float32_range(0, sw)
+		}
 	}
 }
 
