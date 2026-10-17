@@ -421,40 +421,7 @@ draw_telegraphs :: proc() {
 				raylib.Color{255, 255, 120, u8(50 + 150 * k)},
 			)
 		case .BOSS:
-			if e.state == .WINDUP && e.boss_next == 1 {
-				// Slam tell: a danger circle at the spot locked in when the
-				// wind-up started, filling as the impact closes.
-				slam_r := ARENA_BOSSES[arena].slam_radius
-				k := 1 - clamp(e.state_timer / f32(BOSS_SLAM_TELEGRAPH), 0, 1)
-				sl := e.charge_dir * 120 + ec
-				raylib.DrawCircleV(
-					sl,
-					slam_r,
-					raylib.Color{200, 40, 40, u8(30 + 50 * k)},
-				)
-				raylib.DrawCircleLines(
-					i32(sl.x),
-					i32(sl.y),
-					slam_r,
-					raylib.Color{255, 90, 90, u8(120 + 120 * k)},
-				)
-				// A shrinking ring inside the zone reads as the fuse.
-				raylib.DrawCircleLines(
-					i32(sl.x),
-					i32(sl.y),
-					slam_r * (1 - k),
-					raylib.Color{255, 220, 120, u8(150 + 90 * k)},
-				)
-			} else if e.state == .WINDUP {
-				// Volley tell: the boss flares while spinning up its radial shot.
-				k := 1 - clamp(e.state_timer / f32(BOSS_SHOOT_TELEGRAPH), 0, 1)
-				raylib.DrawCircleLines(
-					i32(ec.x),
-					i32(ec.y),
-					max(e.size.x, e.size.y) * (0.6 + 0.8 * k),
-					raylib.Color{255, 160, 60, u8(90 + 150 * k)},
-				)
-			}
+			draw_boss_telegraph(e)
 		}
 	}
 }
@@ -2153,6 +2120,10 @@ main :: proc() {
 				}
 				for j := len(enemies) - 1; j >= 0; j -= 1 {
 					e := &enemies[j]
+					// A burrowed boss is underground: shots fly over the mound.
+					if e.kind == .BOSS && e.boss_hidden {
+						continue
+					}
 					if bullet_hit_before(&bullets[i], e.id) {
 						continue
 					}
@@ -2217,8 +2188,13 @@ main :: proc() {
 			if inv_timer > 0 {
 				inv_timer -= dT
 			}
+			update_player_status(dT)
 			player_rect := raylib.Rectangle{position.x, position.y, size.x, size.y}
 			for i := len(enemies) - 1; i >= 0; i -= 1 {
+				// A burrowed boss is underground and can't body-check you.
+				if enemies[i].kind == .BOSS && enemies[i].boss_hidden {
+					continue
+				}
 				enemy_rect := raylib.Rectangle {
 					enemies[i].position.x,
 					enemies[i].position.y,
@@ -2267,6 +2243,7 @@ main :: proc() {
 				if raylib.CheckCollisionRecs({bp.x, bp.y, bs.x, bs.y}, player_rect) {
 					if inv_timer <= 0 {
 						apply_player_damage(b.damage, b.position)
+						apply_player_effects(b.effects)
 						inv_timer = 0.5
 						if !tutorial_mode {
 							play(sounds.player_hurt)
@@ -2507,7 +2484,10 @@ main :: proc() {
 				if e.elite && e.kind == .CHARGER && e.state == .CHARGE {
 					body.a = 110
 				}
-				raylib.DrawRectangleV(e.position, e.size, body)
+				// A burrowed DUSTMAW draws only its ground mound (draw_boss_body).
+				if !(e.kind == .BOSS && e.boss_hidden) {
+					raylib.DrawRectangleV(e.position, e.size, body)
+				}
 				// Per-kind decoration so the new archetypes and the boss read as
 				// distinct silhouettes at a glance.
 				{
@@ -2535,17 +2515,7 @@ main :: proc() {
 						raylib.DrawLineEx(ec, ec + e.muzzle_dir * (er + 8), 2, raylib.DARKGRAY)
 						raylib.DrawCircleV(ec, 4, raylib.WHITE)
 					case .BOSS:
-						// An armoured core and a heavy outline to sell the size.
-						raylib.DrawRectangleLinesEx(
-							{e.position.x, e.position.y, e.size.x, e.size.y},
-							4,
-							raylib.Color{0, 0, 0, 200},
-						)
-						core_col := raylib.Color{150, 20, 20, 255}
-						if e.boss_phase >= 2 {
-							core_col = raylib.ORANGE // enrage: the core glows hot
-						}
-						raylib.DrawCircleV(ec, er * 0.4, core_col)
+						draw_boss_body(e)
 					}
 				}
 				// Muzzle flash at the barrel this enemy last fired from, so
@@ -2750,6 +2720,9 @@ main :: proc() {
 			raylib.DrawRectangle(10, 10, 200, 20, raylib.RED)
 			raylib.DrawRectangle(10, 10, i32(200 * health / max_health), 20, raylib.GREEN)
 			raylib.DrawRectangleLines(10, 10, 200, 20, raylib.WHITE)
+			if player_poison > 0 {
+				raylib.DrawText("POISONED", 216, 12, 16, raylib.Color{120, 230, 120, 255})
+			}
 			if endless_mode {
 				draw_centered(raylib.TextFormat("WAVE %i  -  ENDLESS", int(wave)), 6, 24, raylib.GOLD)
 			} else {
@@ -2793,7 +2766,9 @@ main :: proc() {
 				raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
 				raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
 				draw_centered(ARENA_BOSSES[arena].name, by + 20, 16, raylib.LIGHTGRAY)
-				if e.boss_phase >= 2 {
+				if e.boss_hidden {
+					draw_centered(cstring("UNDERGROUND"), by + 38, 14, raylib.Color{196, 164, 110, 255})
+				} else if e.boss_phase >= 2 {
 					draw_centered(cstring("ENRAGED"), by + 38, 14, raylib.ORANGE)
 				}
 			}

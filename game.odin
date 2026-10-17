@@ -185,6 +185,10 @@ FREEZE_SLOW :: 0.45 // move-speed multiplier while frozen
 SHOCK_TIME :: 1.2 // stunned (no move, no attack) while shocked
 MAX_STATUS_POWER :: 4.0 // cap on per-element power (damage / slow / stun)
 MAX_STATUS_TIME_MULT :: 2.5 // cap on the global duration multiplier
+// What enemy hits can do to the player. Only poison is wired so far: the
+// Packleader's arrows leave a short damage-over-time on the player.
+PLAYER_POISON_TIME :: 4.0
+PLAYER_POISON_DPS :: 3.0
 
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
@@ -323,6 +327,7 @@ size: raylib.Vector2 = {30, 30}
 health: f32 = 100
 max_health: f32 = 100
 inv_timer: f32 = 0
+player_poison: f32 = 0 // seconds of poison left on the player (DoT)
 last_dir: raylib.Vector2 = {0, -1} // last movement direction (used by dashes)
 aim_dir: raylib.Vector2 = {0, -1} // points at the mouse cursor
 SPEED: f32 = 200
@@ -550,6 +555,7 @@ start_run :: proc(stats: Run_Stats) {
 	reload_time_base = stats.reload_time
 	dash_timer = 0
 	inv_timer = 0
+	player_poison = 0
 	max_health = stats.max_health
 	health = max_health
 	card_choices = stats.card_choices
@@ -1999,6 +2005,8 @@ spawn_arena_boss :: proc(pos: raylib.Vector2) {
 			id = next_enemy_id,
 			speed = b.speed * spd_scale,
 			kind = .BOSS,
+			boss_kind = b.kind,
+			boss_timer2 = 0.6, // brief pause before DUSTMAW's first dive
 			state = .CHASE,
 		},
 	)
@@ -2053,140 +2061,6 @@ arena_cleared :: proc() {
 	settings_save()
 	show_banner(cstring("ARENA CLEARED"), raylib.GOLD, 4.0)
 	play(sounds.shop_buy)
-}
-
-// The boss fight's AI: alternate telegraphed radial volleys and a ground slam,
-// enrage below half health. Every attack announces itself in WINDUP (the body
-// flashes and grows a tell) before it lands.
-update_boss :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
-	// Per-arena boss tuning: the same state machine, but each map's boss uses its
-	// own range/volley/slam/summon numbers (spawned by spawn_arena_boss).
-	b := ARENA_BOSSES[arena]
-	ec := e.position + e.size * 0.5
-
-	// Phase flip below half health.
-	if e.boss_phase < 2 && e.hp <= e.max_hp * BOSS_PHASE2_FRAC {
-		e.boss_phase = 2
-		e.state = .BOSS_RAGE
-		e.state_timer = 1.0
-		e.flash = 0.4
-		play(sounds.enemy_die, 0.7)
-	}
-	phase2 := e.boss_phase >= 2
-	move_spd := spd
-	if phase2 {
-		move_spd = spd * BOSS_RAGE_SPEED_MULT
-	}
-
-	// Keep a mid-range band: close in if too far, back off if crowded.
-	if dist > b.preferred_range {
-		e.position += dir * move_spd * dT
-	} else if dist < b.preferred_range * 0.6 {
-		e.position -= dir * move_spd * dT
-	} else {
-		perp := raylib.Vector2{-dir.y, dir.x}
-		e.position += perp * move_spd * 0.4 * dT
-	}
-
-	e.state_timer -= dT
-	#partial switch e.state {
-	case .CHASE, .RECOVER:
-		if e.state_timer <= 0 {
-			// Pick the next attack: alternate volley and slam, favouring volleys.
-			if rand.float32() < 0.6 {
-				e.boss_next = 0
-				e.boss_spin = rand.float32() * 2 * math.PI
-				e.state_timer = BOSS_SHOOT_TELEGRAPH
-			} else {
-				e.boss_next = 1
-				e.charge_dir = dir // remember where to slam
-				e.state_timer = BOSS_SLAM_TELEGRAPH
-			}
-			e.state = .WINDUP
-		}
-	case .WINDUP:
-		// Telegraph: pulse white faster the closer the attack is.
-		if e.state_timer > 0 {
-			tell: f32 = BOSS_SLAM_TELEGRAPH
-			if e.boss_next == 0 {
-				tell = BOSS_SHOOT_TELEGRAPH
-			}
-			e.flash = max(e.flash, f32(0.2) * (e.state_timer / tell))
-		}
-		if e.state_timer <= 0 {
-			// Dispatch to the queued attack.
-			if e.boss_next == 0 {
-				e.state = .BOSS_SHOOT
-			} else {
-				e.state = .BOSS_SLAM
-			}
-			e.state_timer = 0.01
-		}
-	case .BOSS_SHOOT:
-		// Radial volley centred on the player.
-		count := b.volley
-		if phase2 {
-			count = b.volley_rage
-		}
-		aim := e.position + e.size * 0.5
-		to_player := position + size * 0.5 - aim
-		base_ang: f32 = 0.0
-		if raylib.Vector2Length(to_player) > 0.01 {
-			base_ang = math.atan2_f32(to_player.y, to_player.x)
-		}
-		for i in 0 ..< count {
-			ang := base_ang + e.boss_spin + f32(i) * (2 * math.PI / f32(count))
-			append(
-				&enemy_bullets,
-				bullet {
-					position = ec - {6, 6},
-					size = {12, 12},
-					velocity = raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} *
-					b.bullet_speed,
-					damage = e.damage * 0.5,
-					pierce = 0,
-				},
-			)
-		}
-		e.muzzle = ENEMY_MUZZLE_FLASH_TIME
-		e.muzzle_dir = to_player
-		add_shake(4)
-		// After a volley, telegraph the slam.
-		e.boss_next = 1
-		e.charge_dir = to_player / max(raylib.Vector2Length(to_player), 0.01)
-		e.state = .WINDUP
-		e.state_timer = BOSS_SLAM_TELEGRAPH
-	case .BOSS_SLAM:
-		if e.state_timer <= 0 {
-			// Ground slam centred on where the player was telegraphed.
-			sl := e.charge_dir * 120 + ec
-			append(
-				&explosions,
-				explosion {
-					pos = sl,
-					life = 0.3,
-					max_life = 0.3,
-					radius = b.slam_radius,
-					color = raylib.RED,
-				},
-			)
-			add_shake(6)
-			if raylib.Vector2Distance(position + size * 0.5, sl) < b.slam_radius {
-				apply_player_damage(b.slam_damage, sl)
-			}
-			e.state = .RECOVER
-			e.state_timer = 0.9
-		}
-	case .BOSS_RAGE:
-		// Phase-2 entry flourish: summon adds once, then fight.
-		if e.state_timer <= 0 {
-			for _ in 0 ..< b.summon {
-				spawn_enemy_at(.RUNNER, false, 1, random_spawn_pos(ENEMIES[.RUNNER].size))
-			}
-			e.state = .BOSS_SHOOT
-			e.state_timer = 0.01
-		}
-	}
 }
 
 // Per-enemy steering. Movement is applied here; wall collision is resolved
@@ -2522,6 +2396,10 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 // the armored body takes no hp damage. `from` points from the enemy toward the
 // source of the damage. The result tells the caller what happened.
 apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enemy_Hit {
+	// A burrowed boss is underground: nothing reaches it until it surfaces.
+	if e.kind == .BOSS && e.boss_hidden {
+		return .BLOCKED
+	}
 	if e.elite && e.kind == .TANK && e.plates > 0 {
 		dir: raylib.Vector2 = {0, 0}
 		if raylib.Vector2Length(from) > 0.01 {
@@ -2774,6 +2652,25 @@ enemy_stunned :: proc(e: ^enemy) -> bool {
 	return .Shock in e.effects
 }
 
+// Enemy attacks can leave status effects on the player. Only poison is wired
+// so far: a short damage-over-time that the Packleader's arrows apply.
+apply_player_effects :: proc(set: Status_Set) {
+	if .Poison in set {
+		player_poison = max(player_poison, PLAYER_POISON_TIME)
+	}
+}
+
+// Tick the player's own status effects. Called once per frame from the main
+// loop; poison drains health directly (it ignores i-frames on purpose).
+update_player_status :: proc(dT: f32) {
+	if player_poison <= 0 {
+		return
+	}
+	player_poison = max(player_poison - dT, 0)
+	scale := DIFF_ENEMY_DAMAGE[int(difficulty)] * (assists_on() ? GF_DAMAGE_MULT : 1)
+	health -= PLAYER_POISON_DPS * dT * scale
+}
+
 // Stamp `set` onto an enemy, refreshing each effect's timer (a re-application
 // tops it back up but never stacks beyond one timer per effect).
 apply_status :: proc(e: ^enemy, set: Status_Set) {
@@ -2811,8 +2708,10 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 		if dmg > 0 {
 			// Crystal plates absorb damage-over-time too. Elemental ticks used
 			// to write hp directly and phase straight through an elite Bulwark's
-			// armor; this mirrors the plate guard in apply_enemy_damage.
-			if !(e.elite && e.kind == .TANK && e.plates > 0) {
+			// armor; this mirrors the plate guard in apply_enemy_damage. A
+			// burrowed boss is likewise immune while it's underground.
+			if !(e.elite && e.kind == .TANK && e.plates > 0) &&
+			   !(e.kind == .BOSS && e.boss_hidden) {
 				e.hp -= dmg
 				// Damage-over-time feeds the practice dummy's DPS bar too.
 				if e.kind == .DUMMY_DPS {

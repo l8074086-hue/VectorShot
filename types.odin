@@ -119,6 +119,12 @@ enemy :: struct {
 	boss_phase:    i32,
 	boss_spin:     f32,
 	boss_next:     i32,
+	// Per-boss moveset scratch (see boss.odin).
+	boss_kind:     Boss_Kind,     // which arena boss this is, for dispatch
+	boss_seq:      i32,           // sub-step within the current attack
+	boss_timer2:   f32,           // secondary timer (between-attack pacing)
+	boss_hidden:   bool,          // DUSTMAW: burrowed (invulnerable, no contact)
+	boss_aux:      raylib.Vector2,// scratch aim/dash/target direction
 	// Bulwark (elite TANK): each crystal plate guards one world-space direction.
 	// A hit arriving from roughly that direction shatters it; while any plate
 	// remains the armored body shrugs off hp damage.
@@ -187,9 +193,14 @@ Enemy_State :: enum {
 	STRAFE,  // ranged keeping its distance
 	// Boss (WARDEN) states: it cycles telegraph -> attack -> recover, and flips
 	// to its faster second phase below half health.
-	BOSS_SHOOT,  // sweeping shot of radial bullets
-	BOSS_SLAM,   // telegraphed ground slam that damages in a radius
-	BOSS_RAGE,   // phase-2 enrage flourish: summons adds, then resumes fighting
+	// Boss moveset states. Each boss's own update picks an attack into
+	// e.boss_next and telegraphs it in WINDUP, then runs it here.
+	BOSS_SHOOT,  // firing a ranged attack
+	BOSS_SLAM,   // a telegraphed ground attack / stomp
+	BOSS_RAGE,   // phase-2 enrage flourish before the fight resumes
+	BOSS_ATTACK, // executing the chosen attack (dispatched per Boss_Kind)
+	BOSS_BURROW, // DUSTMAW: underground, untargetable, drifting to strike
+	BOSS_EMERGE, // DUSTMAW: rising out of the ground, now vulnerable
 }
 
 Enemy_Stats :: struct {
@@ -422,20 +433,28 @@ Arena_Stats :: struct {
 // The set-piece boss that guards an arena, keyed by Arena_Kind so every map has
 // its own look, stats and attack flavour. One boss per run: it spawns once on
 // its arena's final wave and never appears in the normal spawn table.
+// Every arena's boss is a distinct fight, so its AI, telegraphs and
+// silhouette dispatch on this kind instead of sharing one generic state
+// machine. One boss per arena, keyed from ARENA_BOSSES.
+Boss_Kind :: enum {
+	PACKLEADER,  // GRASSLAND: wolf alpha -- poison arrows, a runner pack, side dashes
+	DUSTMAW,     // CANYON: burrowing worm -- pops up to strike, then hides again
+	COLOSSUS,    // RUINS: stone titan -- stomps, hurled rubble, charges
+	FROSTBITE,   // GLACIER: ice wraith -- icicle fans, frost novas, blinks
+	FORGEMASTER, // FOUNDRY: furnace engine -- mortars, a flame sweep, constructs
+	THORNWALD,   // FOREST: tree horror -- thorn spirals, root lashes, saplings
+	BOGWRAITH,   // SWAMP: bog spirit -- poison novas, phasing, wisps
+}
+
 Arena_Boss :: struct {
 	name:            cstring,
+	kind:            Boss_Kind, // picks the moveset, telegraphs and silhouette
 	color:           raylib.Color,
 	size:            raylib.Vector2,
 	hp:              f32,
 	speed:           f32,
 	damage:          f32,
-	preferred_range: f32,
-	volley:          i32, // radial bullets per volley (phase 1)
-	volley_rage:     i32, // radial bullets per volley (phase 2)
-	bullet_speed:    f32,
-	slam_radius:     f32,
-	slam_damage:     f32,
-	summon:          i32, // adds summoned on the enrage transition
+	preferred_range: f32, // distance the boss tries to hold (where it applies)
 }
 
 // What a mission (level) asks you to do. `target` is a wave number for SURVIVE
