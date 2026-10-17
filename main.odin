@@ -215,34 +215,50 @@ draw_ingame_panel :: proc() {
 // moved out of the canvas and into the left pillarbox bar.
 CHAR_PASSIVE_MIN_BAR :: 150
 
-// Small value bar used by the character passives (Heart, knee charge).
-draw_passive_bar :: proc(ox, oy: f32, frac: f32, col: raylib.Color) {
-	raylib.DrawRectangle(i32(ox), i32(oy), 120, 8, raylib.DARKGRAY)
-	raylib.DrawRectangle(i32(ox), i32(oy), i32(120 * clamp(frac, 0, 1)), 8, col)
-	raylib.DrawRectangleLines(i32(ox), i32(oy), 120, 8, raylib.GRAY)
+// Largest font size (<= max) at which `text` still fits within `avail` pixels.
+// Lets the narrow letterbox bar shrink labels instead of clipping them.
+fit_font :: proc(text: cstring, avail: f32, max_fs: i32) -> i32 {
+	fs := max_fs
+	for fs > 7 && f32(raylib.MeasureText(text, fs)) > avail {
+		fs -= 1
+	}
+	return fs
 }
 
-// Character name, passive name, and the live passive bar/label. Drawn either in
-// the canvas top-left (4:3 windows with no pillarbox) or out in the left
-// letterbox bar to keep the gameplay canvas clear. `ox`/`oy` is the top-left
-// anchor in whatever space the caller is currently drawing.
-draw_char_passive :: proc(ox, oy: f32) {
-	raylib.DrawText(
-		cstring(CHARACTERS[character].name),
-		i32(ox),
-		i32(oy),
-		20,
-		CHARACTERS[character].color,
-	)
-	raylib.DrawText(
-		cstring(CHARACTERS[character].passive),
-		i32(ox),
-		i32(oy + 22),
-		14,
-		raylib.LIGHTGRAY,
-	)
+// Small value bar used by the character passives (Heart, knee charge).
+draw_passive_bar :: proc(ox, oy, w: f32, frac: f32, col: raylib.Color) {
+	raylib.DrawRectangle(i32(ox), i32(oy), i32(w), 8, raylib.DARKGRAY)
+	raylib.DrawRectangle(i32(ox), i32(oy), i32(w * clamp(frac, 0, 1)), 8, col)
+	raylib.DrawRectangleLines(i32(ox), i32(oy), i32(w), 8, raylib.GRAY)
+}
+
+// The whole character sidebar: name, passive name, the live passive bar/label,
+// and the on-hit status effects. Drawn either out in the left pillarbox bar (to
+// keep the gameplay canvas clear) or, on 4:3 windows with no bar, into the canvas
+// top-left. Everything auto-shrinks to `avail` so it always fits the space given.
+draw_sidebar_hud :: proc(ox, oy, avail: f32) {
+	// Character name (big, in the character's colour).
+	name := cstring(CHARACTERS[character].name)
+	name_fs := fit_font(name, avail, 20)
+	raylib.DrawText(name, i32(ox), i32(oy), name_fs, CHARACTERS[character].color)
+	cy := oy + f32(name_fs) + 4
+	// Passive name.
+	pass := cstring(CHARACTERS[character].passive)
+	pass_fs := fit_font(pass, avail, 13)
+	raylib.DrawText(pass, i32(ox), i32(cy), pass_fs, raylib.LIGHTGRAY)
+	cy += f32(pass_fs) + 5
+	// Passive-specific bar / label.
 	if character == .TRACER {
-		draw_passive_bar(ox, oy + 42, traceur_charge, raylib.GOLD)
+		draw_passive_bar(ox, cy, min(120.0, avail), traceur_charge, raylib.GOLD)
+		cy += 14
+	} else if character == .BUD && signature_next_charged() {
+		bw := min(120.0, avail)
+		draw_passive_bar(ox, cy, bw, combo_charge, raylib.ORANGE)
+		cy += 14
+		kc := cstring("KNEE CHARGING")
+		kc_fs := fit_font(kc, avail, 13)
+		raylib.DrawText(kc, i32(ox), i32(cy), kc_fs, raylib.ORANGE)
+		cy += f32(kc_fs) + 4
 	} else if character == .RR {
 		// Vector Edge reshapes to the Adaptation, so name the form too.
 		label := raylib.TextFormat(
@@ -255,10 +271,27 @@ draw_char_passive :: proc(ox, oy: f32) {
 			label = raylib.TextFormat("%s [SURGE]", label)
 			col = raylib.GOLD
 		}
-		raylib.DrawText(label, i32(ox), i32(oy + 42), 14, col)
-	} else if character == .BUD && signature_next_charged() {
-		draw_passive_bar(ox, oy + 42, combo_charge, raylib.ORANGE)
-		raylib.DrawText(cstring("KNEE CHARGING"), i32(ox + 128), i32(oy + 40), 14, raylib.ORANGE)
+		fs := fit_font(label, avail, 13)
+		raylib.DrawText(label, i32(ox), i32(cy), fs, col)
+		cy += f32(fs) + 4
+	}
+	// On-hit status effects: stacked one per line so they fit a narrow bar.
+	if attack_effects != {} {
+		cy += 6
+		hdr := cstring("ON HIT:")
+		hdr_fs := fit_font(hdr, avail, 13)
+		raylib.DrawText(hdr, i32(ox), i32(cy), hdr_fs, raylib.LIGHTGRAY)
+		cy += f32(hdr_fs) + 3
+		for eff in Status_Effect {
+			if eff not_in attack_effects {
+				continue
+			}
+			sn := status_name(eff)
+			fs := fit_font(sn, avail - 14, 13)
+			raylib.DrawRectangle(i32(ox), i32(cy)+2, 8, 8, status_color(eff))
+			raylib.DrawText(sn, i32(ox)+13, i32(cy), fs, status_color(eff))
+			cy += f32(fs) + 3
+		}
 	}
 }
 
@@ -2345,11 +2378,11 @@ main :: proc() {
 				raylib.DrawText(cstring("RELOADING"), 560, 54, 18, raylib.ORANGE)
 			}
 			raylib.DrawText(raylib.TextFormat("$ %i", int(currency)), 10, 34, 20, raylib.GOLD)
-			// Character/passive HUD is drawn in the left letterbox bar by the
+			// Character/passive/on-hit sidebar is drawn in the left letterbox bar by the
 			// present step when there's room; only fall back to the canvas here on
 			// 4:3 windows with no pillarbox.
 			if view_x < CHAR_PASSIVE_MIN_BAR {
-				draw_char_passive(220, 34)
+				draw_sidebar_hud(220, 34, 560)
 			}
 			// Mission Control HUD: the active "level" and live progress toward its
 			// objective, plus a completion banner the moment it clears.
@@ -2407,18 +2440,6 @@ main :: proc() {
 				e_col = raylib.SKYBLUE
 			}
 			raylib.DrawText(e_label, 560, 74, 16, e_col)
-			if attack_effects != {} {
-				raylib.DrawText(cstring("ON HIT:"), 220, 96, 14, raylib.LIGHTGRAY)
-				pip_x: i32 = 292
-				for eff in Status_Effect {
-					if eff not_in attack_effects {
-						continue
-					}
-					raylib.DrawRectangle(pip_x, 98, 8, 8, status_color(eff))
-					raylib.DrawText(status_name(eff), pip_x + 11, 94, 14, status_color(eff))
-					pip_x += 19 + raylib.MeasureText(status_name(eff), 14)
-				}
-			}
 			raylib.DrawText(
 				cstring(
 					"WASD move   MOUSE aim   SPACE fire   Q slot   E kick   SHIFT dash   R reload   ` console",
@@ -2710,11 +2731,11 @@ main :: proc() {
 			}
 			raylib.EndScissorMode()
 		}
-		// Character/passive HUD, moved into the left pillarbox bar so the gameplay
-		// canvas stays clear. Drawn in screen space; skipped on 4:3 windows where
-		// the canvas HUD already drew it.
+		// Character/passive/on-hit sidebar, moved into the left pillarbox bar so the
+		// gameplay canvas stays clear. Width-fitted to the bar. Skipped on 4:3
+		// windows where the canvas HUD already drew it.
 		if state == .PLAYING && view_x >= CHAR_PASSIVE_MIN_BAR {
-			draw_char_passive(14, 20)
+			draw_sidebar_hud(14, 20, view_x - 28)
 		}
 		// Player-hurt wash: a red vignette over the whole screen, drawn in screen
 		// space so it covers the letterbox too. Heaviest at the moment of the hit

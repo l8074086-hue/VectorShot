@@ -65,3 +65,4 @@ x 2026-10-17 2026-10-17 Arena picker as a themed 3-col grid (all maps fit on scr
 x 2026-10-17 2026-10-17 In-run settings panel on Backspace (volume/shake/visual toggles + RESUME and RETURN TO MENU buttons); freezes the game as an overlay +roguelike @ui @settings
 x 2026-10-17 2026-10-17 Cool GLACIER to blue-grey palette + add falling-snow weather effect (screen-space drift) +roguelike @maps @fx
 x 2026-10-17 2026-10-17 Clip falling snow to the canvas; move character/passive name+bar into the left letterbox bar to free canvas space (4:3 fallback) +roguelike @ui @fx @hud
+x 2026-10-17 2026-10-17 Sidebar HUD (char/passive/on-hit) auto-fits the letterbox bar; on-hit effects stacked vertically +roguelike @ui @hud
