@@ -280,6 +280,14 @@ crystal :: struct {
 	flash:  f32,
 }
 
+// A fading silhouette left behind by FROSTBITE's dashes. Purely visual: it is
+// what makes her movement read as a glide rather than a teleport.
+boss_ghost :: struct {
+	pos:  raylib.Vector2,
+	size: raylib.Vector2,
+	life: f32,
+}
+
 // A thrown rock: MECHANIKTRON's straight-flying rockets and COLOSSUS's heavy
 // arcing boulders share one entity. Both detonate on the first thing they
 // touch (player, cover or wall) or when the fuse runs out; only `gravity` and

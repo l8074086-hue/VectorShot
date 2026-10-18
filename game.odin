@@ -227,6 +227,9 @@ MECH_CRYSTAL_HP :: 20 // base hp of one crystal (wave scaling applies)
 MECH_CRYSTAL_SIZE :: 34
 MECH_STUN_BASE :: 3.5 // exposed window on the first clear
 MECH_STUN_STEP :: 1.5 // added per subsequent clear
+// How long a FROSTBITE dash afterimage lingers before fading out entirely.
+BOSS_GHOST_LIFE :: 0.34
+
 MECH_ROCKET_SPEED :: 205
 MECH_ROCKET_SIZE :: 12
 MECH_ROCKET_LIFE :: 3.0
@@ -495,6 +498,9 @@ props: [dynamic]prop
 // arena and the rockets the machine lobs at the player.
 crystals: [dynamic]crystal
 rockets: [dynamic]rocket
+// FROSTBITE's dash afterimages (see spawn_boss_ghost). Cleared with the rest of
+// the run's visual scratch so a resumed run never shows stale silhouettes.
+boss_ghosts: [dynamic]boss_ghost
 // Decorative floor scatter (grass/pebbles/cracks/embers). Cleared and rebuilt
 // per arena; drawn before walls so it never covers cover.
 floor_marks: [dynamic]floor_mark
@@ -1451,6 +1457,7 @@ clear_run_entities :: proc() {
 	clear(&enemy_bullets)
 	clear(&crystals)
 	clear(&rockets)
+	clear(&boss_ghosts)
 	clear(&cards)
 	clear(&trail)
 	clear(&drops)
@@ -2113,6 +2120,12 @@ mech_fire_rocket :: proc(from, to: raylib.Vector2, damage: f32) {
 			color = raylib.Color{70, 74, 82, 255},
 		},
 	)
+}
+
+// Drop a fading silhouette at `pos`. FROSTBITE calls this every frame she is
+// mid-dash, which is what draws the motion arc behind her.
+spawn_boss_ghost :: proc(pos, size: raylib.Vector2) {
+	append(&boss_ghosts, boss_ghost{pos = pos, size = size, life = BOSS_GHOST_LIFE})
 }
 
 // COLOSSUS hurls a boulder in a high arc. The extra upward kick plus gravity is

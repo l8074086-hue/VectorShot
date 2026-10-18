@@ -2507,6 +2507,14 @@ main :: proc() {
 				}
 			}
 
+			// FROSTBITE dash afterimages: age out, then go.
+			for i := len(boss_ghosts) - 1; i >= 0; i -= 1 {
+				boss_ghosts[i].life -= dT
+				if boss_ghosts[i].life <= 0 {
+					unordered_remove(&boss_ghosts, i)
+				}
+			}
+
 			if health <= 0 {
 				game_over()
 			}
@@ -2923,6 +2931,18 @@ main :: proc() {
 			}
 			for b in enemy_bullets {
 				raylib.DrawRectangleV(b.position, b.size, raylib.MAGENTA)
+			}
+			// FROSTBITE's dash afterimages, drawn under the bosses so the moving boss
+			// always sits on top of its own trail.
+			for g in boss_ghosts {
+				f := g.life / BOSS_GHOST_LIFE
+				c := raylib.Color{140, 220, 255, u8(90 * f)}
+				raylib.DrawRectangleV(g.pos, g.size, raylib.Color{c.r, c.g, c.b, c.a / 3})
+				raylib.DrawRectangleLinesEx(
+					raylib.Rectangle{g.pos.x, g.pos.y, g.size.x, g.size.y},
+					2,
+					c,
+				)
 			}
 			// Thrown rocks: rockets are slim shells with a hot exhaust flare, boulders are
 			// squat tumbling stones with no trail.

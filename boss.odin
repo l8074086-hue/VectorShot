@@ -621,55 +621,144 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 
 // ---------------------------------------------------------------------------
 // FROSTBITE (GLACIER)
-// A fast ice wraith that keeps its distance: wide freezing icicle fans, frost
-// novas that ring it, and short blinks that reposition it with a frost burst.
+// A dancer, not a gunner. She closes on long gliding dashes that hurt on
+// contact and leave a trail of fading silhouettes, links three of them back to
+// back as a combo, and falls back to a tight three-shot fan only when you keep
+// your distance. Almost everything she threatens is a place she is about to be
+// rather than a bullet in the air.
 // ---------------------------------------------------------------------------
+
+FROST_WINDUP :: 0.55 // readable, but quick enough to keep the flow going
+FROST_DASH_SPEED :: 880
+FROST_DASH_TIME :: 0.2 // one dash step
+FROST_STEP_PAUSE :: 0.1 // the beat between linked steps in a combo
+FROST_STEP_TURN :: 0.55 // radians each linked step bends, so it curves
+FROST_CONTACT_MULT :: 1.0 // brushing her mid-dash hurts as much as a hit
+FROST_FAN_COUNT :: 3 // three. that's the whole fan.
+FROST_FAN_SPREAD :: 0.2
+FROST_FAN_SPEED :: 430
+FROST_FAN_DMG_MULT :: 0.7
+FROST_SPIN_COUNT :: 5
+FROST_SPIN_ARC :: 1.3 // radians; a slice across ~75 degrees each way, never a ring
+FROST_SPIN_SPEED :: 300
+FROST_SPIN_DMG_MULT :: 0.5
+FROST_RANGED_RANGE :: 300 // past this she sets up shots instead of dancing
+
+// Rotate a vector by `ang` radians, counter-clockwise.
+rotate_vec2 :: proc(v: raylib.Vector2, ang: f32) -> raylib.Vector2 {
+	return raylib.Vector2 {
+		v.x * math.cos_f32(ang) - v.y * math.sin_f32(ang),
+		v.x * math.sin_f32(ang) + v.y * math.cos_f32(ang),
+	}
+}
+
+// One dash step: glide along the locked heading, leave a silhouette behind, and
+// hurt whatever she brushes past. Clamped to the arena so a dash never parks
+// her inside a wall.
+frostbite_glide :: proc(e: ^enemy, dT: f32) {
+	e.position += e.boss_aux * FROST_DASH_SPEED * dT
+	e.position.x = clamp(e.position.x, f32(WALL_THICK), f32(ARENA_W - WALL_THICK) - e.size.x)
+	e.position.y = clamp(e.position.y, f32(WALL_THICK), f32(ARENA_H - WALL_THICK) - e.size.y)
+	spawn_boss_ghost(e.position, e.size)
+	// Contact is the whole point of a dash: sliding through you is the attack.
+	if inv_timer > 0 || tutorial_mode {
+		return
+	}
+	rect := raylib.Rectangle{e.position.x, e.position.y, e.size.x, e.size.y}
+	if raylib.CheckCollisionRecs(rect, {position.x, position.y, size.x, size.y}) {
+		apply_player_damage(e.damage * FROST_CONTACT_MULT, e.position + e.size * 0.5)
+		inv_timer = 0.55
+		play(sounds.player_hurt)
+	}
+}
+
 update_boss_frostbite :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
 	b := ARENA_BOSSES[arena]
 	ec := e.position + e.size * 0.5
 	pc := position + size * 0.5
 	phase2 := e.boss_phase >= 2
 
-	boss_hold_range(e, dir, dist, spd, b.preferred_range, dT, 0.85)
+	// She only drifts to hold range while she isn't mid-dance.
+	dancing :=
+		e.state == .BOSS_ATTACK &&
+		(e.boss_next == 0 || e.boss_next == 1 || e.boss_next == 3)
+	if !dancing {
+		boss_hold_range(e, dir, dist, spd, b.preferred_range, dT, 0.85)
+	}
+
 	e.state_timer -= dT
 	#partial switch e.state {
 	case .CHASE, .RECOVER:
 		if e.state_timer <= 0 {
-			r := rand.float32()
 			e.boss_seq = 0
-			if r < 0.5 {
-				e.boss_next = 0 // icicle fan
-				e.state_timer = 0.4
-			} else if r < 0.8 {
-				e.boss_next = 1 // frost nova
-				e.state_timer = 0.45
+			// Picked by distance: she dances when she can reach you, and only
+			// lines up shots when you've held well outside her range.
+			if dist > FROST_RANGED_RANGE {
+				e.boss_next = rand.float32() < 0.6 ? 2 : 3 // fan, or a spinning approach
 			} else {
-				e.boss_next = 2 // blink
-				e.state_timer = 0.3
+				e.boss_next = rand.float32() < 0.45 ? 0 : 1 // dash strike, or the combo
 			}
+			e.state_timer = FROST_WINDUP
 			e.state = .WINDUP
 			e.flash = 0.15
 		}
 	case .WINDUP:
+		// Every attack locks its heading the instant the tell appears, so the
+		// drawn line stays put while she drifts off it.
 		e.boss_aux = dir
 		if e.state_timer <= 0 {
 			e.state = .BOSS_ATTACK
 			switch e.boss_next {
 			case 0:
-				e.state_timer = 0.25
+				e.state_timer = FROST_DASH_TIME
 			case 1:
-				e.state_timer = 0.3
+				e.state_timer = FROST_DASH_TIME * 3 + FROST_STEP_PAUSE * 2
 			case 2:
-				e.state_timer = 0.2
+				e.state_timer = 0.25
+			case 3:
+				e.state_timer = FROST_DASH_TIME + 0.3
 			}
 		}
 	case .BOSS_ATTACK:
 		switch e.boss_next {
-		case 0:
+		case 0: // dash strike: one long glide straight through you
+			frostbite_glide(e, dT)
+			if e.state_timer <= 0 {
+				e.state = .RECOVER
+				e.state_timer = phase2 ? 0.25 : 0.45
+			}
+		case 1: // three-step: linked curving dashes, the signature combo
+			total: f32 = FROST_DASH_TIME * 3 + FROST_STEP_PAUSE * 2
+			step_time: f32 = FROST_DASH_TIME + FROST_STEP_PAUSE
+			cur := i32((total - e.state_timer) / step_time)
+			for e.boss_seq < cur && e.boss_seq < 3 {
+				// Alternate the bend so it weaves instead of spiralling.
+				turn: f32 = FROST_STEP_TURN
+				if e.boss_seq % 2 == 1 {
+					turn = -FROST_STEP_TURN
+				}
+				e.boss_aux = rotate_vec2(e.boss_aux, turn)
+				e.boss_seq += 1
+			}
+			frostbite_glide(e, dT)
+			if e.state_timer <= 0 {
+				e.state = .RECOVER
+				e.state_timer = phase2 ? 0.2 : 0.4
+			}
+		case 2: // fan: three shots, and only three
 			if e.boss_seq == 0 {
-				boss_fan(ec, pc - ec, phase2 ? 9 : 7, 0.14, 380, e.damage, 10, {.Freeze})
+				boss_fan(
+					ec,
+					pc - ec,
+					FROST_FAN_COUNT,
+					FROST_FAN_SPREAD,
+					FROST_FAN_SPEED,
+					e.damage * FROST_FAN_DMG_MULT,
+					10,
+					{.Freeze},
+				)
 				e.muzzle = ENEMY_MUZZLE_FLASH_TIME
-				e.muzzle_dir = dir
+				e.muzzle_dir = e.boss_aux
 				add_shake(3)
 				e.boss_seq = 1
 			}
@@ -677,40 +766,33 @@ update_boss_frostbite :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f3
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.25 : 0.45
 			}
-		case 1:
-			if e.boss_seq == 0 {
-				boss_radial(
-					ec,
-					phase2 ? 20 : 14,
-					250,
-					e.damage * 0.5,
-					11,
-					rand.float32() * 6.28,
-					{.Freeze},
-				)
-				add_shake(4)
+		case 3: // spin approach: glide in, then lay a narrow slice of shards
+			if (FROST_DASH_TIME + 0.3) - e.state_timer < FROST_DASH_TIME {
+				frostbite_glide(e, dT)
+			} else if e.boss_seq == 0 {
+				facing := math.atan2_f32(e.boss_aux.y, e.boss_aux.x)
+				for i in 0 ..< FROST_SPIN_COUNT {
+					t := f32(i) / f32(FROST_SPIN_COUNT - 1)
+					ang := facing - FROST_SPIN_ARC * 0.5 + t * FROST_SPIN_ARC
+					append(
+						&enemy_bullets,
+						bullet {
+							position = ec - {5, 5},
+							size = {10, 10},
+							velocity = {
+								math.cos_f32(ang) * FROST_SPIN_SPEED,
+								math.sin_f32(ang) * FROST_SPIN_SPEED,
+							},
+							damage = e.damage * FROST_SPIN_DMG_MULT,
+							effects = {.Freeze},
+						},
+					)
+				}
 				e.boss_seq = 1
 			}
 			if e.state_timer <= 0 {
 				e.state = .RECOVER
-				e.state_timer = phase2 ? 0.25 : 0.45
-			}
-		case 2: // blink to a fresh spot at range, bursting frost where it lands
-			if e.boss_seq == 0 {
-				ang := rand.float32() * 2 * math.PI
-				from := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)}
-				target := pc + from * 200
-				target.x = clamp(target.x, f32(WALL_THICK), f32(ARENA_W - WALL_THICK))
-				target.y = clamp(target.y, f32(WALL_THICK), f32(ARENA_H - WALL_THICK))
-				e.position = target - e.size * 0.5
-				e.flash = 0.5
-				boss_radial(e.position + e.size * 0.5, 8, 230, e.damage * 0.4, 10, 0, {.Freeze})
-				add_shake(5)
-				e.boss_seq = 1
-			}
-			if e.state_timer <= 0 {
-				e.state = .RECOVER
-				e.state_timer = phase2 ? 0.25 : 0.45
+				e.state_timer = phase2 ? 0.25 : 0.5
 			}
 		}
 	}
@@ -1082,10 +1164,26 @@ draw_boss_telegraph :: proc(e: enemy) {
 				}
 			}
 		case .FROSTBITE:
-			if e.boss_next == 0 {
-				boss_tele_line(ec, ec + e.boss_aux * 460, 16, k, raylib.Color{150, 220, 255, 255})
+			if e.boss_next == 2 {
+				boss_tele_line(
+					ec,
+					ec + raylib.Vector2Normalize(to) * 460,
+					16,
+					k,
+					raylib.Color{150, 220, 255, 255},
+				)
 			} else if e.boss_next == 1 {
-				boss_tele_circle(ec, 70 + 120 * (1 - k), k, raylib.Color{150, 220, 255, 255})
+				// Three-step combo: the first leg is the one that matters.
+				boss_tele_line(ec, ec + e.boss_aux * 420, 40, k, raylib.Color{150, 220, 255, 255})
+			} else {
+				// A dash: a lane wide enough that brushing the edge still bites.
+				boss_tele_line(
+					ec,
+					ec + e.boss_aux * 420,
+					e.size.x + 24,
+					k,
+					raylib.Color{150, 220, 255, 255},
+				)
 			}
 		case .MECHANIKTRON:
 			if e.boss_next == 0 {
