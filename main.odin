@@ -288,7 +288,7 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 	// Relics equipped for this run (max 3 shown in a compact row).
 	if n := relic_equipped_count(); n > 0 {
 		cy += 6
-		hdr := raylib.TextFormat("RELICS (%i/%i):", n, 3)
+		hdr := raylib.TextFormat("RELICS (%i/%i):", n, RELIC_MAX_EQUIPPED)
 		hdr_fs := fit_font(cstring(hdr), avail, 13)
 		raylib.DrawText(cstring(hdr), i32(ox), i32(cy), hdr_fs, raylib.GOLD)
 		cy += f32(hdr_fs) + 3
@@ -321,47 +321,130 @@ leave_shop :: proc() {
 	}
 }
 
-// Keyboard handler for the accept/discard relic overlay. ENTER (or R) takes the
-// relic, ESC (or D) discards it; either way the world resumes.
+// Keyboard handler for the relic chest overlay. 1-3 takes that relic: with a
+// free slot it just equips, with all three full it swaps out the oldest. ESC
+// closes it and takes nothing.
 relic_pick_update :: proc() {
-	accept :=
-		raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
-		raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) ||
-		raylib.IsKeyPressed(raylib.KeyboardKey.R)
-	discard :=
-		raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) || raylib.IsKeyPressed(raylib.KeyboardKey.D)
-	if accept {
-		// pick first choice if any; just close for now
-		if relic_pick_count > 0 { equip_relic(relic_pick_choices[0]) }
-		relic_pick_open = false
-		play(sounds.shop_buy)
-	} else if discard {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
 		relic_pick_open = false
 		play(sounds.ui_move)
+		return
+	}
+	for key, idx in NUMBER_KEYS {
+		if idx < relic_pick_count && raylib.IsKeyPressed(key) {
+			take_relic(relic_pick_choices[idx])
+			return
+		}
 	}
 }
 
-relic_pick_draw :: proc() {
-	sw := f32(raylib.GetScreenWidth()); sh := f32(raylib.GetScreenHeight())
-	raylib.DrawRectangleRec(raylib.Rectangle{0,0,sw,sh}, raylib.Color{0,0,0,150})
-	w:f32=460.; h:f32=320.; x:=(sw-w)*0.5; y:=(sh-h)*0.5
-	raylib.DrawRectangleRec(raylib.Rectangle{x,y,w,h}, raylib.Color{28,24,16,250})
-	raylib.DrawRectangleLinesEx(raylib.Rectangle{x,y,w,h},3,raylib.GOLD)
-	cx:=i32(x+w*0.5)
-	draw_text_cx(cstring("CHOOSE UP TO 3 RELICS"), cx, i32(y)+18, 20, raylib.GOLD)
-	bw:f32=130.; bh:f32=60.; by:=y+h-80
-	for i in 0..<relic_pick_count {
-		r:=RELICS[relic_pick_choices[i]]
-		rx:=x+30.+f32(i)*(bw+16.)
-		rect:=raylib.Rectangle{rx, by, bw, bh}
-		mp:=raylib.GetMousePosition()
-		if raylib.CheckCollisionPointRec(mp,rect) { raylib.DrawRectangleLinesEx(rect,3,raylib.YELLOW)
-			if raylib.IsMouseButtonPressed(.LEFT) { equip_relic(relic_pick_choices[i]); relic_pick_open=false; play(sounds.shop_buy) }
-		} else { raylib.DrawRectangleLinesEx(rect,2,raylib.GRAY) }
-		draw_text_cx(r.name, i32(rx+bw*0.5), i32(by)+10, 14, raylib.RAYWHITE)
-		draw_text_cx(r.desc, i32(rx+bw*0.5), i32(by)+28, 11, raylib.LIGHTGRAY)
+// Equip a drawn relic, swapping out the first equipped one if all three slots
+// are full (the swap is the only way to get a 4th mid-run).
+take_relic :: proc(kind: Relic_Kind) {
+	if !equip_relic(kind) {
+		oldest: Relic_Kind = .VAMPIRE_FANG
+		first := true
+		for k in Relic_Kind {
+			if relic_equipped(k) {
+				oldest = k
+				first = false
+				break
+			}
+		}
+		_ = first
+		swap_relic(oldest, kind)
 	}
-	draw_text_cx(cstring("Click a relic to equip it (max 3 total)."), cx, i32(y+h)-16, 14, raylib.DARKGRAY)
+	relic_pick_open = false
+	relic_swap_pending = nil
+	play(sounds.shop_buy)
+}
+
+// The accept/discard overlay: the drawn relics, plus your equipped ones when a
+// swap is needed. Drawn over the frozen frame in the present step.
+relic_pick_draw :: proc() {
+	sw := f32(raylib.GetScreenWidth())
+	sh := f32(raylib.GetScreenHeight())
+	raylib.DrawRectangleRec(raylib.Rectangle{0, 0, sw, sh}, raylib.Color{0, 0, 0, 150})
+	w: f32 = 620
+	h: f32 = 300
+	x := (sw - w) * 0.5
+	y := (sh - h) * 0.5
+	raylib.DrawRectangleRec(raylib.Rectangle{x, y, w, h}, raylib.Color{28, 24, 16, 250})
+	raylib.DrawRectangleLinesEx(raylib.Rectangle{x, y, w, h}, 3, raylib.GOLD)
+	cx := i32(x + w * 0.5)
+	// Equipping nothing yet? Then it's a plain "take one"; all three full?
+	// Then the cards you already carry become the swap targets.
+	full := relic_equipped_count() >= RELIC_MAX_EQUIPPED
+	draw_text_cx(
+		cstring("RELIC CHEST"),
+		cx,
+		i32(y) + 16,
+		24,
+		raylib.GOLD,
+	)
+	hint := cstring("Click a relic to equip   -   ESC to skip")
+	if full {
+		hint = cstring("All 3 slots full: click a relic, then click one you carry to swap")
+	}
+	draw_centered(hint, i32(y) + 44, 14, raylib.GRAY)
+	// Choice cards.
+	bw: f32 = 180
+	bh: f32 = 56
+	by := y + 68
+	for i in 0 ..< relic_pick_count {
+		r := RELICS[relic_pick_choices[i]]
+		rx := x + 30 + f32(i) * (bw + 16)
+		rect := raylib.Rectangle{rx, by, bw, bh}
+		hover := raylib.CheckCollisionPointRec(mouse_pos, rect)
+		raylib.DrawRectangleLinesEx(rect, hover ? 3 : 2, hover ? raylib.YELLOW : raylib.GRAY)
+		draw_text_cx(r.name, i32(rx + bw * 0.5), i32(by) + 8, 15, raylib.RAYWHITE)
+		draw_text_cx(r.desc, i32(rx + bw * 0.5), i32(by) + 28, 11, raylib.LIGHTGRAY)
+		if hover && raylib.IsMouseButtonPressed(.LEFT) {
+			// Free slot (or already carrying it): resolve immediately. Full
+			// loadout: remember the pick and let the next click choose the swap.
+			if !full {
+				take_relic(relic_pick_choices[i])
+			} else {
+				relic_swap_pending = &relic_pick_choices[i]
+			}
+		}
+	}
+	// Swap row: your equipped relics, clickable once a new relic is staged.
+	if full {
+		draw_centered(
+			cstring("EQUIPPED - click one to replace"),
+			i32(y) + 136,
+			14,
+			raylib.SKYBLUE,
+		)
+		sw2: f32 = 180
+		sy := y + 154
+		for k in Relic_Kind {
+			if !relic_equipped(k) {
+				continue
+			}
+			row_rect := raylib.Rectangle{x + 30, sy, w - 60, 30}
+			if relic_swap_pending != nil &&
+			   raylib.CheckCollisionPointRec(mouse_pos, row_rect) {
+				raylib.DrawRectangleLinesEx(row_rect, 3, raylib.YELLOW)
+				if raylib.IsMouseButtonPressed(.LEFT) {
+					take_relic(relic_swap_pending^)
+				}
+			} else {
+				raylib.DrawRectangleLinesEx(row_rect, 2, raylib.DARKGRAY)
+			}
+			raylib.DrawText(
+				RELICS[k].name,
+				i32(x) + 42,
+				i32(sy) + 7,
+				16,
+				raylib.RAYWHITE,
+			)
+			sy += 34
+		}
+	}
+	draw_centered(cstring("ESC to skip"), i32(y + h) - 16, 14, raylib.DARKGRAY)
 }
 
 // Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper
@@ -817,6 +900,93 @@ main :: proc() {
 				play(sounds.ui_select)
 				state = .MAIN_MENU
 			}
+		case .EQUIPMENT:
+			// Pick which relics (up to 3) you carry into the next run. The
+			// collection itself is permanent: boss chests add to it, and
+			// everything you unlock shows up here forever after.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				play(sounds.ui_select)
+				state = .MAIN_MENU
+			}
+			raylib.BeginTextureMode(target)
+			raylib.ClearBackground(raylib.BLACK)
+			draw_centered(cstring("EQUIPMENT"), 40, 40, raylib.WHITE)
+			owned := 0
+			for k in Relic_Kind {
+				if relic_in_collection(k) {
+					owned += 1
+				}
+			}
+			draw_centered(
+				raylib.TextFormat(
+					"EQUIPPED %i / %i      COLLECTED %i / %i",
+					relic_equipped_count(),
+					RELIC_MAX_EQUIPPED,
+					owned,
+					len(Relic_Kind),
+				),
+				86,
+				18,
+				raylib.GOLD,
+			)
+			for k in Relic_Kind {
+				r := RELICS[k]
+				y := 120 + i32(k) * 48
+				found := relic_in_collection(k)
+				eq := relic_equipped(k)
+				name_col := raylib.DARKGRAY
+				tag := cstring("LOCKED - find it in a boss chest")
+				if found {
+					tag = cstring("AVAILABLE")
+					name_col = raylib.RAYWHITE
+				}
+				if eq {
+					tag = cstring("EQUIPPED")
+					name_col = raylib.GOLD
+				}
+				ck, hv := ui_row(
+					raylib.TextFormat(
+						"%i)  %-18s  %s",
+						int(k) + 1,
+						found ? string(r.name) : "???",
+						tag,
+					),
+					y,
+					24,
+					name_col,
+				)
+				if hv && found {
+					// Hover only previews; a click (or the number key) toggles.
+					tag = eq ? cstring("click to unequip") : cstring("click to equip")
+					raylib.DrawText(
+						tag,
+						i32(760),
+						i32(y) + 6,
+						14,
+						raylib.DARKGRAY,
+					)
+				}
+				if ck && found {
+					toggle_relic_equip(k)
+					play(sounds.ui_select)
+				}
+				if found {
+					draw_centered(r.desc, y + 22, 14, raylib.GRAY)
+				}
+			}
+			for key, idx in NUMBER_KEYS {
+				if idx < len(Relic_Kind) && raylib.IsKeyPressed(key) {
+					toggle_relic_equip(Relic_Kind(idx))
+					play(sounds.ui_select)
+				}
+			}
+			draw_centered(
+				cstring("Click or press 1-8 to equip / unequip   -   ESC to go back"),
+				556,
+				18,
+				raylib.GRAY,
+			)
+			raylib.EndTextureMode()
 		case .TUTORIAL_SELECT:
 			// Pick a tutorial tier. ADVANCED then asks which character to teach.
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||

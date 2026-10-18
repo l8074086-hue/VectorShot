@@ -537,7 +537,9 @@ start_run :: proc(stats: Run_Stats) {
 	mag_mult = 1
 	ammo_growth_mult = 1
 	// Relics are per-run; a fresh run starts with none (resume_run restores them).
-	relics_equipped_mask = 0; relics_collection_mask = 0
+	// Relics are equipment: the run starts with whatever's equipped in the
+	// Equipment screen, and the effects are folded in at the end of this proc.
+	relic_pick_open = false
 	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
@@ -598,6 +600,9 @@ start_run :: proc(stats: Run_Stats) {
 	}
 	clear_run_entities()
 	build_arena(arena)
+	// Equipment last, so it layers on top of the character/loadout numbers
+	// rather than being overwritten by them.
+	apply_equipped_relics()
 	update_rr_adaptation()
 	state = .PLAYING
 }
@@ -1531,7 +1536,7 @@ capture_run_save :: proc() -> Run_Save {
 		card_choices       = card_choices,
 		status_time_mult   = status_time_mult,
 		attack_effects     = attack_effects_to_u32(),
-		relics_equipped   = relics_equipped_mask,
+		relics_equipped   = settings.relics_equipped,
 		endless            = endless_mode,
 	}
 	for eff in Status_Effect {
@@ -1754,10 +1759,13 @@ resume_run :: proc() -> bool {
 	for eff in Status_Effect {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
-	// Relic effects are already baked into the stats above; restore the bitmask so
-	// the HUD lists them and a later chest won't offer one you already hold.
-	relics_equipped_mask = rs.relics_equipped
-	relics_collection_mask |= rs.relics_equipped
+	// Relic effects are already baked into the stats above (start_run applied the
+	// equipped set before the save values were restored on top), so don't apply
+	// them again here. Just make sure the equipment the run was saved with is
+	// still what the Equipment screen shows.
+	settings.relics_equipped = rs.relics_equipped
+	settings.relics_equipped &~= settings.relics_equipped & ~settings.relics_owned
+	settings.relics_owned |= rs.relics_equipped
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
@@ -3531,18 +3539,23 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // the dying enemy's colour, used for the death burst's shards.
 // --- relics -----------------------------------------------------------------
 
-relics_equipped_mask: u32 = 0
-relics_collection_mask: u32 = 0
+RELIC_MAX_EQUIPPED :: 3
+
+// Chest overlay state. `relic_pick_choices` are the relics drawn from the chest;
+// clicking one either fills a free slot or swaps out one of the three you have.
+// `relic_swap_pending` is set once the player has clicked a new relic but still
+// has to choose which equipped one to give up (nil = no swap in progress).
 relic_pick_open: bool = false
+relic_swap_pending: ^Relic_Kind = nil
 relic_pick_choices: [3]Relic_Kind = { .VAMPIRE_FANG, .IRON_STEADY, .SWIFT_SOLE }
 relic_pick_count: int = 3
 
 relic_in_collection :: proc(kind: Relic_Kind) -> bool {
-	return (relics_collection_mask & (u32(1) << u32(int(kind)))) != 0
+	return (settings.relics_owned & (u32(1) << u32(int(kind)))) != 0
 }
 
 relic_equipped :: proc(kind: Relic_Kind) -> bool {
-	return (relics_equipped_mask & (u32(1) << u32(int(kind)))) != 0
+	return (settings.relics_equipped & (u32(1) << u32(int(kind)))) != 0
 }
 
 relic_equipped_count :: proc() -> int {
@@ -3553,45 +3566,95 @@ relic_equipped_count :: proc() -> int {
 	return n
 }
 
-apply_relic_effects :: proc() {
-	// Reapply all equipped
+// One relic's stat effect. Split out so start_run (apply everything equipped),
+// a chest equip, and a mid-run swap all go through the same numbers.
+relic_bonus :: proc(kind: Relic_Kind) {
+	switch kind {
+	case .VAMPIRE_FANG:
+		lifesteal += 1.5
+	case .IRON_STEADY:
+		max_health += 60
+		health = min(max_health, health + 60)
+	case .SWIFT_SOLE:
+		SPEED += 50
+	case .SHARP_EDGE:
+		spread_cut += 0.8
+	case .QUICK_WRIST:
+		melee_speed_mult *= 0.70
+	case .THICK_MAG:
+		mag_mult *= 1.6
+	case .BULLET_RESERVE:
+		ammo_growth_mult *= 1.8
+	case .HEAVY_BARREL:
+		bonus_damage += 4.0
+	}
+}
+
+// Fold every equipped relic into a run's stats. Called once at the end of
+// start_run, so a run's numbers always show its full equipment.
+apply_equipped_relics :: proc() {
 	for k in Relic_Kind {
-		if !relic_equipped(k) { continue }
-		switch k {
-		case .VAMPIRE_FANG: lifesteal += 1.5
-		case .IRON_STEADY: max_health += 60; health = min(max_health, health + 60)
-		case .SWIFT_SOLE: SPEED += 50
-		case .SHARP_EDGE: spread_cut += 0.8
-		case .QUICK_WRIST: melee_speed_mult *= 0.70
-		case .THICK_MAG: mag_mult *= 1.6
-		case .BULLET_RESERVE: ammo_growth_mult *= 1.8
-		case .HEAVY_BARREL: bonus_damage += 4.0
+		if relic_equipped(k) {
+			relic_bonus(k)
 		}
 	}
 }
 
-equip_relic :: proc(kind: Relic_Kind) {
-	if relic_equipped_count() >= 3 { return }
-	if relic_equipped(kind) { return }
-	relics_equipped_mask |= (u32(1) << u32(int(kind)))
-	relics_collection_mask |= (u32(1) << u32(int(kind)))
-	switch kind {
-	case .VAMPIRE_FANG: lifesteal += 1.5
-	case .IRON_STEADY: max_health += 60; health = min(max_health, health + 60)
-	case .SWIFT_SOLE: SPEED += 50
-	case .SHARP_EDGE: spread_cut += 0.8
-	case .QUICK_WRIST: melee_speed_mult *= 0.70
-	case .THICK_MAG: mag_mult *= 1.6
-	case .BULLET_RESERVE: ammo_growth_mult *= 1.8
-	case .HEAVY_BARREL: bonus_damage += 4.0
+// Pick up a relic off the floor: it joins the permanent collection, and it goes
+// into a free equipment slot if there is one. Returns false if all three slots
+// are taken, in which case the caller should offer a swap instead.
+equip_relic :: proc(kind: Relic_Kind) -> bool {
+	settings.relics_owned |= u32(1) << u32(int(kind))
+	if relic_equipped(kind) {
+		return true // already carrying it, nothing to swap
 	}
+	if relic_equipped_count() >= RELIC_MAX_EQUIPPED {
+		settings_save()
+		return false
+	}
+	settings.relics_equipped |= u32(1) << u32(int(kind))
+	settings_save()
+	return true
 }
 
+// Swap one equipped relic for another (chest pickups when all three are full).
+// The old one's stat bonus is NOT refunded: these are permanent run upgrades, so
+// a swap only ever adds. Keeps swaps safe to trigger from a frozen overlay.
+swap_relic :: proc(old: Relic_Kind, new: Relic_Kind) {
+	if old == new || !relic_in_collection(new) {
+		return
+	}
+	settings.relics_equipped &~= u32(1) << u32(int(old))
+	settings.relics_equipped |= u32(1) << u32(int(new))
+	settings.relics_owned |= u32(1) << u32(int(new))
+	relic_bonus(new)
+	settings_save()
+}
+
+// Equipment screen: toggle a relic in/out of the run loadout. Only relics in
+// the collection are pickable, and never more than three at a time.
+toggle_relic_equip :: proc(kind: Relic_Kind) {
+	if !relic_in_collection(kind) {
+		return
+	}
+	bit := u32(1) << u32(int(kind))
+	if (settings.relics_equipped & bit) != 0 {
+		settings.relics_equipped &~= bit
+	} else if relic_equipped_count() < RELIC_MAX_EQUIPPED {
+		settings.relics_equipped |= bit
+	}
+	settings_save()
+}
+
+// Draw up to 3 relics the player doesn't already own, so a chest is always
+// something new. Returns how many were drawn (0 once they own them all).
 draw_relic_choices :: proc() -> (count: int) {
 	pool: [dynamic]Relic_Kind
 	defer delete(pool)
 	for k in Relic_Kind {
-		append(&pool, k)
+		if !relic_in_collection(k) {
+			append(&pool, k)
+		}
 	}
 	count = min(3, len(pool))
 	for i in 0..<count {

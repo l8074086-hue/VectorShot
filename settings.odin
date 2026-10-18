@@ -42,6 +42,12 @@ Settings :: struct {
 	// `maps_unlocked` without marking anything cleared.
 	maps_done:      u32,
 	maps_unlocked:  u32,
+	// Relic collection (bit i = RELICS[i] found at some point) and the subset you
+	// take into a run (at most RELIC_MAX_EQUIPPED bits). Both persist: chests add
+	// to the collection, and the Equipment screen picks the loadout that carries
+	// into the next run.
+	relics_owned:     u32,
+	relics_equipped:  u32,
 }
 
 settings := Settings {
@@ -57,6 +63,8 @@ settings := Settings {
 	missions_done  = 0,
 	maps_done      = 0,
 	maps_unlocked  = 1, // the first map is always open
+	relics_owned   = 0,
+	relics_equipped = 0,
 }
 
 // Volume the mixer should use right now (mute folds in here, as does the
@@ -121,6 +129,10 @@ settings_load :: proc() {
 			settings.maps_done = u32(parse_run_i32(val, i32(settings.maps_done)))
 		case "maps_unlocked":
 			settings.maps_unlocked = u32(parse_run_i32(val, i32(settings.maps_unlocked)))
+		case "relics_owned":
+			settings.relics_owned = u32(parse_run_i32(val, i32(settings.relics_owned)))
+		case "relics_equipped":
+			settings.relics_equipped = u32(parse_run_i32(val, i32(settings.relics_equipped)))
 		case "fullscreen":
 			settings.fullscreen = parse_bool(val, settings.fullscreen)
 		case "show_fps":
@@ -184,6 +196,8 @@ settings_save :: proc() {
 	fmt.sbprintf(&sb, "missions_done=%i\n", i32(settings.missions_done))
 	fmt.sbprintf(&sb, "maps_done=%i\n", i32(settings.maps_done))
 	fmt.sbprintf(&sb, "maps_unlocked=%i\n", i32(settings.maps_unlocked))
+	fmt.sbprintf(&sb, "relics_owned=%i\n", i32(settings.relics_owned))
+	fmt.sbprintf(&sb, "relics_equipped=%i\n", i32(settings.relics_equipped))
 
 	_ = os.write_entire_file(SETTINGS_PATH, strings.to_string(sb))
 }
