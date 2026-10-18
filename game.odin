@@ -193,7 +193,11 @@ PLAYER_POISON_DPS :: 3.0
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
 ENEMY_HP_PER_WAVE :: 0.16
-ENEMY_DMG_PER_WAVE :: 0.06
+// Damage ramps gently. At 0.06 this compounded to nearly 2x by the last arena,
+// and because the player's health pool grows on its own (MAX_HP cards are +25
+// each) it walked straight past them into two-shot territory -- a late TANK elite
+// was landing 63, more than the final boss.
+ENEMY_DMG_PER_WAVE :: 0.02
 ENEMY_SPEED_PER_WAVE :: 0.02
 ENEMY_SPEED_CAP :: 1.4
 
@@ -273,7 +277,9 @@ ELITE_BASE_CHANCE :: 0.03
 ELITE_CHANCE_PER_WAVE :: 0.01
 ELITE_CHANCE_CAP :: 0.20
 ELITE_HP_MULT :: 2.5
-ELITE_DMG_MULT :: 1.6
+// Elites stay glass-cannon in HP but no longer hit like a truck. At 1.6 a TANK
+// elite out-damaged the final boss by more than double.
+ELITE_DMG_MULT :: 1.3
 ELITE_SPEED_MULT :: 1.1
 ELITE_SIZE_MULT :: 1.3
 
