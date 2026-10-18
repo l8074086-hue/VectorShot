@@ -242,12 +242,19 @@ BOSS_GHOST_LIFE :: 0.34
 // These keep bosses getting harder as arenas deepen, but on a curve a player
 // holding ~14 cards and a few shop visits can actually chew through.
 BOSS_HP_PER_WAVE :: 0.04 // vs ENEMY_HP_PER_WAVE (0.16)
-BOSS_DMG_PER_WAVE :: 0.02 // vs ENEMY_DMG_PER_WAVE (0.06)
+// Boss damage is FLAT across arenas, deliberately.
+//
+// The player's health pool grows on its own (MAX_HP cards are +25 each, plus
+// the utility pick and relics), so holding damage steady keeps a boss hit at a
+// consistent ~10% of a real health bar no matter how deep you are. Ramping boss
+// damage on top of that growth is what compounds: it was reaching 30 a hit in
+// the last arena, which is a fifth of a realistic bar per connect.
+BOSS_DMG_PER_WAVE :: 0.0
 
 // Boss-only stat scaling, mirroring enemy_scales' shape.
 boss_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
 	hp = 1 + BOSS_HP_PER_WAVE * f32(wave - 1)
-	dmg = 1 + BOSS_DMG_PER_WAVE * f32(wave - 1)
+	dmg = 1 + BOSS_DMG_PER_WAVE * f32(wave - 1) // stays at 1.0 by design
 	// Speed still tracks enemies: a boss that outruns you is unfair for a
 	// different reason than one that out-tanks you.
 	_, _, spd = enemy_scales(wave)
