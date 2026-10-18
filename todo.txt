@@ -18,7 +18,6 @@
 (D) 2026-10-14 Add a local leaderboard +roguelike @meta @score
 (D) 2026-10-14 Add procedural background music +roguelike @sounds @music
 (B) 2026-10-17 Drop random weapon pickups mid-run (temporary guns) +roguelike @combat @guns @items
-(C) 2026-10-17 Add meta-progression (unlock characters/guns across runs) +roguelike @meta @systems
 (C) 2026-10-17 Add kill-streak callouts and combo banners +roguelike @combat @ui @score
 (D) 2026-10-17 Add pickup magnet / auto-collect for coins +roguelike @ui @items
 (D) 2026-10-17 Add a photo / screenshot mode +roguelike @ui

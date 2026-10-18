@@ -530,17 +530,17 @@ main :: proc() {
 			can_continue := has_run_save()
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-				main_menu_sel = (main_menu_sel + 1) % 6
+				main_menu_sel = (main_menu_sel + 1) % 7
 				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-				main_menu_sel = (main_menu_sel - 1 + 6) % 6
+				main_menu_sel = (main_menu_sel - 1 + 7) % 7
 				play(sounds.ui_move)
 			}
 			confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER)
 			for key, idx in NUMBER_KEYS {
-				if idx < 6 && raylib.IsKeyPressed(key) {
+				if idx < 7 && raylib.IsKeyPressed(key) {
 					main_menu_sel = idx
 					confirm = true
 				}
@@ -560,36 +560,42 @@ main :: proc() {
 			if can_continue {
 				cont_label = cstring("CONTINUE RUN")
 			}
-			k0, h0 := ui_row(cont_label, 200, 30, continue_col)
+			k0, h0 := ui_row(cont_label, 180, 30, continue_col)
 			k1, h1 := ui_row(
 				cstring("START RUN"),
-				252,
+				232,
 				30,
 				main_menu_sel == 1 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k2, h2 := ui_row(
 				cstring("MISSIONS"),
-				304,
+				284,
 				30,
 				main_menu_sel == 2 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k3, h3 := ui_row(
-				cstring("TUTORIAL"),
-				356,
+				cstring("EQUIPMENT"),
+				336,
 				30,
 				main_menu_sel == 3 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k4, h4 := ui_row(
-				cstring("SETTINGS"),
-				408,
+				cstring("TUTORIAL"),
+				388,
 				30,
 				main_menu_sel == 4 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k5, h5 := ui_row(
-				cstring("QUIT"),
-				460,
+				cstring("SETTINGS"),
+				440,
 				30,
 				main_menu_sel == 5 ? raylib.RAYWHITE : raylib.GRAY,
+			)
+			k6, h6 := ui_row(
+				cstring("QUIT"),
+				492,
+				30,
+				main_menu_sel == 6 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			draw_centered(
 				cstring("UP / DOWN to choose   -   ENTER to select"),
@@ -605,6 +611,7 @@ main :: proc() {
 				if h3 {main_menu_sel = 3}
 				if h4 {main_menu_sel = 4}
 				if h5 {main_menu_sel = 5}
+				if h6 {main_menu_sel = 6}
 			}
 			if (k0 || (confirm && main_menu_sel == 0)) && can_continue {
 				if resume_run() {
@@ -612,7 +619,7 @@ main :: proc() {
 				}
 			} else if k1 || (confirm && main_menu_sel == 1) {
 				play(sounds.ui_select)
-				active_mission = -1 // plain endless run
+				active_mission = -1
 				state = .DIFFICULTY
 			} else if k2 || (confirm && main_menu_sel == 2) {
 				play(sounds.ui_select)
@@ -620,13 +627,16 @@ main :: proc() {
 				state = .MISSION_CONTROL
 			} else if k3 || (confirm && main_menu_sel == 3) {
 				play(sounds.ui_select)
+				state = .EQUIPMENT
+			} else if k4 || (confirm && main_menu_sel == 4) {
+				play(sounds.ui_select)
 				tutorial_select_sel = 0
 				state = .TUTORIAL_SELECT
-			} else if k4 || (confirm && main_menu_sel == 4) {
+			} else if k5 || (confirm && main_menu_sel == 5) {
 				play(sounds.ui_select)
 				settings_sel = 0
 				state = .SETTINGS
-			} else if k5 || (confirm && main_menu_sel == 5) {
+			} else if k6 || (confirm && main_menu_sel == 6) {
 				quit_requested = true
 			}
 		case .DIFFICULTY:
