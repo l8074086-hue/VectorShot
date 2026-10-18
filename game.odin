@@ -223,7 +223,7 @@ BOSS_RAGE_SPEED_MULT :: 1.5
 // back weakpoint is exposed. Break every crystal it seeds around the arena to
 // stun it; the stun grows longer each time you clear a fresh set.
 MECH_CRYSTALS :: 5 // crystals seeded per round
-MECH_CRYSTAL_HP :: 55 // base hp of one crystal (wave scaling applies)
+MECH_CRYSTAL_HP :: 20 // base hp of one crystal (wave scaling applies)
 MECH_CRYSTAL_SIZE :: 34
 MECH_STUN_BASE :: 3.5 // exposed window on the first clear
 MECH_STUN_STEP :: 1.5 // added per subsequent clear
