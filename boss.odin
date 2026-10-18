@@ -642,8 +642,12 @@ FROST_WALTZ_DMG_MULT :: 0.4
 FROST_WALTZ_TURN :: 5.2 // radians per second of spin
 // Thrown fans: they fly out and curve back, so they can hit on the way in and
 // again on the way home. Only two in the air at a time.
-FROST_THROW_SPEED :: 330
-FROST_THROW_RANGE :: 210
+FROST_THROW_SPEED :: 520
+FROST_THROW_RANGE :: 240
+// How far apart the two fans leave her hands. Keep this tight: at range a wide
+// split sends both fans sailing past you instead of through you, and then she
+// never connects with this move at all.
+FROST_THROW_SPREAD :: 0.15
 FROST_THROW_DMG_MULT :: 0.6
 // Cross step: the one committed lunge. Short, and it always ends in a slash.
 FROST_CROSS_SPEED :: 760
@@ -848,12 +852,12 @@ update_boss_frostbite :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f3
 				perp := raylib.Vector2{-e.boss_aux.y, e.boss_aux.x}
 				frostbite_throw_fan(
 					ec,
-					raylib.Vector2Normalize(e.boss_aux + perp * 0.5),
+					raylib.Vector2Normalize(e.boss_aux + perp * FROST_THROW_SPREAD),
 					e.damage * FROST_THROW_DMG_MULT,
 				)
 				frostbite_throw_fan(
 					ec,
-					raylib.Vector2Normalize(e.boss_aux - perp * 0.5),
+					raylib.Vector2Normalize(e.boss_aux - perp * FROST_THROW_SPREAD),
 					e.damage * FROST_THROW_DMG_MULT,
 				)
 				e.muzzle = ENEMY_MUZZLE_FLASH_TIME
@@ -1316,7 +1320,7 @@ draw_boss_telegraph :: proc(e: enemy) {
 					perp := raylib.Vector2{-e.boss_aux.y, e.boss_aux.x}
 					sides := [2]f32{-1.0, 1.0}
 					for s in sides {
-						d := raylib.Vector2Normalize(e.boss_aux + perp * (0.5 * s))
+						d := raylib.Vector2Normalize(e.boss_aux + perp * (FROST_THROW_SPREAD * s))
 						boss_tele_line(ec, ec + d * FROST_THROW_RANGE * 1.6, 16, k, raylib.Color{150, 220, 255, 255})
 					}
 				}

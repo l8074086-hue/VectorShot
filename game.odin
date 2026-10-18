@@ -230,6 +230,30 @@ MECH_STUN_STEP :: 1.5 // added per subsequent clear
 // How long a FROSTBITE dash afterimage lingers before fading out entirely.
 BOSS_GHOST_LIFE :: 0.34
 
+// --- boss scaling -----------------------------------------------------------
+// Bosses get their OWN curve, deliberately gentler than enemy_scales.
+//
+// Regular enemies are authored at 2-8 hp, so the shared 0.16/wave ramp only
+// turns them into 3-4 hp chips that your AoE deletes by the handful. A boss is
+// a single target: nothing cleaves it, so it drinks your entire DPS while it
+// punishes you. Running a 350 hp boss through the same ramp made the last
+// arena's finale a 1200 hp slug -- roughly ten waves of trash in one body.
+//
+// These keep bosses getting harder as arenas deepen, but on a curve a player
+// holding ~14 cards and a few shop visits can actually chew through.
+BOSS_HP_PER_WAVE :: 0.04 // vs ENEMY_HP_PER_WAVE (0.16)
+BOSS_DMG_PER_WAVE :: 0.02 // vs ENEMY_DMG_PER_WAVE (0.06)
+
+// Boss-only stat scaling, mirroring enemy_scales' shape.
+boss_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
+	hp = 1 + BOSS_HP_PER_WAVE * f32(wave - 1)
+	dmg = 1 + BOSS_DMG_PER_WAVE * f32(wave - 1)
+	// Speed still tracks enemies: a boss that outruns you is unfair for a
+	// different reason than one that out-tanks you.
+	_, _, spd = enemy_scales(wave)
+	return
+}
+
 MECH_ROCKET_SPEED :: 205
 MECH_ROCKET_SIZE :: 12
 MECH_ROCKET_LIFE :: 3.0
@@ -2053,7 +2077,7 @@ is_boss_wave :: proc(wave: i32) -> bool {
 // attack knobs) and drop it in at `pos`. The normal wave scaling still applies.
 spawn_arena_boss :: proc(pos: raylib.Vector2) {
 	b := ARENA_BOSSES[arena]
-	hp_scale, dmg_scale, spd_scale := enemy_scales(ARENAS[arena].waves)
+	hp_scale, dmg_scale, spd_scale := boss_scales(ARENAS[arena].waves)
 	append(
 		&enemies,
 		enemy {
@@ -2084,7 +2108,9 @@ spawn_arena_boss :: proc(pos: raylib.Vector2) {
 // Seed a fresh set of MECHANIKTRON power crystals at random clear spots.
 mech_spawn_crystals :: proc() {
 	clear(&crystals)
-	hp_scale, _, _ := enemy_scales(ARENAS[arena].waves)
+	// Crystals follow the boss curve too, so MECH_CRYSTAL_HP means what it
+	// says instead of being quietly re-inflated 3x by the enemy ramp.
+	hp_scale, _, _ := boss_scales(ARENAS[arena].waves)
 	sz := raylib.Vector2{MECH_CRYSTAL_SIZE, MECH_CRYSTAL_SIZE}
 	for _ in 0 ..< MECH_CRYSTALS {
 		hp := MECH_CRYSTAL_HP * hp_scale
