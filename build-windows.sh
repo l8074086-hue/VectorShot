@@ -20,7 +20,8 @@ BUILD=".build-windows"
 OBJDIR="$BUILD/obj"
 LIBDIR="$BUILD/raylib"
 STUBDIR="$BUILD/stubs"
-mkdir -p "$OBJDIR" "$LIBDIR" "$STUBDIR"
+SDKROOT="${WIN_SDK_ROOT:-$BUILD/winsdk}"
+mkdir -p "$OBJDIR" "$LIBDIR" "$STUBDIR" "$SDKROOT"
 
 is_archive() { [ "$(head -c7 "$1" 2>/dev/null || true)" = '!<arch>' ]; }
 
@@ -49,9 +50,12 @@ fetch_lib raygui.lib
 
 # --- 2. Compile the Odin sources to Windows object files --------------------
 # `-build-mode:obj` never links, so the LFS stubs in Odin's vendor dir are fine.
+# Odin still *demands* `-windows-sdk-root` for any Windows target (it validates
+# the flag at parse time even though obj mode never opens it), so we hand it a
+# placeholder directory. Override with WIN_SDK_ROOT if you have a real SDK.
 echo "==> compiling Odin objects (windows_amd64)"
 rm -f "$OBJDIR"/win-*.obj "$OBJDIR"/win-*.o
-odin build . -target:windows_amd64 -build-mode:obj -out:"$OBJDIR/win"
+odin build . -target:windows_amd64 -build-mode:obj -out:"$OBJDIR/win" -windows-sdk-root:"$SDKROOT"
 
 # --- 3. Stub the MSVC-only default libs -------------------------------------
 # raylib.lib carries /DEFAULTLIB:MSVCRT / OLDNAMES / uuid directives. The CRT
