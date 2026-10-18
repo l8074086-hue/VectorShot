@@ -605,15 +605,20 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 			if raylib.Vector2Length(face) < 0.01 {
 				face = dir
 			}
-			e.position += face * COLOSSUS_CHARGE_SPEED * (phase2 ? 1.25 : 1.0) * dT
+			// Test the step BEFORE committing to it. Moving first would bury the
+			// titan up to a frame of travel inside the wall, and then detonate
+			// the rubble burst from inside the geometry.
+			step := face * COLOSSUS_CHARGE_SPEED * (phase2 ? 1.25 : 1.0) * dT
+			next := e.position + step
+			next_rect := raylib.Rectangle{next.x, next.y, e.size.x, e.size.y}
 			// The arena (walls and cover) is the only thing that stops it.
-			rect := raylib.Rectangle{e.position.x, e.position.y, e.size.x, e.size.y}
-			stopped := bullet_blocked_by_terrain(rect)
-			if stopped || e.state_timer <= 0 {
+			if bullet_blocked_by_terrain(next_rect) || e.state_timer <= 0 {
 				colossus_rubble_burst(e.position + e.size * 0.5, e.damage * COLOSSUS_RUBBLE_DMG_MULT)
 				add_shake(9)
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.6 : 0.9
+			} else {
+				e.position = next
 			}
 		}
 	}
@@ -1487,7 +1492,15 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 		if i == 1 {
 			side = -0.55
 		}
-		ang := base + side + f32(e.boss_spin)
+		// boss_spin only advances during the waltz, but it never resets. Reading
+		// it unconditionally would leave the fans pointing off at whatever angle
+		// the last spin left them, long after she'd stopped turning. Only the
+		// waltz actually uses it.
+		spin := f32(0)
+		if e.state == .BOSS_ATTACK && e.boss_next == 1 {
+			spin = f32(e.boss_spin)
+		}
+		ang := base + side + spin
 		dir := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)}
 		pivot := ec + dir * er * 0.85
 		perp := raylib.Vector2{-dir.y, dir.x}
