@@ -502,7 +502,7 @@ main :: proc() {
 		// In-game settings panel: Backspace toggles it during a run. While open the
 		// world is frozen (the PLAYING case skips its update) and the panel is drawn
 		// as an overlay over the last frame.
-		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.P) {
+		if state == .PLAYING && !console_open && raylib.IsKeyPressed(raylib.KeyboardKey.P) {
 			ingame_panel_open = !ingame_panel_open
 			play(sounds.ui_move)
 		}
