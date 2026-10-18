@@ -537,7 +537,7 @@ start_run :: proc(stats: Run_Stats) {
 	mag_mult = 1
 	ammo_growth_mult = 1
 	// Relics are per-run; a fresh run starts with none (resume_run restores them).
-	relics_owned = 0
+	relics_equipped_mask = 0; relics_collection_mask = 0
 	character = stats.character
 	melee_cooldown = 0
 	melee_flash = 0
@@ -1531,7 +1531,7 @@ capture_run_save :: proc() -> Run_Save {
 		card_choices       = card_choices,
 		status_time_mult   = status_time_mult,
 		attack_effects     = attack_effects_to_u32(),
-		relics_owned       = relics_owned,
+		relics_equipped   = relics_equipped_mask,
 		endless            = endless_mode,
 	}
 	for eff in Status_Effect {
@@ -1574,7 +1574,7 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "card_choices=%i\n", rs.card_choices)
 	fmt.sbprintf(&sb, "status_time_mult=%.3f\n", rs.status_time_mult)
 	fmt.sbprintf(&sb, "attack_effects=%i\n", i32(rs.attack_effects))
-	fmt.sbprintf(&sb, "relics_owned=%i\n", i32(rs.relics_owned))
+	fmt.sbprintf(&sb, "relics_equipped=%i\n", i32(rs.relics_equipped))
 	fmt.sbprintf(&sb, "endless=%v\n", rs.endless)
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
@@ -1672,8 +1672,10 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.status_time_mult = parse_run_f32(val, rs.status_time_mult)
 		case "attack_effects":
 			rs.attack_effects = u32(parse_run_i32(val, i32(rs.attack_effects)))
+		case "relics_equipped":
+			rs.relics_equipped = u32(parse_run_i32(val, i32(rs.relics_equipped)))
 		case "relics_owned":
-			rs.relics_owned = u32(parse_run_i32(val, i32(rs.relics_owned)))
+			rs.relics_equipped = u32(parse_run_i32(val, i32(rs.relics_equipped)))
 		case "endless":
 			rs.endless = parse_bool(val, rs.endless)
 		case:
@@ -1753,8 +1755,9 @@ resume_run :: proc() -> bool {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
 	// Relic effects are already baked into the stats above; restore the bitmask so
-	// the HUD lists them and a later chest won't redraw one you already hold.
-	relics_owned = rs.relics_owned
+	// the HUD lists them and a later chest won't offer one you already hold.
+	relics_equipped_mask = rs.relics_equipped
+	relics_collection_mask |= rs.relics_equipped
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
@@ -3528,62 +3531,76 @@ try_spawn_currency_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
 // the dying enemy's colour, used for the death burst's shards.
 // --- relics -----------------------------------------------------------------
 
-// Relics held this run (bitmask over Relic_Kind), plus the draw currently on offer.
-relics_owned: u32 = 0
-pending_relic: Relic_Kind = .VAMPIRE_FANG
-relic_pick_open: bool = false // true while the accept/discard overlay is up
+relics_equipped_mask: u32 = 0
+relics_collection_mask: u32 = 0
+relic_pick_open: bool = false
+relic_pick_choices: [3]Relic_Kind = { .VAMPIRE_FANG, .IRON_STEADY, .SWIFT_SOLE }
+relic_pick_count: int = 3
 
-relic_owned :: proc(kind: Relic_Kind) -> bool {
-	return (relics_owned & (u32(1) << u32(int(kind)))) != 0
+relic_in_collection :: proc(kind: Relic_Kind) -> bool {
+	return (relics_collection_mask & (u32(1) << u32(int(kind)))) != 0
 }
 
-relic_count :: proc() -> int {
+relic_equipped :: proc(kind: Relic_Kind) -> bool {
+	return (relics_equipped_mask & (u32(1) << u32(int(kind)))) != 0
+}
+
+relic_equipped_count :: proc() -> int {
 	n := 0
 	for k in Relic_Kind {
-		if relic_owned(k) {
-			n += 1
-		}
+		if relic_equipped(k) { n += 1 }
 	}
 	return n
 }
 
-// Apply a relic's permanent effect for the rest of the run.
-apply_relic :: proc(kind: Relic_Kind) {
-	relics_owned |= u32(1) << u32(int(kind))
-	switch kind {
-	case .VAMPIRE_FANG:
-		lifesteal += 0.6
-	case .IRON_STEADY:
-		max_health += 25
-		health = min(max_health, health + 25)
-	case .SWIFT_SOLE:
-		SPEED += 25
-	case .SHARP_EDGE:
-		spread_cut += 0.4
-	case .QUICK_WRIST:
-		melee_speed_mult *= 0.82
-	case .THICK_MAG:
-		mag_mult *= 1.25
-	case .BULLET_RESERVE:
-		ammo_growth_mult *= 1.3
-	case .HEAVY_BARREL:
-		bonus_damage += 1.5
+apply_relic_effects :: proc() {
+	// Reapply all equipped
+	for k in Relic_Kind {
+		if !relic_equipped(k) { continue }
+		switch k {
+		case .VAMPIRE_FANG: lifesteal += 1.5
+		case .IRON_STEADY: max_health += 60; health = min(max_health, health + 60)
+		case .SWIFT_SOLE: SPEED += 50
+		case .SHARP_EDGE: spread_cut += 0.8
+		case .QUICK_WRIST: melee_speed_mult *= 0.70
+		case .THICK_MAG: mag_mult *= 1.6
+		case .BULLET_RESERVE: ammo_growth_mult *= 1.8
+		case .HEAVY_BARREL: bonus_damage += 4.0
+		}
 	}
 }
 
-// Draw a random relic you don't already own. Returns false once you hold them all.
-draw_relic :: proc() -> (kind: Relic_Kind, ok: bool) {
+equip_relic :: proc(kind: Relic_Kind) {
+	if relic_equipped_count() >= 3 { return }
+	if relic_equipped(kind) { return }
+	relics_equipped_mask |= (u32(1) << u32(int(kind)))
+	relics_collection_mask |= (u32(1) << u32(int(kind)))
+	switch kind {
+	case .VAMPIRE_FANG: lifesteal += 1.5
+	case .IRON_STEADY: max_health += 60; health = min(max_health, health + 60)
+	case .SWIFT_SOLE: SPEED += 50
+	case .SHARP_EDGE: spread_cut += 0.8
+	case .QUICK_WRIST: melee_speed_mult *= 0.70
+	case .THICK_MAG: mag_mult *= 1.6
+	case .BULLET_RESERVE: ammo_growth_mult *= 1.8
+	case .HEAVY_BARREL: bonus_damage += 4.0
+	}
+}
+
+draw_relic_choices :: proc() -> (count: int) {
 	pool: [dynamic]Relic_Kind
 	defer delete(pool)
 	for k in Relic_Kind {
-		if !relic_owned(k) {
-			append(&pool, k)
-		}
+		append(&pool, k)
 	}
-	if len(pool) == 0 {
-		return .VAMPIRE_FANG, false
+	count = min(3, len(pool))
+	for i in 0..<count {
+		j := rand.int_range(0, len(pool)-1)
+		relic_pick_choices[i] = pool[j]
+		unordered_remove(&pool, j)
 	}
-	return pool[rand.int_range(0, len(pool) - 1)], true
+	relic_pick_count = count
+	return count
 }
 
 // A boss leaves a chest. Walk into it to draw a relic (accept or discard).

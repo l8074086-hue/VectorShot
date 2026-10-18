@@ -710,7 +710,7 @@ Run_Save :: struct {
 	status_time_mult:  f32,
 	attack_effects:    u32,    // Status_Set bitmask
 	status_power:      [4]f32, // per-Status_Effect power
-	relics_owned:      u32,    // Relic_Kind bitmask, so a resumed run never redraws one
+	relics_equipped:   u32,    // Up to 3 equipped relics for this run
 	endless:           bool,   // arena boss already down: this run is in endless mode
 }
 

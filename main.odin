@@ -285,16 +285,15 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 			cy += f32(fs) + 3
 		}
 	}
-	// Relics drawn from chests this run: a gold row per relic, so your build's
-	// passive bonuses are always visible without opening a menu.
-	if n := relic_count(); n > 0 {
+	// Relics equipped for this run (max 3 shown in a compact row).
+	if n := relic_equipped_count(); n > 0 {
 		cy += 6
-		hdr := raylib.TextFormat("RELICS (%i):", n)
+		hdr := raylib.TextFormat("RELICS (%i/%i):", n, 3)
 		hdr_fs := fit_font(cstring(hdr), avail, 13)
 		raylib.DrawText(cstring(hdr), i32(ox), i32(cy), hdr_fs, raylib.GOLD)
 		cy += f32(hdr_fs) + 3
 		for k in Relic_Kind {
-			if !relic_owned(k) {
+			if !relic_equipped(k) {
 				continue
 			}
 			fs := fit_font(RELICS[k].name, avail - 14, 12)
@@ -332,7 +331,8 @@ relic_pick_update :: proc() {
 	discard :=
 		raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) || raylib.IsKeyPressed(raylib.KeyboardKey.D)
 	if accept {
-		apply_relic(pending_relic)
+		// pick first choice if any; just close for now
+		if relic_pick_count > 0 { equip_relic(relic_pick_choices[0]) }
 		relic_pick_open = false
 		play(sounds.shop_buy)
 	} else if discard {
@@ -341,53 +341,27 @@ relic_pick_update :: proc() {
 	}
 }
 
-// The accept/discard overlay: a centred card showing the drawn relic with the two
-// choices, drawn over the frozen frame in the present step.
 relic_pick_draw :: proc() {
-	sw := f32(raylib.GetScreenWidth())
-	sh := f32(raylib.GetScreenHeight())
-	raylib.DrawRectangleRec(raylib.Rectangle{0, 0, sw, sh}, raylib.Color{0, 0, 0, 150})
-	w: f32 = 460
-	h: f32 = 240
-	x := (sw - w) * 0.5
-	y := (sh - h) * 0.5
-	raylib.DrawRectangleRec(raylib.Rectangle{x, y, w, h}, raylib.Color{28, 24, 16, 250})
-	raylib.DrawRectangleLinesEx(raylib.Rectangle{x, y, w, h}, 3, raylib.GOLD)
-	r := RELICS[pending_relic]
-	cx := i32(x + w * 0.5)
-	draw_text_cx(cstring("RELIC CHEST"), cx, i32(y) + 20, 24, raylib.GOLD)
-	draw_text_cx(r.name, cx, i32(y) + 56, 28, raylib.RAYWHITE)
-	draw_text_cx(r.desc, cx, i32(y) + 96, 17, raylib.LIGHTGRAY)
-	// Two buttons.
-	bw: f32 = 180
-	bh: f32 = 44
-	by := y + h - 70
-	accept_rect := raylib.Rectangle{x + 30, by, bw, bh}
-	discard_rect := raylib.Rectangle{x + w - 30 - bw, by, bw, bh}
-	mp := raylib.GetMousePosition()
-	clicked := raylib.IsMouseButtonPressed(.LEFT)
-	if raylib.CheckCollisionPointRec(mp, accept_rect) {
-		raylib.DrawRectangleLinesEx(accept_rect, 3, raylib.YELLOW)
-		if clicked {
-			apply_relic(pending_relic)
-			relic_pick_open = false
-			play(sounds.shop_buy)
-		}
-	} else {
-		raylib.DrawRectangleLinesEx(accept_rect, 2, raylib.GRAY)
+	sw := f32(raylib.GetScreenWidth()); sh := f32(raylib.GetScreenHeight())
+	raylib.DrawRectangleRec(raylib.Rectangle{0,0,sw,sh}, raylib.Color{0,0,0,150})
+	w:f32=460.; h:f32=320.; x:=(sw-w)*0.5; y:=(sh-h)*0.5
+	raylib.DrawRectangleRec(raylib.Rectangle{x,y,w,h}, raylib.Color{28,24,16,250})
+	raylib.DrawRectangleLinesEx(raylib.Rectangle{x,y,w,h},3,raylib.GOLD)
+	cx:=i32(x+w*0.5)
+	draw_text_cx(cstring("CHOOSE UP TO 3 RELICS"), cx, i32(y)+18, 20, raylib.GOLD)
+	bw:f32=130.; bh:f32=60.; by:=y+h-80
+	for i in 0..<relic_pick_count {
+		r:=RELICS[relic_pick_choices[i]]
+		rx:=x+30.+f32(i)*(bw+16.)
+		rect:=raylib.Rectangle{rx, by, bw, bh}
+		mp:=raylib.GetMousePosition()
+		if raylib.CheckCollisionPointRec(mp,rect) { raylib.DrawRectangleLinesEx(rect,3,raylib.YELLOW)
+			if raylib.IsMouseButtonPressed(.LEFT) { equip_relic(relic_pick_choices[i]); relic_pick_open=false; play(sounds.shop_buy) }
+		} else { raylib.DrawRectangleLinesEx(rect,2,raylib.GRAY) }
+		draw_text_cx(r.name, i32(rx+bw*0.5), i32(by)+10, 14, raylib.RAYWHITE)
+		draw_text_cx(r.desc, i32(rx+bw*0.5), i32(by)+28, 11, raylib.LIGHTGRAY)
 	}
-	if raylib.CheckCollisionPointRec(mp, discard_rect) {
-		raylib.DrawRectangleLinesEx(discard_rect, 3, raylib.YELLOW)
-		if clicked {
-			relic_pick_open = false
-			play(sounds.ui_move)
-		}
-	} else {
-		raylib.DrawRectangleLinesEx(discard_rect, 2, raylib.GRAY)
-	}
-	draw_text_cx(cstring("ACCEPT"), i32(accept_rect.x + accept_rect.width * 0.5), i32(by) + 11, 22, raylib.LIME)
-	draw_text_cx(cstring("DISCARD"), i32(discard_rect.x + discard_rect.width * 0.5), i32(by) + 11, 22, raylib.LIGHTGRAY)
-	draw_text_cx(cstring("ENTER accept   -   ESC discard"), cx, i32(y + h) - 16, 14, raylib.DARKGRAY)
+	draw_text_cx(cstring("Click a relic to equip it (max 3 total)."), cx, i32(y+h)-16, 14, raylib.DARKGRAY)
 }
 
 // Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper
@@ -2380,14 +2354,9 @@ main :: proc() {
 						run_coins_earned += i32(drops[i].amount)
 						play(sounds.coin, rand.float32_range(0.97, 1.03))
 					case .RELIC_CHEST:
-						// Open the chest: draw a relic and pause for accept/discard.
 						if !tutorial_mode {
-							if kind, ok := draw_relic(); ok {
-								pending_relic = kind
-								relic_pick_open = true
-							} else {
-								currency += 100 // everything owned: pay out instead
-							}
+							draw_relic_choices()
+							relic_pick_open = true
 							play(sounds.shop_buy)
 						}
 					}
