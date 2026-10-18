@@ -430,6 +430,16 @@ boss_dustmaw_dive :: proc(e: ^enemy, phase2: bool) {
 // A slow stone titan: telegraphed stomps with shockwave shards, hurled rubble
 // that pounds the ground around you, and a lumbering charge that ends in a slam.
 // ---------------------------------------------------------------------------
+// --- COLOSSUS tuning ---------------------------------------------------------
+// Kept as named constants so the telegraph can state the true danger zone and
+// the attack can never quietly drift out of sync with what it promises.
+COLOSSUS_WINDUP :: 0.9 // matches the telegraph's 0.9s fade, so tells read fully
+COLOSSUS_SLAM_RADIUS :: 160 // stomp point-blank blast
+COLOSSUS_RUBBLE_RADIUS :: 78 // each rock's blast
+COLOSSUS_RUBBLE_SCATTER :: 60 // how far each rock lands from the locked spot
+// The rubble tell draws the whole reachable area: scatter plus blast radius.
+COLOSSUS_RUBBLE_TELE_RADIUS :: COLOSSUS_RUBBLE_SCATTER + COLOSSUS_RUBBLE_RADIUS
+
 update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
 	b := ARENA_BOSSES[arena]
 	ec := e.position + e.size * 0.5
@@ -449,19 +459,29 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 			e.boss_seq = 0
 			if r < 0.45 {
 				e.boss_next = 0 // stomp
-				e.state_timer = 0.6
+				e.state_timer = COLOSSUS_WINDUP
 			} else if r < 0.78 {
 				e.boss_next = 1 // rubble
-				e.state_timer = 0.6
+				e.state_timer = COLOSSUS_WINDUP
 			} else {
 				e.boss_next = 2 // charge
-				e.state_timer = 0.6
+				e.state_timer = COLOSSUS_WINDUP
 			}
 			e.state = .WINDUP
 			e.flash = 0.15
+			// Lock the rubble target the instant its tell appears, so the ring
+			// sits still for the whole windup. Tracking it until release would
+			// look dodgeable and not be.
+			if e.boss_next == 1 {
+				e.boss_aux = position + size * 0.5
+			}
 		}
 	case .WINDUP:
-		e.boss_aux = dir
+		// Rubble already locked its target when the windup opened; only the
+		// charge keeps tracking its heading here.
+		if e.boss_next != 1 {
+			e.boss_aux = dir
+		}
 		if e.state_timer <= 0 {
 			e.state = .BOSS_ATTACK
 			switch e.boss_next {
@@ -477,7 +497,7 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 		switch e.boss_next {
 		case 0: // stomp: point-blank blast plus a ring of shockwave shards
 			if e.boss_seq == 0 {
-				boss_blast(ec, 150, e.damage, raylib.Color{200, 180, 140, 255})
+				boss_blast(ec, COLOSSUS_SLAM_RADIUS, e.damage, raylib.Color{200, 180, 140, 255})
 				boss_radial(ec, phase2 ? 16 : 12, 190, e.damage * 0.5, 14)
 				e.boss_seq = 1
 			}
@@ -485,15 +505,22 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.5 : 0.85
 			}
-		case 1: // rubble: rocks pound the ground around the player, one by one
+		case 1: // rubble: rocks pound a locked patch of ground, one by one
 			total: i32 = phase2 ? 4 : 3
 			step: f32 = 0.25
 			elapsed := 1.0 - e.state_timer
 			target := i32(elapsed / step)
-			pc := position + size * 0.5
 			for e.boss_seq < total && e.boss_seq <= target {
-				off := raylib.Vector2{rand.float32_range(-60, 60), rand.float32_range(-60, 60)}
-				boss_blast(pc + off, 78, e.damage * 0.7, raylib.Color{180, 150, 110, 255})
+				off := raylib.Vector2 {
+					rand.float32_range(-COLOSSUS_RUBBLE_SCATTER, COLOSSUS_RUBBLE_SCATTER),
+					rand.float32_range(-COLOSSUS_RUBBLE_SCATTER, COLOSSUS_RUBBLE_SCATTER),
+				}
+				boss_blast(
+					e.boss_aux + off,
+					COLOSSUS_RUBBLE_RADIUS,
+					e.damage * 0.7,
+					raylib.Color{180, 150, 110, 255},
+				)
 				e.boss_seq += 1
 			}
 			if e.state_timer <= 0 {
@@ -502,7 +529,7 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 			}
 		case 2: // charge ends in a heavy slam
 			if e.state_timer <= 0 {
-				boss_blast(ec, 160, e.damage, raylib.Color{200, 180, 140, 255})
+				boss_blast(ec, COLOSSUS_SLAM_RADIUS, e.damage, raylib.Color{200, 180, 140, 255})
 				boss_radial(ec, phase2 ? 16 : 12, 190, e.damage * 0.5, 14)
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.6 : 0.9
@@ -929,11 +956,20 @@ draw_boss_telegraph :: proc(e: enemy) {
 			}
 		case .COLOSSUS:
 			if e.boss_next == 0 {
-				boss_tele_circle(ec, 150, k, raylib.Color{230, 200, 150, 255})
+				boss_tele_circle(ec, COLOSSUS_SLAM_RADIUS, k, raylib.Color{230, 200, 150, 255})
 			} else if e.boss_next == 1 {
-				boss_tele_circle(pc, 74, k, raylib.Color{200, 160, 110, 255})
+				// The locked rubble patch: draws the FULL reachable area
+				// (scatter + blast), not a tidy circle you can stand beside.
+				boss_tele_circle(
+					e.boss_aux,
+					COLOSSUS_RUBBLE_TELE_RADIUS,
+					k,
+					raylib.Color{200, 160, 110, 255},
+				)
 			} else {
+				// Charge: the lane it drives down, plus the blast it lands in.
 				boss_tele_line(ec, ec + raylib.Vector2Normalize(to) * 320, 34, k, raylib.Color{220, 200, 160, 255})
+				boss_tele_circle(ec, COLOSSUS_SLAM_RADIUS, k, raylib.Color{220, 200, 160, 255})
 			}
 		case .FROSTBITE:
 			if e.boss_next == 0 {
