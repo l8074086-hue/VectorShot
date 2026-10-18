@@ -145,7 +145,17 @@ RR_NEEDLE_BLINK_DIST :: 70
 RR_NEEDLE_BLINK_INV :: 0.12
 // Per-card stat gains, shared by apply_upgrade and RR's Adaptation scoring so
 // both sides agree on what a single card is worth.
-CARD_ATTACK_DAMAGE :: 1.0
+// ATTACK cards and the melee cards add a FRACTION of weapon damage, not a flat
+// amount, and everything multiplies on top of the weapon's own figure.
+//
+// This used to be `+1.0` flat against bases ranging 0.4 (MINIGUN) to 6.0
+// (HAMMER). A flat bonus is not one card, it's a different card per weapon: the
+// same six ATTACK picks turned a MINIGUN into a 16x damage monster while giving
+// a CANNON 2.5x, which collapsed weapon identity and let high-rate guns run
+// away with the late game. Multiplicative keeps every weapon's relative
+// strength exactly where the designer put it.
+CARD_ATTACK_DAMAGE :: 0.25 // +25% weapon damage per ATTACK card
+CARD_MELEE_DAMAGE :: 0.25 // +25% melee damage per MELEE card
 CARD_SPEED_BONUS :: 50.0
 CARD_HEALTH_BONUS :: 25.0
 CARD_SPREAD_CUT :: 0.2
@@ -158,13 +168,22 @@ EXPLOSION_TIME :: 0.35
 
 // Player upgrade ceilings. Once a card would push a stat past its cap it stops
 // being offered, so runs plateau instead of snowballing forever.
+//
+// The two damage ceilings are multipliers, not flat amounts: MAX_BONUS_DAMAGE
+// of 1.5 means +150%, i.e. 2.5x total. They are deliberately equal so a melee
+// build and a gun build get the same ceiling -- the shop promises blades "keep
+// pace with gun builds", and flat bonuses made that a lie (a maxed HAMMER
+// reached 2.3x while a maxed MINIGUN reached 16x).
 MAX_SPEED :: 450
-MAX_BONUS_DAMAGE :: 6
-MAX_BONUS_PROJECTILES :: 4
+MAX_BONUS_DAMAGE :: 1.5 // +150% weapon damage
+// Extra projectiles multiply straight on top of the damage multiplier, so this
+// was the single biggest blowout in the game: at 4 it turned a MINIGUN into
+// five 6.4-damage pellets twenty times a second.
+MAX_BONUS_PROJECTILES :: 2
 MAX_BONUS_PIERCE :: 3
 // Melee / handling ups. Melee has its own damage, swing speed, reach and knock
 // so a fists-and-blades build can scale without touching guns.
-MAX_BONUS_MELEE_DAMAGE :: 8
+MAX_BONUS_MELEE_DAMAGE :: 1.5 // +150% melee damage
 MIN_MELEE_CD_MULT :: 0.40 // swing speed cap (lower = faster)
 MAX_MELEE_RANGE_MULT :: 2.0
 MAX_BONUS_MELEE_KNOCK :: 400
@@ -192,7 +211,11 @@ PLAYER_POISON_DPS :: 3.0
 
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
-ENEMY_HP_PER_WAVE :: 0.16
+// A player who draws ATTACK cards roughly triples their damage over a run
+// (2.5x from the damage multiplier, up to 1.5x again from two PROJECTILE picks),
+// so enemy health has to grow on a comparable curve or the game stops mattering
+// around wave 6. At 0.16 the player's output outran it by ~20x.
+ENEMY_HP_PER_WAVE :: 0.30
 // Damage ramps gently. At 0.06 this compounded to nearly 2x by the last arena,
 // and because the player's health pool grows on its own (MAX_HP cards are +25
 // each) it walked straight past them into two-shot territory -- a late TANK elite
@@ -245,7 +268,7 @@ BOSS_GHOST_LIFE :: 0.34
 //
 // These keep bosses getting harder as arenas deepen, but on a curve a player
 // holding ~14 cards and a few shop visits can actually chew through.
-BOSS_HP_PER_WAVE :: 0.04 // vs ENEMY_HP_PER_WAVE (0.16)
+BOSS_HP_PER_WAVE :: 0.06 // vs ENEMY_HP_PER_WAVE (0.16)
 // Boss damage is FLAT across arenas, deliberately.
 //
 // The player's health pool grows on its own (MAX_HP cards are +25 each, plus
@@ -321,7 +344,7 @@ SHOP_REROLL_BASE_COST :: 15
 // `start_loadout` folds into Run_Stats.
 UTIL_MAX_HEALTH :: 25
 UTIL_SPEED :: 50
-UTIL_DAMAGE :: 1
+UTIL_DAMAGE :: 0.25
 UTIL_SPREAD_CUT :: 0.2
 UTIL_DASH_CD_MULT :: 0.7 // SCOUT multiplies dash cooldown by this
 UTIL_AMMO_MULT :: 1.5 // PACKRAT scales both weapons' reserve capacity
@@ -972,7 +995,9 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 	cs := CHARACTERS[character]
 	// Base per-hit damage. REND adds to this per enemy, from the marks it
 	// consumes, so it is figured here and reused inside the loop.
-	base_dmg := (stats.damage + bonus_melee_damage) * cs.melee_damage_mult + bonus_damage
+	// Melee mirrors the gun curve exactly: its own bonus is a fraction, and ATTACK
+	// cards apply as a fraction too, so blades genuinely keep pace with guns.
+	base_dmg := stats.damage * (1 + bonus_melee_damage) * cs.melee_damage_mult * (1 + bonus_damage)
 	if character == .RR && rr_adaptation == .OFFENSE {
 		base_dmg *= 1 + RR_ADAPT_OFFENSE * rr_adapt_scale()
 	}
@@ -1147,7 +1172,7 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 	muzzle_flash = MUZZLE_VOLLEY_FLASH_TIME
 	muzzle_volley_dir = d
 	play(sounds.primary[gun], rand.float32_range(0.94, 1.06))
-	damage := GUNS[gun].damage + bonus_damage
+	damage := GUNS[gun].damage * (1 + bonus_damage)
 	perp := raylib.Vector2{-d.y, d.x}
 	center := position + size * 0.5 + d * MUZZLE_VOLLEY_REACH
 	half_len := f32(MUZZLE_VOLLEY_LENGTH) * 0.5
@@ -3666,7 +3691,9 @@ relic_bonus :: proc(kind: Relic_Kind) {
 	case .BULLET_RESERVE:
 		ammo_growth_mult *= 1.8
 	case .HEAVY_BARREL:
-		bonus_damage += 4.0
+		// bonus_damage is a fraction, so the relic is a percentage of weapon damage
+		// rather than a flat +4 that only meant something on a heavy gun.
+		bonus_damage += 0.35
 	}
 }
 
@@ -3836,7 +3863,10 @@ apply_upgrade :: proc(name: cstring) {
 	} else if name == "PIERCE" {
 		bonus_pierce = min(bonus_pierce + 1, MAX_BONUS_PIERCE)
 	} else if name == "MELEE" {
-		bonus_melee_damage = min(bonus_melee_damage + 1.5, f32(MAX_BONUS_MELEE_DAMAGE))
+		bonus_melee_damage = min(
+				bonus_melee_damage + CARD_MELEE_DAMAGE,
+				f32(MAX_BONUS_MELEE_DAMAGE),
+			)
 	} else if name == "SWING" {
 		melee_speed_mult = max(melee_speed_mult * 0.85, MIN_MELEE_CD_MULT)
 	} else if name == "REACH" {

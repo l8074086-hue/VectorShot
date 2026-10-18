@@ -2106,7 +2106,9 @@ main :: proc() {
 						// the SMG/MINIGUN spray a little. Precision cards shrink this.
 						offset += rand.float32_range(-spread, spread) * 0.5
 						shot_dir := raylib.Vector2Rotate(fire_dir, offset)
-						damage := ws.damage + bonus_damage
+						// Damage bonuses are fractions of the weapon's own figure, so a card means
+					// the same thing on a MINIGUN as on a CANNON.
+					damage := ws.damage * (1 + bonus_damage)
 						if unhappy {
 							damage *= BUD_UNHAPPY_DAMAGE_MULT
 						}
