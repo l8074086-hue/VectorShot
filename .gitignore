@@ -4,3 +4,4 @@ roguelike.exe
 roguelike.pdb
 .build-windows/
 settings.cfg
+run_save.cfg
