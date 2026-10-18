@@ -1244,6 +1244,9 @@ rr_adapt_scale :: proc() -> f32 {
 
 // Whether the GF-mode comfort assists are active: either the hidden Ctrl+G
 // toggle is on, or the player picked the official EASY difficulty.
+// Comfort assists: GF mode (Ctrl+G) gives movement recency (handled in main)
+// and halves incoming damage. EASY difficulty also halves incoming damage and
+// adds aim assist. Aim assist itself is only enabled on EASY (not on GF toggle).
 assists_on :: proc() -> bool {
 	return gf_mode || difficulty == .EASY
 }
@@ -1299,9 +1302,9 @@ gf_move_dir :: proc() -> raylib.Vector2 {
 	return d
 }
 
-// GF mode aim assist: if an enemy sits inside a narrow cone of where the player
-// is aiming, snap the shot onto it. Only the shot direction is bent -- the
-// character still faces the cursor -- so it stays forgiving, not magnetic.
+// EASY-difficulty aim assist: if an enemy sits inside a narrow cone of where
+// the player is aiming, snap the shot onto it. Only the shot direction is bent
+// -- the character still faces the cursor -- so it stays forgiving, not magnetic.
 gf_assist_aim :: proc(aim: raylib.Vector2) -> raylib.Vector2 {
 	pc := position + size * 0.5
 	best := aim
@@ -1959,6 +1962,10 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 		spawn_boss_wave(enemies, wave)
 		return
 	}
+	// GF mode skips the boss fight but still finishes the arena at the final wave.
+	if gf_mode && !endless_mode && wave == ARENAS[arena].waves {
+		arena_cleared()
+	}
 	// Difficulty scales how many show up; never fewer than one. An active
 	// mission's density modifier then crowds (or thins) the wave on top.
 	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
@@ -2014,8 +2021,14 @@ process_splits :: proc() {
 
 // Is this wave the arena's boss finale? One boss per run, on the arena's last
 // wave, and never again once the map has been cleared (endless mode).
+// Bosses spawn on the arena's last wave, unless the player has the hidden GF
+// mode toggle active (Ctrl+G). EASY difficulty keeps its usual assists but still
+// gets bosses.
 is_boss_wave :: proc(wave: i32) -> bool {
-	return !endless_mode && wave == ARENAS[arena].waves
+	if endless_mode || gf_mode {
+		return false
+	}
+	return wave == ARENAS[arena].waves
 }
 
 // Build the arena's boss from ARENA_BOSSES (its own name, colour, size, hp and

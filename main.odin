@@ -1928,10 +1928,9 @@ main :: proc() {
 						arc = 0.12 * f32(shots - 1)
 					}
 					note_attack()
-					// GF mode bends the shot onto a nearby enemy that's inside the
-					// aim cone, so mouse aim is forgiving without feeling magnetic.
+					// Aim assist only for EASY difficulty (not the GF toggle).
 					fire_dir := aim_dir
-					if assists_on() {
+					if difficulty == .EASY {
 						fire_dir = gf_assist_aim(aim_dir)
 					}
 					for k in 0 ..< shots {
