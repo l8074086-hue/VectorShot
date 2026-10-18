@@ -1145,7 +1145,9 @@ ARENA_BOSSES := [Arena_Kind]Arena_Boss {
 		hp              = 230,
 		speed           = 46,
 		damage          = 18,
-		preferred_range = 220,
+		// It fights with its arms, so it has to stand inside swinging range
+		// instead of hanging back at a caster's distance.
+		preferred_range = 120,
 	},
 	.GLACIER   = {
 		name            = "FROSTBITE",

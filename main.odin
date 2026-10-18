@@ -2472,13 +2472,15 @@ main :: proc() {
 				}
 			}
 
-			// MECHANIKTRON rockets: fly straight and detonate on the first thing
-			// they touch (player, cover, wall) or when the fuse runs out.
+			// Thrown rocks: rockets fly straight, boulders arc under gravity. Both
+			// detonate on the first thing they touch (player, cover, wall) or
+			// when the fuse runs out.
 			for i := len(rockets) - 1; i >= 0; i -= 1 {
 				r := &rockets[i]
 				r.pos += r.vel * dT
+				r.vel.y += r.gravity * dT
 				r.life -= dT
-				rr := raylib.Rectangle{r.pos.x, r.pos.y, MECH_ROCKET_SIZE, MECH_ROCKET_SIZE}
+				rr := raylib.Rectangle{r.pos.x, r.pos.y, r.size, r.size}
 				blow := r.life <= 0 || bullet_blocked_by_terrain(rr)
 				if !blow && raylib.CheckCollisionRecs(rr, player_rect) {
 					blow = true
@@ -2491,11 +2493,15 @@ main :: proc() {
 					}
 				}
 				if blow {
+					blast_col := raylib.Color{255, 150, 60, 255}
+					if r.boulder {
+						blast_col = raylib.Color{190, 170, 140, 255}
+					}
 					boss_blast(
-						r.pos + {MECH_ROCKET_SIZE * 0.5, MECH_ROCKET_SIZE * 0.5},
-						MECH_ROCKET_BLAST,
+						r.pos + {r.size * 0.5, r.size * 0.5},
+						r.blast,
 						r.damage,
-						raylib.Color{255, 150, 60, 255},
+						blast_col,
 					)
 					unordered_remove(&rockets, i)
 				}
@@ -2918,20 +2924,27 @@ main :: proc() {
 			for b in enemy_bullets {
 				raylib.DrawRectangleV(b.position, b.size, raylib.MAGENTA)
 			}
-			// MECHANIKTRON rockets: a dark shell with a hot exhaust flare.
+			// Thrown rocks: rockets are slim shells with a hot exhaust flare, boulders are
+			// squat tumbling stones with no trail.
 			for r in rockets {
-				rc := r.pos + {MECH_ROCKET_SIZE * 0.5, MECH_ROCKET_SIZE * 0.5}
-				sp := raylib.Vector2Length(r.vel)
-				if sp > 1 {
-					d := r.vel / sp
-					raylib.DrawLineEx(rc - d * 4, rc - d * 16, 5, raylib.Color{255, 150, 60, 160})
+				rc := r.pos + {r.size * 0.5, r.size * 0.5}
+				if r.boulder {
+					rad := r.size * 0.5
+					raylib.DrawCircleV(rc, rad, r.color)
+					raylib.DrawCircleLines(i32(rc.x), i32(rc.y), rad, raylib.Color{70, 62, 52, 255})
+				} else {
+					sp := raylib.Vector2Length(r.vel)
+					if sp > 1 {
+						d := r.vel / sp
+						raylib.DrawLineEx(rc - d * 4, rc - d * 16, 5, raylib.Color{255, 150, 60, 160})
+					}
+					raylib.DrawRectangleV(r.pos, {r.size, r.size}, r.color)
+					raylib.DrawRectangleLinesEx(
+						{r.pos.x, r.pos.y, r.size, r.size},
+						2,
+						raylib.Color{255, 120, 60, 255},
+					)
 				}
-				raylib.DrawRectangleV(r.pos, {MECH_ROCKET_SIZE, MECH_ROCKET_SIZE}, raylib.Color{70, 74, 82, 255})
-				raylib.DrawRectangleLinesEx(
-					{r.pos.x, r.pos.y, MECH_ROCKET_SIZE, MECH_ROCKET_SIZE},
-					2,
-					raylib.Color{255, 120, 60, 255},
-				)
 			}
 			// Player (shape + darker outline come from the chosen character).
 			draw_player()

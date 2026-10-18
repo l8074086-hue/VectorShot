@@ -2106,19 +2106,47 @@ mech_fire_rocket :: proc(from, to: raylib.Vector2, damage: f32) {
 			vel = raylib.Vector2Normalize(d) * MECH_ROCKET_SPEED,
 			life = MECH_ROCKET_LIFE,
 			damage = damage * MECH_ROCKET_DMG_MULT,
+			size = MECH_ROCKET_SIZE,
+			blast = MECH_ROCKET_BLAST,
+			gravity = 0,
+			boulder = false,
+			color = raylib.Color{70, 74, 82, 255},
+		},
+	)
+}
+
+// COLOSSUS hurls a boulder in a high arc. The extra upward kick plus gravity is
+// what makes it read as "thrown" rather than fired, and it also means the rock
+// lands short of where it was aimed -- the arc is the tell.
+colossus_fire_boulder :: proc(from, to: raylib.Vector2, damage: f32) {
+	d := to - from
+	if raylib.Vector2Length(d) < 0.01 {
+		return
+	}
+	append(
+		&rockets,
+		rocket {
+			pos = from - {COLOSSUS_BOULDER_SIZE * 0.5, COLOSSUS_BOULDER_SIZE * 0.5},
+			vel = raylib.Vector2Normalize(d) * COLOSSUS_BOULDER_SPEED +
+				{0, -COLOSSUS_BOULDER_LIFT},
+			life = COLOSSUS_BOULDER_LIFE,
+			damage = damage,
+			size = COLOSSUS_BOULDER_SIZE,
+			blast = COLOSSUS_BOULDER_BLAST,
+			gravity = COLOSSUS_BOULDER_GRAVITY,
+			boulder = true,
+			color = raylib.Color{132, 122, 106, 255},
 		},
 	)
 }
 
 // Spawn the arena's boss plus a light escort on its finale wave.
+// A boss wave is the boss alone. No escort: the set piece should be a duel,
+// and only what the boss itself summons ever joins it.
 spawn_boss_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
+	_ = enemies
+	_ = wave
 	spawn_arena_boss(random_spawn_pos(ARENA_BOSSES[arena].size))
-	// A light escort so the arena isn't empty apart from the boss.
-	for _ in 0 ..< 3 {
-		kind := pick_enemy_kind(wave)
-		sz := ENEMIES[kind].size
-		spawn_enemy_at(kind, false, wave, random_spawn_pos(sz))
-	}
 }
 
 // Fill the screen with a short centred callout. `text` must be stable storage

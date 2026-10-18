@@ -280,13 +280,20 @@ crystal :: struct {
 	flash:  f32,
 }
 
-// A MECHANIKTRON rocket: a slow projectile that detonates on the first thing it
-// touches (player, cover or wall) or when its fuse runs out.
+// A thrown rock: MECHANIKTRON's straight-flying rockets and COLOSSUS's heavy
+// arcing boulders share one entity. Both detonate on the first thing they
+// touch (player, cover or wall) or when the fuse runs out; only `gravity` and
+// the size/blast fields make a boulder arc and land like a rock.
 rocket :: struct {
-	pos:    raylib.Vector2,
-	vel:    raylib.Vector2,
-	life:   f32,
-	damage: f32,
+	pos:     raylib.Vector2,
+	vel:     raylib.Vector2,
+	life:    f32,
+	damage:  f32,
+	size:    f32,          // hit/draw box edge
+	blast:   f32,          // explosion radius where it lands
+	gravity: f32,          // downward accel; 0 flies flat like a rocket
+	boulder: bool,         // draws as a tumbling rock, not a slim shell
+	color:   raylib.Color,
 }
 
 // Static cover. All kinds are solid to movement and bullets (they live in the

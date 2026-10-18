@@ -431,27 +431,63 @@ boss_dustmaw_dive :: proc(e: ^enemy, phase2: bool) {
 // that pounds the ground around you, and a lumbering charge that ends in a slam.
 // ---------------------------------------------------------------------------
 // --- COLOSSUS tuning ---------------------------------------------------------
+// A wall of stone that closes distance and hits things: it swings, it slams,
+// it lobs boulders, and it charges until the arena stops it. It never fires a
+// fan of shards -- every threat it poses is a place on the ground, so the
+// telegraph can always draw exactly where you must not be.
+//
 // Kept as named constants so the telegraph can state the true danger zone and
-// the attack can never quietly drift out of sync with what it promises.
+// an attack can never quietly drift out of sync with what it promises.
 COLOSSUS_WINDUP :: 0.9 // matches the telegraph's 0.9s fade, so tells read fully
-COLOSSUS_SLAM_RADIUS :: 160 // stomp point-blank blast
-COLOSSUS_RUBBLE_RADIUS :: 78 // each rock's blast
-COLOSSUS_RUBBLE_SCATTER :: 60 // how far each rock lands from the locked spot
-// The rubble tell draws the whole reachable area: scatter plus blast radius.
+// Ground slam: a flat ring centred on its own feet.
+COLOSSUS_SLAM_RADIUS :: 165
+COLOSSUS_SLAM_DMG_MULT :: 1.0
+// Heavy swing: a sweeping arc of three impacts in front of it.
+COLOSSUS_SWING_REACH :: 92
+COLOSSUS_SWING_RADIUS :: 88
+COLOSSUS_SWING_ARC :: 0.55 // radians from centre to the outer blow
+COLOSSUS_SWING_DMG_MULT :: 0.7
+// Boulder throw: a high arc that lands short of the aim point.
+COLOSSUS_BOULDER_SIZE :: 44
+COLOSSUS_BOULDER_BLAST :: 130
+COLOSSUS_BOULDER_SPEED :: 330
+COLOSSUS_BOULDER_LIFT :: 190 // extra upward kick, so it arcs rather than skates
+COLOSSUS_BOULDER_GRAVITY :: 620
+COLOSSUS_BOULDER_LIFE :: 3.0
+COLOSSUS_BOULDER_DMG_MULT :: 0.8
+COLOSSUS_BOULDER_STEP :: 0.45
+COLOSSUS_BOULDER_TIME :: 1.1
+// Wall charge: drives in one locked direction until the arena stops it.
+COLOSSUS_CHARGE_SPEED :: 560
+COLOSSUS_CHARGE_TIME :: 1.5 // hard cap so it can never drive forever
+// ...and the rubble burst left where it stops.
+COLOSSUS_RUBBLE_RADIUS :: 84
+COLOSSUS_RUBBLE_SCATTER :: 70
 COLOSSUS_RUBBLE_TELE_RADIUS :: COLOSSUS_RUBBLE_SCATTER + COLOSSUS_RUBBLE_RADIUS
-// Rocks used to land every 0.25s, which stacked the whole volley into less
-// than a second. Spacing them out buys real reaction time between impacts.
-COLOSSUS_RUBBLE_STEP :: 0.4 // seconds between rocks
-COLOSSUS_RUBBLE_TIME :: 1.5 // total attack window (must exceed the last rock)
+COLOSSUS_RUBBLE_DMG_MULT :: 0.7
+
+// Scatter the rubble burst around `center`. Used by the wall charge, which is
+// the only attack that does not warn on the player's own position.
+colossus_rubble_burst :: proc(center: raylib.Vector2, damage: f32) {
+	boss_blast(center, COLOSSUS_RUBBLE_TELE_RADIUS, damage, raylib.Color{200, 180, 150, 255})
+	for _ in 0 ..< 4 {
+		ang := rand.float32() * 2 * math.PI
+		off := raylib.Vector2 {
+			math.cos_f32(ang) * COLOSSUS_RUBBLE_SCATTER * 0.7,
+			math.sin_f32(ang) * COLOSSUS_RUBBLE_SCATTER * 0.7,
+		}
+		boss_blast(center + off, COLOSSUS_RUBBLE_RADIUS, damage, raylib.Color{180, 155, 120, 255})
+	}
+}
 
 update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
 	b := ARENA_BOSSES[arena]
 	ec := e.position + e.size * 0.5
 	phase2 := e.boss_phase >= 2
 
-	if e.state == .BOSS_ATTACK && e.boss_next == 2 && raylib.Vector2Length(e.boss_aux) > 0.01 {
-		e.position += e.boss_aux * spd * (phase2 ? 2.6 : 1.9) * dT
-	} else {
+	// The charge drives itself (see case 3); everything else holds its ground
+	// and closes in so the swings can actually reach you.
+	if !(e.state == .BOSS_ATTACK && e.boss_next == 3) {
 		boss_hold_range(e, dir, dist, spd, b.preferred_range, dT, 0.2)
 	}
 
@@ -461,68 +497,102 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 		if e.state_timer <= 0 {
 			r := rand.float32()
 			e.boss_seq = 0
-			if r < 0.45 {
-				e.boss_next = 0 // stomp
+			if r < 0.3 {
+				e.boss_next = 0 // ground slam
 				e.state_timer = COLOSSUS_WINDUP
-			} else if r < 0.78 {
-				e.boss_next = 1 // rubble
+			} else if r < 0.55 {
+				e.boss_next = 1 // heavy swing
+				e.state_timer = COLOSSUS_WINDUP
+			} else if r < 0.8 {
+				e.boss_next = 2 // boulder throw
 				e.state_timer = COLOSSUS_WINDUP
 			} else {
-				e.boss_next = 2 // charge
+				e.boss_next = 3 // wall charge
 				e.state_timer = COLOSSUS_WINDUP
 			}
 			e.state = .WINDUP
 			e.flash = 0.15
-			// Lock the rubble target the instant its tell appears, so the ring
-			// sits still for the whole windup. Tracking it until release would
-			// look dodgeable and not be.
-			if e.boss_next == 1 {
-				e.boss_aux = position + size * 0.5
-			}
 		}
 	case .WINDUP:
-		// Rubble already locked its target when the windup opened; only the
-		// charge keeps tracking its heading here.
-		if e.boss_next != 1 {
-			e.boss_aux = dir
-		}
+		// Every attack locks its heading the moment the tell appears, so the
+		// drawn danger stays put while the titan wanders off it.
+		e.boss_aux = dir
 		if e.state_timer <= 0 {
 			e.state = .BOSS_ATTACK
 			switch e.boss_next {
 			case 0:
-				e.state_timer = 0.12
+				e.state_timer = 0.15
 			case 1:
-				e.state_timer = COLOSSUS_RUBBLE_TIME
+				e.state_timer = 0.3
 			case 2:
-				e.state_timer = 0.7
+				e.state_timer = COLOSSUS_BOULDER_TIME
+			case 3:
+				e.state_timer = COLOSSUS_CHARGE_TIME
 			}
 		}
 	case .BOSS_ATTACK:
 		switch e.boss_next {
-		case 0: // stomp: point-blank blast plus a ring of shockwave shards
+		case 0: // ground slam: one flat ring at its own feet, nothing thrown
 			if e.boss_seq == 0 {
-				boss_blast(ec, COLOSSUS_SLAM_RADIUS, e.damage, raylib.Color{200, 180, 140, 255})
-				boss_radial(ec, phase2 ? 16 : 12, 190, e.damage * 0.5, 14)
+				boss_blast(
+					ec,
+					COLOSSUS_SLAM_RADIUS,
+					e.damage * COLOSSUS_SLAM_DMG_MULT,
+					raylib.Color{200, 180, 140, 255},
+				)
+				add_shake(7)
 				e.boss_seq = 1
 			}
 			if e.state_timer <= 0 {
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.5 : 0.85
 			}
-		case 1: // rubble: rocks pound a locked patch of ground, one by one
-			total: i32 = phase2 ? 4 : 3
-			elapsed := 1.0 - e.state_timer
-			target := i32(elapsed / COLOSSUS_RUBBLE_STEP)
-			for e.boss_seq < total && e.boss_seq <= target {
-				off := raylib.Vector2 {
-					rand.float32_range(-COLOSSUS_RUBBLE_SCATTER, COLOSSUS_RUBBLE_SCATTER),
-					rand.float32_range(-COLOSSUS_RUBBLE_SCATTER, COLOSSUS_RUBBLE_SCATTER),
+		case 1: // heavy swing: three blows sweeping the arc in front of it
+			if e.boss_seq == 0 {
+				// Sweep outward-in so the arm reads as moving through the arc.
+				for i in 0 ..< 3 {
+					// Swing arc is expressed relative to the locked heading, so
+					// rotate `face` rather than aiming in world space.
+					ang := -COLOSSUS_SWING_ARC +
+						(f32(2 - i) / 2.0) * (2.0 * COLOSSUS_SWING_ARC)
+					face := e.boss_aux
+					if raylib.Vector2Length(face) < 0.01 {
+						face = dir
+					}
+					world := raylib.Vector2 {
+						face.x * math.cos_f32(ang) - face.y * math.sin_f32(ang),
+						face.x * math.sin_f32(ang) + face.y * math.cos_f32(ang),
+					}
+					boss_blast(
+						ec + world * COLOSSUS_SWING_REACH,
+						COLOSSUS_SWING_RADIUS,
+						e.damage * COLOSSUS_SWING_DMG_MULT,
+						raylib.Color{215, 195, 160, 255},
+					)
 				}
-				boss_blast(
-					e.boss_aux + off,
-					COLOSSUS_RUBBLE_RADIUS,
-					e.damage * 0.7,
-					raylib.Color{180, 150, 110, 255},
+				add_shake(6)
+				e.boss_seq = 1
+			}
+			if e.state_timer <= 0 {
+				e.state = .RECOVER
+				e.state_timer = phase2 ? 0.45 : 0.8
+			}
+		case 2: // boulder throw: one rock per beat, lobbed on an arc
+			total: i32 = phase2 ? 3 : 2
+			elapsed := 1.0 - e.state_timer
+			target := i32(elapsed / COLOSSUS_BOULDER_STEP)
+			for e.boss_seq < total && e.boss_seq <= target {
+				// Spread the throw along the locked heading so a dodge has a gap.
+				spread := (f32(e.boss_seq) - f32(total - 1) * 0.5) * 0.22
+				face := e.boss_aux
+				world := raylib.Vector2 {
+					face.x * math.cos_f32(spread) - face.y * math.sin_f32(spread),
+					face.x * math.sin_f32(spread) + face.y * math.cos_f32(spread),
+				}
+				colossus_fire_boulder(
+					ec,
+					ec + world * 520,
+					e.damage * COLOSSUS_BOULDER_DMG_MULT,
 				)
 				e.boss_seq += 1
 			}
@@ -530,10 +600,18 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.5 : 0.8
 			}
-		case 2: // charge ends in a heavy slam
-			if e.state_timer <= 0 {
-				boss_blast(ec, COLOSSUS_SLAM_RADIUS, e.damage, raylib.Color{200, 180, 140, 255})
-				boss_radial(ec, phase2 ? 16 : 12, 190, e.damage * 0.5, 14)
+		case 3: // wall charge: drive one locked heading until the arena stops it
+			face := e.boss_aux
+			if raylib.Vector2Length(face) < 0.01 {
+				face = dir
+			}
+			e.position += face * COLOSSUS_CHARGE_SPEED * (phase2 ? 1.25 : 1.0) * dT
+			// The arena (walls and cover) is the only thing that stops it.
+			rect := raylib.Rectangle{e.position.x, e.position.y, e.size.x, e.size.y}
+			stopped := bullet_blocked_by_terrain(rect)
+			if stopped || e.state_timer <= 0 {
+				colossus_rubble_burst(e.position + e.size * 0.5, e.damage * COLOSSUS_RUBBLE_DMG_MULT)
+				add_shake(9)
 				e.state = .RECOVER
 				e.state_timer = phase2 ? 0.6 : 0.9
 			}
@@ -959,20 +1037,49 @@ draw_boss_telegraph :: proc(e: enemy) {
 			}
 		case .COLOSSUS:
 			if e.boss_next == 0 {
+				// Ground slam: the flat ring it is about to crack open.
 				boss_tele_circle(ec, COLOSSUS_SLAM_RADIUS, k, raylib.Color{230, 200, 150, 255})
 			} else if e.boss_next == 1 {
-				// The locked rubble patch: draws the FULL reachable area
-				// (scatter + blast), not a tidy circle you can stand beside.
-				boss_tele_circle(
-					e.boss_aux,
-					COLOSSUS_RUBBLE_TELE_RADIUS,
-					k,
-					raylib.Color{200, 160, 110, 255},
-				)
+				// Heavy swing: the three blows, drawn where they will land.
+				for i in 0 ..< 3 {
+					ang := -COLOSSUS_SWING_ARC +
+					(f32(2 - i) / 2.0) * (2.0 * COLOSSUS_SWING_ARC)
+					face := e.boss_aux
+					world := raylib.Vector2 {
+						face.x * math.cos_f32(ang) - face.y * math.sin_f32(ang),
+						face.x * math.sin_f32(ang) + face.y * math.cos_f32(ang),
+					}
+					boss_tele_circle(
+						ec + world * COLOSSUS_SWING_REACH,
+						COLOSSUS_SWING_RADIUS,
+						k,
+						raylib.Color{215, 195, 160, 255},
+					)
+				}
+			} else if e.boss_next == 2 {
+				// Boulder throw: the lane the rocks will come down in.
+				face := e.boss_aux
+				if raylib.Vector2Length(face) > 0.01 {
+					boss_tele_line(
+						ec,
+						ec + face * 560,
+						COLOSSUS_BOULDER_BLAST * 2,
+						k,
+						raylib.Color{200, 180, 145, 255},
+					)
+				}
 			} else {
-				// Charge: the lane it drives down, plus the blast it lands in.
-				boss_tele_line(ec, ec + raylib.Vector2Normalize(to) * 320, 34, k, raylib.Color{220, 200, 160, 255})
-				boss_tele_circle(ec, COLOSSUS_SLAM_RADIUS, k, raylib.Color{220, 200, 160, 255})
+				// Wall charge: the whole lane it can drive down.
+				face := e.boss_aux
+				if raylib.Vector2Length(face) > 0.01 {
+					boss_tele_line(
+						ec,
+						ec + face * 1200,
+						e.size.x + 10,
+						k,
+						raylib.Color{220, 200, 160, 255},
+					)
+				}
 			}
 		case .FROSTBITE:
 			if e.boss_next == 0 {
