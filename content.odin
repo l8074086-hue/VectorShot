@@ -1144,7 +1144,7 @@ ARENA_BOSSES := [Arena_Kind]Arena_Boss {
 		size            = {116, 116},
 		hp              = 230,
 		speed           = 46,
-		damage          = 22,
+		damage          = 18,
 		preferred_range = 220,
 	},
 	.GLACIER   = {

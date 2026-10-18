@@ -439,6 +439,10 @@ COLOSSUS_RUBBLE_RADIUS :: 78 // each rock's blast
 COLOSSUS_RUBBLE_SCATTER :: 60 // how far each rock lands from the locked spot
 // The rubble tell draws the whole reachable area: scatter plus blast radius.
 COLOSSUS_RUBBLE_TELE_RADIUS :: COLOSSUS_RUBBLE_SCATTER + COLOSSUS_RUBBLE_RADIUS
+// Rocks used to land every 0.25s, which stacked the whole volley into less
+// than a second. Spacing them out buys real reaction time between impacts.
+COLOSSUS_RUBBLE_STEP :: 0.4 // seconds between rocks
+COLOSSUS_RUBBLE_TIME :: 1.5 // total attack window (must exceed the last rock)
 
 update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32, dT: f32) {
 	b := ARENA_BOSSES[arena]
@@ -488,7 +492,7 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 			case 0:
 				e.state_timer = 0.12
 			case 1:
-				e.state_timer = 1.0
+				e.state_timer = COLOSSUS_RUBBLE_TIME
 			case 2:
 				e.state_timer = 0.7
 			}
@@ -507,9 +511,8 @@ update_boss_colossus :: proc(e: ^enemy, dir: raylib.Vector2, dist: f32, spd: f32
 			}
 		case 1: // rubble: rocks pound a locked patch of ground, one by one
 			total: i32 = phase2 ? 4 : 3
-			step: f32 = 0.25
 			elapsed := 1.0 - e.state_timer
-			target := i32(elapsed / step)
+			target := i32(elapsed / COLOSSUS_RUBBLE_STEP)
 			for e.boss_seq < total && e.boss_seq <= target {
 				off := raylib.Vector2 {
 					rand.float32_range(-COLOSSUS_RUBBLE_SCATTER, COLOSSUS_RUBBLE_SCATTER),
