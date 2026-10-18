@@ -115,7 +115,7 @@ RR_STEPS := [?]Tutorial_Step {
 		20.0,
 	},
 	{
-		"RESILIENCE (most max HP): face the turret and hold E/RMB to raise BULWARK and block its shots",
+		"RESILIENCE (most max HP): face the turret and hold E/RMB to raise BULWARK and block its shots. You cannot attack while guarding",
 		.BLOCK,
 		20.0,
 	},

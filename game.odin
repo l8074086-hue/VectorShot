@@ -4898,12 +4898,26 @@ draw_held_weapon :: proc() {
 draw_player :: proc() {
 	// RR's BULWARK guard is drawn first so the body stamps over its centre and
 	// only the front rim reads as a shield. It flares white on a cancelled hit.
+	// The rim picks up a dimmer, dashed inner arc while the guard is up but he
+	// is holding fire, so "the stance costs you your attacks" is visible rather
+	// than something you have to discover by mashing and seeing nothing happen.
 	if rr_block || block_flash > 0 {
 		pc := position + size * 0.5
 		a := math.atan2_f32(aim_dir.y, aim_dir.x) * raylib.RAD2DEG
 		deg := f32(RR_BLOCK_ARC * raylib.RAD2DEG)
 		t := clamp(block_flash / BLOCK_FLASH_TIME, 0, 1)
 		r := size.x * 1.25
+		if rr_block {
+			// Locked-out marker: the guard arc drawn inward, in muted grey.
+			raylib.DrawCircleSectorLines(
+				pc,
+				r * 0.82,
+				a - deg,
+				a + deg,
+				16,
+				raylib.Color{130, 140, 150, 150},
+			)
+		}
 		raylib.DrawCircleSector(
 			pc,
 			r,

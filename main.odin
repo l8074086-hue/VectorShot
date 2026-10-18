@@ -2012,11 +2012,8 @@ main :: proc() {
 			w := active_weapon()
 			ws := active_stats()
 			// The signature slot has no weapon struct, so its swings are gated by
-			// the shared melee cooldown instead of a per-slot timer.
-			fire_ready := w.cooldown <= 0
-			if active_slot == SLOT_SIGNATURE {
-				fire_ready = melee_cooldown <= 0
-			}
+			// the shared melee cooldown instead of a per-slot timer. Readiness is
+			// resolved below, once the guard input is known.
 			// Mouse controls (MOUSE scheme): LMB fires and RMB drives the E
 			// action (kick / RR's guard / NEEDLE). SPACE/E always work too; a
 			// click on an upgrade card is left to the card handler below.
@@ -2027,6 +2024,19 @@ main :: proc() {
 				fire_held = fire_held || (raylib.IsMouseButtonDown(.LEFT) && len(cards) == 0)
 				kick_held = kick_held || raylib.IsMouseButtonDown(.RIGHT)
 				kick_pressed = kick_pressed || raylib.IsMouseButtonPressed(.RIGHT)
+			}
+			// RR's BULWARK is a stance, not a free action: while the guard is up
+			// he cannot shoot, swing, or throw his signature. Cancelling frontal
+			// damage while still dealing full damage made it strictly dominant --
+			// face the fight, hold E, and simply nothing gets through.
+			//
+			// Gated on kick_held rather than rr_block, which is only latched
+			// further below (it drives the damage funnel too), so this stays
+			// honest on the very frame the guard goes up.
+			guarding := character == .RR && rr_adaptation == .RESILIENCE && kick_held
+			fire_ready := w.cooldown <= 0 && !guarding
+			if active_slot == SLOT_SIGNATURE {
+				fire_ready = melee_cooldown <= 0 && !guarding
 			}
 			if fire_held && fire_ready {
 				if active_slot == SLOT_SIGNATURE {
