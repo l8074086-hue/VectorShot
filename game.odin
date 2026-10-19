@@ -1305,15 +1305,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 				health = min(health + PHASE_REND_HEAL, max_health)
 				tutorial_note(.MARK_KILL)
 			}
-			spawn_kill_rewards(
-				enemies[i].position,
-				enemies[i].elite,
-				enemies[i].color,
-				enemies[i].kind,
-				enemies[i].revenant,
-				enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
-				enemies[i].revenant_idx,
-			)
+			spawn_kill_rewards(&enemies[i])
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -1333,15 +1325,7 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 	if stats.phase_detonate {
 		for i := len(enemies) - 1; i >= 0; i -= 1 {
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(
-					enemies[i].position,
-					enemies[i].elite,
-					enemies[i].color,
-					enemies[i].kind,
-					enemies[i].revenant,
-					enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
-					enemies[i].revenant_idx,
-				)
+				spawn_kill_rewards(&enemies[i])
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -1422,15 +1406,7 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 		play_enemy_hit(apply_enemy_damage(&enemies[i], damage, -d))
 		apply_status(&enemies[i], attack_effects)
 		if enemies[i].hp <= 0 {
-			spawn_kill_rewards(
-				enemies[i].position,
-				enemies[i].elite,
-				enemies[i].color,
-				enemies[i].kind,
-				enemies[i].revenant,
-				enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
-				enemies[i].revenant_idx,
-			)
+			spawn_kill_rewards(&enemies[i])
 			unordered_remove(&enemies, i)
 		}
 	}
@@ -4257,7 +4233,8 @@ update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 			continue
 		}
 		// The victim dies (and still drops); the Devourer heals off it.
-		spawn_kill_rewards(enemies[best].position, false, enemies[best].color, enemies[best].kind)
+		// The Devourer ate it, so it is not an elite kill.
+		spawn_kill_rewards(&enemies[best], false)
 		e.hp = min(e.hp + e.max_hp * ELITE_DEVOUR_HEAL, e.max_hp)
 		e.flash = 0.25
 		e.ability_timer = ELITE_DEVOUR_COOLDOWN
@@ -4652,7 +4629,7 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 					append(&pending_splits, e.position)
 				}
 				if e.hp <= 0 {
-					spawn_kill_rewards(e.position, e.elite, e.color, e.kind)
+					spawn_kill_rewards(e)
 					unordered_remove(enemies, i)
 				}
 			}
@@ -5275,12 +5252,7 @@ explode_at :: proc(center: raylib.Vector2) {
 				enemies[i].position += raylib.Vector2Normalize(d) * 24
 			}
 			if enemies[i].hp <= 0 {
-				spawn_kill_rewards(
-					enemies[i].position,
-					enemies[i].elite,
-					enemies[i].color,
-					enemies[i].kind,
-				)
+				spawn_kill_rewards(&enemies[i])
 				unordered_remove(&enemies, i)
 			}
 		}
@@ -5486,15 +5458,23 @@ spawn_relic_chest :: proc(pos: raylib.Vector2) {
 	append(&drops, drop{position = p, size = sz, kind = .RELIC_CHEST, amount = 0, life = 30.0})
 }
 
-spawn_kill_rewards :: proc(
-	pos: raylib.Vector2,
-	elite := false,
-	col: raylib.Color = raylib.WHITE,
-	kind: Enemy_Kind = .GRUNT,
-	revenant := false,
-	revenant_pays_coins := false,
-	revenant_idx: i32 = -1,
-) {
+// The single funnel for an enemy dying.
+//
+// It takes the enemy itself rather than a handful of its fields, because that
+// is what stops a call site from forgetting one of them. This proc used to
+// take the position, elite flag, colour, kind and three revenant fields as
+// separate arguments, and four of the seven call sites were left behind when
+// the revenant ones were added -- so a revenant killed by an ordinary bullet
+// (the most common way anything dies) neither paid out nor came out of the
+// graveyard, leaving its entry stuck as spawned forever.
+//
+// `count_as_elite` is false only for the Devourer, which eats its victim: that
+// is not an elite kill and does not count towards the run's elite tally.
+spawn_kill_rewards :: proc(e: ^enemy, count_as_elite := true) {
+	pos := e.position
+	elite := e.elite && count_as_elite
+	col := e.color
+	kind := e.kind
 	spawn_death_burst(pos, col, elite)
 	// A boss always leaves a relic chest (walk over it to draw, then accept or
 	// discard). This is the universal death funnel, so it fires no matter what
@@ -5529,8 +5509,8 @@ spawn_kill_rewards :: proc(
 	// A revenant is a discarded card that came back. Killing one removes it for
 	// good and pays well above an elite -- unless you skipped it before, in
 	// which case it was demoted down to a form that never pays again.
-	if revenant {
-		if revenant_pays_coins {
+	if e.revenant {
+		if revenant_pays_coins(e.revenant_idx) {
 			append(
 				&drops,
 				drop {
@@ -5542,7 +5522,7 @@ spawn_kill_rewards :: proc(
 				},
 			)
 		}
-		revenant_retire(revenant_idx)
+		revenant_retire(e.revenant_idx)
 		return
 	}
 	if elite {

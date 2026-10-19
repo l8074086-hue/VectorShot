@@ -2810,7 +2810,7 @@ main :: proc() {
 						apply_status(e, bullets[i].effects)
 						bullet_register_hit(&bullets[i], e.id)
 						if e.hp <= 0 {
-							spawn_kill_rewards(e.position, e.elite, e.color, e.kind)
+							spawn_kill_rewards(e)
 							unordered_remove(&enemies, j)
 						}
 						// Spend a pierce charge, or die on this hit.
