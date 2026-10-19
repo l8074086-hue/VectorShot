@@ -2414,10 +2414,17 @@ main :: proc() {
 					unordered_remove(&blood, i)
 				}
 			}
-			if dir != raylib.Vector2(0) && dash_timer <= 0 {
+			// A shocked player is locked out entirely. Resolved once here so
+			// movement, dash and fire agree instead of each testing separately.
+			shocked := player_shocked()
+			if dir != raylib.Vector2(0) && dash_timer <= 0 && !shocked {
 				tutorial_note(.MOVE)
 				last_dir = dir
-				position += raylib.Vector2Normalize(dir) * character_move_speed() * dT
+				position +=
+					raylib.Vector2Normalize(dir) *
+					character_move_speed() *
+					player_speed_mult() *
+					dT
 			}
 			if dash_cooldown > 0 {
 				dash_cooldown -= dT
@@ -2434,7 +2441,7 @@ main :: proc() {
 			// Mouse controls (MOUSE scheme): LMB fires and RMB drives the E
 			// action (kick / RR's guard / NEEDLE). SPACE/E always work too; a
 			// click on an upgrade card is left to the card handler below.
-			fire_held := world_key_down(raylib.KeyboardKey.SPACE)
+			fire_held := world_key_down(raylib.KeyboardKey.SPACE) && !shocked
 			kick_held := world_key_down(raylib.KeyboardKey.E)
 			kick_pressed := world_key_pressed(raylib.KeyboardKey.E)
 			if settings.control_scheme == .MOUSE && !console_open {
@@ -2621,13 +2628,13 @@ main :: proc() {
 					inv_timer = RR_NEEDLE_BLINK_INV
 					append(&trail, trail_point{position, 0.3})
 				}
-			} else if kick_pressed && melee_cooldown <= 0 {
+			} else if kick_pressed && melee_cooldown <= 0 && !shocked {
 				tutorial_note(.KICK)
 				melee_cooldown = swing_cooldown(KICK)
 				play(sounds.kick, KICK.sound_pitch)
 				melee_swing(KICK, aim_dir)
 			}
-			if world_key_pressed(raylib.KeyboardKey.LEFT_SHIFT) && dash_cooldown <= 0 {
+			if world_key_pressed(raylib.KeyboardKey.LEFT_SHIFT) && dash_cooldown <= 0 && !shocked {
 				tutorial_note(.DASH)
 				play(sounds.dash)
 				// Synergy: a Tracer SLIDE instantly refills Traceur's Heart, so
@@ -2659,18 +2666,20 @@ main :: proc() {
 			// Never let a dash/lunge leave the arena; resolve_obstacles alone can
 			// eject an entity through the outer wall's far edge.
 			clamp_to_arena(&position, size)
-			if world_key_pressed(raylib.KeyboardKey.F) {
-				// F is the debug draw: a blind pull from the real deck, same
-				// path a cleared wave takes.
+			// Dev keys: draw a card, drop the card on screen, skip the wave. All three are
+			// debug-only. They used to be live in a normal run, which in an
+			// EXPEDITION meant pressing I dropped a whole arena wave on top of
+			// the node's own enemies -- two spawns for one node.
+			if world_key_pressed(raylib.KeyboardKey.F) && debug_mode {
 				clear(&cards)
 				if drawn := deck_draw(); drawn != "" {
 					show_card_pickup(drawn)
 				}
 			}
-			if world_key_pressed(raylib.KeyboardKey.G) && !gf_ctrl {
+			if world_key_pressed(raylib.KeyboardKey.G) && debug_mode {
 				pop(&cards)
 			}
-			if world_key_pressed(raylib.KeyboardKey.I) && !debug_mode {
+			if world_key_pressed(raylib.KeyboardKey.I) && debug_mode {
 				new_wave(&enemies, wave)
 				wave += 1
 			}
@@ -2855,6 +2864,8 @@ main :: proc() {
 				inv_timer -= dT
 			}
 			update_player_status(dT)
+			// The skip offer, armed once nothing but revenants is left.
+			update_revenant_prompt(dT)
 			player_rect := raylib.Rectangle{position.x, position.y, size.x, size.y}
 			for i := len(enemies) - 1; i >= 0; i -= 1 {
 				// A burrowed boss is underground and can't body-check you.
@@ -2868,6 +2879,12 @@ main :: proc() {
 					enemies[i].size.y,
 				}
 				if raylib.CheckCollisionRecs(player_rect, enemy_rect) {
+					// A STATIC revenant is a charger whose body inflicts shock on
+					// contact. Applying it outside the i-frame gate means being
+					// shoved into one can re-shock you after your i-frames are up.
+					if enemies[i].revenant && enemies[i].revenant_effects != {} {
+						apply_player_effects(enemies[i].revenant_effects)
+					}
 					if inv_timer <= 0 {
 						apply_player_damage(
 							enemies[i].damage,
@@ -3520,8 +3537,41 @@ main :: proc() {
 			raylib.DrawRectangle(10, 10, 200, 20, raylib.RED)
 			raylib.DrawRectangle(10, 10, i32(200 * health / max_health), 20, raylib.GREEN)
 			raylib.DrawRectangleLines(10, 10, 200, 20, raylib.WHITE)
-			if player_poison > 0 {
-				raylib.DrawText("POISONED", 216, 12, 16, raylib.Color{120, 230, 120, 255})
+			if revenant_prompt {
+				// The skip offer sits low and centred so it never covers the
+				// fight it is asking about.
+				n := live_revenants()
+				draw_centered(
+					raylib.TextFormat("%i REVENANT%s LEFT", n, n == 1 ? "" : "S"),
+					470,
+					26,
+					REVENANT_COLOR,
+				)
+				draw_centered(
+					cstring("X WALK AWAY - they return weaker, and pay nothing"),
+					504,
+					18,
+					raylib.DARKGRAY,
+				)
+			}
+			// Status readout. Each shows the fraction of its timer left, so a
+			// long stun reads as a countdown instead of an unfair lockout.
+			status_x: i32 = 216
+			for row in STATUS_ROWS {
+				t := player_effect_timer[row.eff]
+				if t <= 0 {
+					continue
+				}
+				c := row.col
+				c.a = u8(255 * clamp(t / max(player_status_duration(row.eff), 0.01), 0, 1))
+				raylib.DrawText(
+					raylib.TextFormat("%s %i%%", row.label, i32(100 * c.a / 255)),
+					status_x,
+					12,
+					16,
+					c,
+				)
+				status_x += 90
 			}
 			if run_rules.mode == .BOSS_RUSH {
 				// "BOSS 3 / 7" beats a wave counter in a mode with no waves.

@@ -212,6 +212,10 @@ MAX_STATUS_TIME_MULT :: 2.5 // cap on the global duration multiplier
 // Packleader's arrows leave a short damage-over-time on the player.
 PLAYER_POISON_TIME :: 4.0
 PLAYER_POISON_DPS :: 3.0
+PLAYER_BURN_TIME :: 3.0
+PLAYER_BURN_DPS :: 5.0
+PLAYER_FREEZE_TIME :: 2.5
+PLAYER_SHOCK_TIME :: 0.8
 
 // Enemies get tougher, hit harder and move a little faster every wave, so the
 // difficulty curve keeps up with the player's upgrades.
@@ -428,6 +432,49 @@ health: f32 = 100
 max_health: f32 = 100
 inv_timer: f32 = 0
 player_poison: f32 = 0 // seconds of poison left on the player (DoT)
+
+// Status the player is currently under. The timer array is the source of
+// truth: > 0 means active. Kept separate from the player's own upgrades, so a
+// run cannot bank these.
+player_effect_timer: [Status_Effect]f32
+
+// Label and colour for the player's status readout, in HUD order.
+STATUS_ROWS := [4]struct{eff: Status_Effect, label: cstring, col: raylib.Color} {
+	{.Poison, "POISONED", {120, 230, 120, 255}},
+	{.Burn,   "BURNING",  {255, 130, 60,  255}},
+	{.Freeze, "FROZEN",   {120, 190, 255, 255}},
+	{.Shock,  "SHOCKED",  {240, 220, 90,  255}},
+}
+
+// How long a freshly-applied effect lasts on the player, before difficulty and
+// power scaling.
+player_status_duration :: proc(eff: Status_Effect) -> f32 {
+	switch eff {
+	case .Burn:
+		return PLAYER_BURN_TIME
+	case .Poison:
+		return PLAYER_POISON_TIME
+	case .Freeze:
+		return PLAYER_FREEZE_TIME
+	case .Shock:
+		return PLAYER_SHOCK_TIME
+	}
+	return 0
+}
+
+// Move-speed multiplier while frozen. Mirrors enemy_speed_mult but is a fixed
+// value: the player never carries the element cards that scale enemy freeze.
+player_speed_mult :: proc() -> f32 {
+	if player_effect_timer[.Freeze] > 0 {
+		return 1 - FREEZE_SLOW
+	}
+	return 1
+}
+
+// A shocked player is locked out of moving, dashing and firing for the duration.
+player_shocked :: proc() -> bool {
+	return player_effect_timer[.Shock] > 0
+}
 last_dir: raylib.Vector2 = {0, -1} // last movement direction (used by dashes)
 aim_dir: raylib.Vector2 = {0, -1} // points at the mouse cursor
 SPEED: f32 = 200
@@ -791,6 +838,9 @@ start_run :: proc(stats: Run_Stats) {
 	dash_timer = 0
 	inv_timer = 0
 	player_poison = 0
+	for eff in Status_Effect {
+		player_effect_timer[eff] = 0
+	}
 	max_health = stats.max_health
 	health = max_health
 	card_choices = stats.card_choices
@@ -1245,6 +1295,9 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 				enemies[i].elite,
 				enemies[i].color,
 				enemies[i].kind,
+				enemies[i].revenant,
+				enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
+				enemies[i].revenant_idx,
 			)
 			unordered_remove(&enemies, i)
 		}
@@ -1270,6 +1323,9 @@ melee_swing :: proc(stats: Weapon_Stats, dir: raylib.Vector2, finisher: bool = f
 					enemies[i].elite,
 					enemies[i].color,
 					enemies[i].kind,
+					enemies[i].revenant,
+					enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
+					enemies[i].revenant_idx,
 				)
 				unordered_remove(&enemies, i)
 			}
@@ -1356,6 +1412,9 @@ fire_muzzle_volley :: proc(dir: raylib.Vector2) {
 				enemies[i].elite,
 				enemies[i].color,
 				enemies[i].kind,
+				enemies[i].revenant,
+				enemies[i].revenant && revenant_pays_coins(enemies[i].revenant_idx),
+				enemies[i].revenant_idx,
 			)
 			unordered_remove(&enemies, i)
 		}
@@ -2360,6 +2419,8 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 		num = max(i32(f32(num) * m.density + 0.5), 1)
 	}
 	spawn_enemies(enemies, num, wave)
+	// Anything the player threw away comes back, on top of the wave.
+	spawn_revenants(enemies, wave)
 }
 
 // Deferred splitter halves: spawn two smaller, non-splitting copies at each
@@ -2937,9 +2998,11 @@ expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
 		// A normal wave, but every spawn is forced elite.
 		expedition_force_elite = true
 		spawn_enemies(enemies, elite_wave_size(wave), wave)
+		spawn_revenants(enemies, wave)
 		return .PLAYING
 	case .BATTLE:
 		spawn_enemies(enemies, node_wave_size(wave), wave)
+		spawn_revenants(enemies, wave)
 		return .PLAYING
 	case .SHOP:
 		shop_selected = 0
@@ -3031,6 +3094,10 @@ Deck_Card :: struct {
 Revenant :: struct {
 	name:  cstring,
 	power: f32,
+	// True while one of its bodies is out in the arena. A revenant that is
+	// killed is gone for good; one that is skipped goes back in the queue, so
+	// it comes back weaker next wave.
+	spawned: bool,
 }
 
 DEMOTE_FLOOR :: 0.6
@@ -3081,7 +3148,7 @@ deck_restore :: proc(names: [dynamic]cstring, gy_names: [dynamic]cstring, gy_pow
 		if i < len(gy_power) {
 			p = gy_power[i]
 		}
-		append(&graveyard, Revenant{name = name, power = p})
+		append(&graveyard, Revenant{name = name, power = p, spawned = false})
 	}
 }
 
@@ -3121,7 +3188,7 @@ deck_discard :: proc(idx: int) -> bool {
 	if len(deck) <= DECK_MIN_SIZE {
 		return false
 	}
-	append(&graveyard, Revenant{name = deck[idx].name, power = 1.0})
+	append(&graveyard, Revenant{name = deck[idx].name, power = 1.0, spawned = false})
 	unordered_remove(&deck, idx)
 	return true
 }
@@ -3148,11 +3215,240 @@ revenant_skip :: proc(idx: int) -> bool {
 
 // A revenant only pays while it is still at full power: skipping one strips the
 // coins permanently, which is the entire cost of dodging it.
-revenant_pays_coins :: proc(idx: int) -> bool {
-	if idx < 0 || idx >= len(graveyard) {
+revenant_pays_coins :: proc(idx: i32) -> bool {
+	if idx < 0 || int(idx) >= len(graveyard) {
 		return false
 	}
-	return graveyard[idx].power >= 1.0
+	return graveyard[int(idx)].power >= 1.0
+}
+
+// Take a dead revenant out of the graveyard for good. Indices are NOT adjusted:
+// every live revenant in the arena is matched by value, and there is at most one
+// body per queue entry, so a stale index in a queue that has since shifted is
+// the only way this could go wrong. It cannot: a slot is only freed here, and
+// only after its own body has died.
+revenant_retire :: proc(idx: i32) {
+	if idx < 0 || int(idx) >= len(graveyard) {
+		return
+	}
+	unordered_remove(&graveyard, int(idx))
+	// Every remaining revenant shifts down one, so their stored indices do too.
+	// Re-point the live bodies at their new slots.
+	for &e in enemies {
+		if e.revenant && e.revenant_idx > idx {
+			e.revenant_idx -= 1
+		}
+	}
+}
+
+// Send every revenant still standing back to the graveyard, demoted. This is
+// the cost of skipping: they come back next wave, smaller, and they never pay
+// coins again.
+revenant_skip_all :: proc() {
+	for &r in graveyard {
+		if r.spawned {
+			r.power = max(r.power - DEMOTE_STEP, DEMOTE_FLOOR)
+			r.spawned = false
+		}
+	}
+	// Sweep the bodies out of the arena. Backwards, so the indices stay valid.
+	for i := len(enemies) - 1; i >= 0; i -= 1 {
+		if enemies[i].revenant {
+			spawn_death_burst(enemies[i].position, REVENANT_COLOR, true)
+			unordered_remove(&enemies, i)
+		}
+	}
+}
+
+// The skip offer. Shown once every non-revenant on the field is dead and only
+// revenants are left: at that point the wave cannot progress on its own, so the
+// player gets a straight choice -- finish the fight for a bigger payout, or walk
+// away and take the smaller, weaker revenants next wave.
+revenant_prompt: bool = false
+revenant_prompt_timer: f32 = 0
+
+// Arm the prompt when the field is nothing but revenants. `dT` counts the
+// window down so a stale prompt can't survive a wave change.
+update_revenant_prompt :: proc(dT: f32) {
+	if live_ordinary_enemies() == 0 && live_revenants() > 0 {
+		if !revenant_prompt {
+			revenant_prompt = true
+			revenant_prompt_timer = 0
+		}
+	} else {
+		revenant_prompt = false
+		revenant_prompt_timer = 0
+	}
+	if !revenant_prompt {
+		return
+	}
+	revenant_prompt_timer += dT
+	// X walks away. Deliberately not ESC: that key is back-navigation
+	// everywhere else in the game, and this action permanently strips the
+	// payout, so it must not be something you trigger by reflex. The prompt
+	// is also held for a beat before it can fire, so a key that was already
+	// down when the prompt appeared cannot skip a revenant unseen.
+	if raylib.IsKeyPressed(raylib.KeyboardKey.X) && revenant_prompt_timer > 0.6 {
+		revenant_skip_all()
+		revenant_prompt = false
+		show_banner(cstring("THEY COME BACK WEAKER"), raylib.DARKPURPLE, 2.5)
+	}
+}
+
+// How many enemies are still standing that were not raised from a card.
+live_ordinary_enemies :: proc() -> int {
+	n := 0
+	for e in enemies {
+		if !e.revenant {
+			n += 1
+		}
+	}
+	return n
+}
+
+// How many revenant bodies are up right now.
+live_revenants :: proc() -> int {
+	n := 0
+	for e in enemies {
+		if e.revenant {
+			n += 1
+		}
+	}
+	return n
+}
+
+// --- revenants ---------------------------------------------------------------
+//
+// A discarded card comes back as an enemy. The card decides the body and the
+// behaviour; the number beside it decides how hard it hits.
+//
+//   HEALTH     TANK      extra health
+//   ATTACK     GRUNT     extra damage
+//   SPEED      RUNNER    extra speed
+//   PRECISION  RANGED    three straight shots a fan -- the elite shape without
+//                        the boomerang, so the shards stick
+//   IGNITE     RANGED    burns what it hits
+//   CRYO       RANGED    freezes what it hits
+//   VENOM      RANGED    poisons what it hits
+//   STATIC     CHARGER   shocks what it runs into
+//
+// Every revenant is a little tougher than an elite. Killing one pays better
+// than killing an elite; skipping one pays nothing at all, now or ever.
+
+// The elite three-shot fan, reused by the PRECISION revenant that copies its
+// shape. Both arrays are the same fan; only the return trip differs.
+ELITE_SPREAD := [3]f32{-0.30, 0.0, 0.30}
+PRECISION_SPREAD := [3]f32{-0.30, 0.0, 0.30}
+
+REVENANT_COLOR :: raylib.Color{190, 120, 255, 255}
+REVENANTS_PER_WAVE :: 2
+REVENANT_HP_BONUS :: 1.15 // on top of the elite multiplier: "a bit tougher than an elite"
+REVENANT_COIN_MIN :: 20 // elites drop rand.int_range(10, 18); a revenant pays more
+REVENANT_COIN_MAX :: 30
+
+// Per-card: the body it wears and the element it infuses, if any.
+Revenant_Plan :: struct {
+	kind:    Enemy_Kind,
+	effects: Status_Set,
+}
+
+revenant_plan :: proc(name: cstring) -> Revenant_Plan {
+	switch name {
+	case "HEALTH":
+		return {.TANK, {}}
+	case "ATTACK":
+		return {.GRUNT, {}}
+	case "SPEED":
+		return {.RUNNER, {}}
+	case "PRECISION":
+		return {.RANGED, {}}
+	case "IGNITE":
+		return {.RANGED, {.Burn}}
+	case "CRYO":
+		return {.RANGED, {.Freeze}}
+	case "VENOM":
+		return {.RANGED, {.Poison}}
+	case "STATIC":
+		return {.CHARGER, {.Shock}}
+	}
+	// Anything else still rises, on a plain grunt body.
+	return {.GRUNT, {}}
+}
+
+// What each card adds to the stat it is actually about. These are the player's
+// numbers scaled into a range that reads on an enemy: the ATTACK card's "+1
+// damage" would be invisible on a body that already hits for 12, so it doubles
+// instead. Scaled by the revenant's current power, so a demoted one is a
+// visibly weaker version of the same fight.
+REVENANT_HEALTH_BONUS :: 0.8 // extra max health on top of the elite-grade bulk
+REVENANT_ATTACK_BONUS :: 1.0 // doubles damage at full power
+REVENANT_SPEED_BONUS  :: 0.6 // +60% speed at full power
+
+// Bring the graveyard up out of the ground: at most REVENANTS_PER_WAVE bodies
+// per wave, oldest first, so the queue drains at a steady rate rather than all
+// at once. Returns how many went out.
+spawn_revenants :: proc(enemies: ^[dynamic]enemy, wave: i32) -> i32 {
+	sent: i32 = 0
+	for i in 0 ..< len(graveyard) {
+		if sent >= REVENANTS_PER_WAVE {
+			break
+		}
+		r := &graveyard[i]
+		if r.spawned {
+			continue
+		}
+		r.spawned = true
+		spawn_revenant(enemies, r.name, r.power, i32(i), wave)
+		sent += 1
+	}
+	return i32(sent)
+}
+
+spawn_revenant :: proc(
+	enemies: ^[dynamic]enemy,
+	name: cstring,
+	power: f32,
+	idx: i32,
+	wave: i32,
+) {
+	plan := revenant_plan(name)
+	s := ENEMIES[plan.kind]
+
+	spawn_enemy_at(plan.kind, false, wave, random_spawn_pos(s.size))
+	e := &enemies[len(enemies) - 1]
+
+	// Baseline bulk: a shade above an elite, for every revenant alike. This is
+	// deliberately NOT multiplied by the card bonus -- stacking both made a
+	// HEALTH revenant four times a normal body, which is a mini-boss rather
+	// than the "slightly tougher than an elite" the card is meant to be.
+	e.hp *= ELITE_HP_MULT * REVENANT_HP_BONUS
+	e.max_hp = e.hp
+	// On top of that, the card pushes the one stat it is about. Demoted
+	// revenants come back with less of it, which is the whole point of skipping.
+	switch name {
+	case "HEALTH":
+		e.hp *= 1 + REVENANT_HEALTH_BONUS * power
+		e.max_hp = e.hp
+	case "ATTACK":
+		e.damage *= 1 + REVENANT_ATTACK_BONUS * power
+	case "SPEED":
+		e.speed *= 1 + REVENANT_SPEED_BONUS * power
+	case:
+		// The element and precision cards have no stat of their own, so they
+		// take a little speed instead -- enough to feel like a card did
+		// something, not enough to turn the body into a blur.
+		e.speed *= 1 + 0.25 * power
+	}
+
+	// Drawn with the elite silhouette and sized like one. NOTE: the elite AI
+	// branches are deliberately kept away from revenants (see the Devourer
+	// guard in update_enemy), so this is presentation, not behaviour.
+	e.elite = true
+	e.revenant = true
+	e.revenant_idx = idx
+	e.revenant_effects = plan.effects
+	e.revenant_precision = name == "PRECISION"
+	e.color = REVENANT_COLOR
 }
 
 // --- the Deckmaster -----------------------------------------------------------
@@ -3467,7 +3763,11 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 	switch e.kind {
 	case .GRUNT, .TANK:
 		// Crystalized grunts (Devourers) drift toward a nearby ally to feed.
-		if e.elite && e.kind == .GRUNT {
+		// Revenants are excluded: an ATTACK revenant is an elite GRUNT, and a
+		// Devourer eats allies without going through the death funnel. It
+		// would swallow other revenants straight out of the arena, leaving
+		// their graveyard entries stuck in the spawned state forever.
+		if e.elite && e.kind == .GRUNT && !e.revenant {
 			if lure, ok := nearest_other_enemy(e, ELITE_DEVOUR_LURE); ok {
 				if d := raylib.Vector2Length(lure - ec); d > 0.01 {
 					e.position += (lure - ec) / d * spd * dT
@@ -3520,10 +3820,41 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			e.position += perp * spd * 0.7 * dT * side
 		}
 		if e.fire_cooldown <= 0 && dist < s.preferred_range + 140 {
-			if e.elite {
+			switch {
+			// PRECISION revenants: the elite three-shot fan, but the shards
+			// stay straight. They come at you and they stay hit.
+			case e.revenant_precision:
+				for off in PRECISION_SPREAD {
+					append(
+						&enemy_bullets,
+						bullet {
+							position = ec - {5, 5},
+							size = {10, 10},
+							velocity = raylib.Vector2Rotate(dir, off) * ELITE_BOOMERANG_SPEED,
+							damage = s.damage,
+							pierce = 0,
+							effects = e.revenant_effects,
+						},
+					)
+				}
+			// A status revenant shoots one infused shard. It deliberately does
+			// NOT take the elite boomerang branch below: boomerangs never
+			// connect reliably, and the element is the whole point.
+			case e.revenant:
+				append(
+					&enemy_bullets,
+					bullet {
+						position = ec - {5, 5},
+						size = {10, 10},
+						velocity = dir * 260,
+						damage = s.damage,
+						pierce = 0,
+						effects = e.revenant_effects,
+					},
+				)
+			case e.elite:
 				// Boomerang: a fan of three shards that fly out, then back.
-				spread := [3]f32{-0.30, 0.0, 0.30}
-				for off in spread {
+				for off in ELITE_SPREAD {
 					append(
 						&enemy_bullets,
 						bullet {
@@ -3537,7 +3868,7 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 						},
 					)
 				}
-			} else {
+			case:
 				append(
 					&enemy_bullets,
 					bullet {
@@ -3549,6 +3880,7 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 					},
 				)
 			}
+
 			e.fire_cooldown = s.fire_rate
 			// Flash the barrel the shot actually left from (see enemy draw).
 			e.muzzle = ENEMY_MUZZLE_FLASH_TIME
@@ -3724,7 +4056,7 @@ nearest_other_enemy :: proc(e: ^enemy, radius: f32) -> (raylib.Vector2, bool) {
 update_elite_abilities :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 	for i in 0 ..< len(enemies) {
 		e := &enemies[i]
-		if !e.elite || e.kind != .GRUNT {
+		if !e.elite || e.kind != .GRUNT || e.revenant {
 			continue
 		}
 		e.ability_timer -= dT
@@ -4043,23 +4375,34 @@ enemy_stunned :: proc(e: ^enemy) -> bool {
 	return .Shock in e.effects
 }
 
-// Enemy attacks can leave status effects on the player. Only poison is wired
-// so far: a short damage-over-time that the Packleader's arrows apply.
+// Enemy attacks can leave status effects on the player. Each one applies with
+// the same refresh gate enemies get (see apply_status): without it, anything
+// shooting fast enough would pin its debuff on you permanently, which is the
+// exact bug that used to make a stunned enemy a permanent stun.
 apply_player_effects :: proc(set: Status_Set) {
-	if .Poison in set {
-		player_poison = max(player_poison, PLAYER_POISON_TIME)
+	for eff in set {
+		dur := player_status_duration(eff)
+		if player_effect_timer[eff] > dur * STATUS_REFRESH_GATE {
+			continue
+		}
+		player_effect_timer[eff] = max(player_effect_timer[eff], dur)
 	}
 }
 
 // Tick the player's own status effects. Called once per frame from the main
-// loop; poison drains health directly (it ignores i-frames on purpose).
+// loop. Poison and burn drain health directly (they ignore i-frames on
+// purpose); freeze slows movement; shock locks input out for its duration.
 update_player_status :: proc(dT: f32) {
-	if player_poison <= 0 {
-		return
-	}
-	player_poison = max(player_poison - dT, 0)
 	scale := DIFF_ENEMY_DAMAGE[int(difficulty)] * (assists_on() ? GF_DAMAGE_MULT : 1)
-	health -= PLAYER_POISON_DPS * dT * scale
+	for eff in Status_Effect {
+		player_effect_timer[eff] = max(player_effect_timer[eff] - dT, 0)
+	}
+	if player_effect_timer[.Poison] > 0 {
+		health -= PLAYER_POISON_DPS * dT * scale
+	}
+	if player_effect_timer[.Burn] > 0 {
+		health -= PLAYER_BURN_DPS * dT * scale
+	}
 }
 
 // Stamp `set` onto an enemy, refreshing each effect's timer (a re-application
@@ -4965,6 +5308,9 @@ spawn_kill_rewards :: proc(
 	elite := false,
 	col: raylib.Color = raylib.WHITE,
 	kind: Enemy_Kind = .GRUNT,
+	revenant := false,
+	revenant_pays_coins := false,
+	revenant_idx: i32 = -1,
 ) {
 	spawn_death_burst(pos, col, elite)
 	// A boss always leaves a relic chest (walk over it to draw, then accept or
@@ -4997,6 +5343,25 @@ spawn_kill_rewards :: proc(
 		health = min(health + lifesteal, max_health)
 	}
 	play(sounds.enemy_die, rand.float32_range(0.92, 1.08))
+	// A revenant is a discarded card that came back. Killing one removes it for
+	// good and pays well above an elite -- unless you skipped it before, in
+	// which case it was demoted down to a form that never pays again.
+	if revenant {
+		if revenant_pays_coins {
+			append(
+				&drops,
+				drop {
+					position = pos,
+					size = {15, 15},
+					kind = .CURRENCY,
+					amount = f32(rand.int_range(REVENANT_COIN_MIN, REVENANT_COIN_MAX)),
+					life = 8.0,
+				},
+			)
+		}
+		revenant_retire(revenant_idx)
+		return
+	}
 	if elite {
 		append(
 			&drops,

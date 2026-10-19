@@ -170,6 +170,14 @@ enemy :: struct {
 	dps_window:    f32,
 	dps_value:     f32,
 	dps_timer:     f32,
+	// REVENANT: an enemy raised from a card the player threw away. `revenant_idx`
+	// is its slot in the graveyard, which is how a kill gets paid out and how a
+	// skip gets it demoted. `revenant_precision` is the PRECISION card's three
+	// straight shots; `revenant_effects` is the element it infuses.
+	revenant:         bool,
+	revenant_idx:     i32,
+	revenant_effects: Status_Set,
+	revenant_precision: bool,
 }
 
 // Enemy kinds that exist only to be shot in tutorial arenas. `pick_enemy_kind`
