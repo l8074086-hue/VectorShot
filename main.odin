@@ -2012,8 +2012,13 @@ main :: proc() {
 		case .EXPEDITION_MAP:
 			// The expedition map. Drawn bottom-up: layer 0 at the bottom, the
 			// boss at the top, so the run reads the way it is travelled.
-			if len(expedition_map) == 0 {
+			//
+			// Belt and braces: only EXPEDITION has a map. If this screen is ever
+			// reached in another mode the run is already meant to be in a fight,
+			// so bounce out rather than showing a map the player cannot leave.
+			if len(expedition_map) == 0 || run_rules.mode != .EXPEDITION {
 				state = .PLAYING
+				break
 			}
 			// A relic pick is modal; it already took its input above.
 			cur_layer := expedition_layer_now()
@@ -2289,6 +2294,11 @@ main :: proc() {
 			if world_key_pressed(raylib.KeyboardKey.F2) {
 				skill_state = .MAIN
 				state = GameState.SKILL_SELECT
+			}
+			// C opens the deck: what you hold, and what you threw away.
+			if world_key_pressed(raylib.KeyboardKey.C) && len(cards) == 0 {
+				play(sounds.ui_select)
+				state = .INVENTORY
 			}
 			if dash_timer > 0 {
 				dash_timer -= dT
@@ -2672,9 +2682,8 @@ main :: proc() {
 			// the node's own enemies -- two spawns for one node.
 			if world_key_pressed(raylib.KeyboardKey.F) && debug_mode {
 				clear(&cards)
-				if drawn := deck_draw(); drawn != "" {
-					show_card_pickup(drawn)
-				}
+				deck_offer_next()
+				deck_offer_draw_cards()
 			}
 			if world_key_pressed(raylib.KeyboardKey.G) && debug_mode {
 				pop(&cards)
@@ -2693,11 +2702,17 @@ main :: proc() {
 					}
 					if raylib.CheckCollisionRecs(mouse, card_rect) {
 						picked := cards[i].name
-						was_applied := cards[i].applied
-						clear(&cards)
-						// A blind draw was already granted the moment it was
-						// dealt; clicking it just puts it away.
-						if !was_applied {
+						// The wave reward is an offer of three. Taking one draws
+						// it out of the pile; the other two go back and the pile
+						// is reshuffled. The tutorial still deals a plain
+						// three-card hand and applies directly, since its lesson
+						// is the pick itself rather than the pile.
+						if offer_active && !tutorial_mode {
+							deck_offer_take(i)
+							deck_offer_clear()
+							play(sounds.card)
+						} else {
+							clear(&cards)
 							play(sounds.card)
 							apply_upgrade(picked)
 							if tutorial_mode {
@@ -3058,10 +3073,15 @@ main :: proc() {
 						arena_cleared()
 						state = .EXPEDITION_MAP
 					} else if !run_mod(.NO_CARDS) {
-						// A cleared node pays out a blind draw, same as a wave.
-						drawn := deck_draw()
-						if drawn != "" {
-							show_card_pickup(drawn)
+						// A cleared node pays out the same three-card offer as a
+						// wave: take the top three, keep one.
+						if deck_offer_next() {
+							deck_offer_draw_cards()
+						} else {
+							// The pile is down to the floor: nothing to draw,
+							// so the node simply pays nothing and you pick the
+							// next one.
+							state = .EXPEDITION_MAP
 						}
 					}
 					break
@@ -3088,9 +3108,16 @@ main :: proc() {
 					// Debug is excluded because it never spawns the next
 					// wave, so it would sit here dealing a card every frame
 					// with no enemies to clear. Press F there to draw one.
-					drawn := deck_draw()
-					if drawn != "" {
-						show_card_pickup(drawn)
+					if deck_offer_next() {
+						deck_offer_draw_cards()
+					} else {
+						// The pile is down to the floor, so there is nothing to
+						// draw from. The wave still ends -- it just pays nothing
+						// until a Deckmaster puts a card back.
+						if !debug_mode {
+							new_wave(&enemies, wave)
+						}
+						wave += 1
 					}
 				} else if run_mod(.NO_CARDS) && !debug_mode {
 					// NO CARDS pays nothing, but the run still has to move on.
@@ -3824,67 +3851,16 @@ main :: proc() {
 		case .DECKMASTER:
 			update_deckmaster()
 			draw_deckmaster(target)
-		// Draw a deckmaster row: a card name on the left, its effect on the right, the
-// selected one highlighted. Shared by the add and discard phases.
-draw_deckmaster_row :: proc(name: cstring, y: i32, selected: bool) {
-	col := selected ? raylib.YELLOW : raylib.WHITE
-	sub := selected ? raylib.YELLOW : raylib.LIGHTGRAY
-	raylib.DrawText(name, 140, y, 24, col)
-	raylib.DrawText(card_description(name), 400, y, 18, sub)
-}
-
-// The Deckmaster screen: take a card into the deck, then throw some away.
-draw_deckmaster :: proc(target: raylib.RenderTexture) {
-	raylib.BeginTextureMode(target)
-	raylib.ClearBackground(raylib.BLACK)
-	draw_centered(cstring("DECKMASTER"), 24, 40, raylib.WHITE)
-	draw_centered(
-		raylib.TextFormat("DECK %i   GRAVEYARD %i", len(deck), len(graveyard)),
-		74,
-		22,
-		raylib.GOLD,
-	)
-	switch deckmaster_phase {
-	case .ADD:
-		draw_centered(cstring("TAKE A CARD INTO YOUR DECK"), 108, 22, raylib.SKYBLUE)
-		for name, i in deckmaster_offers {
-			draw_deckmaster_row(name, i32(150 + 30 * i), i == deckmaster_selected)
-		}
-		draw_centered(
-			cstring("ENTER take    ESC skip"),
-			i32(150 + 30 * len(deckmaster_offers)),
-			20,
-			raylib.GRAY,
-		)
-	case .DISCARD:
-		// The discardable slice of the deck: the last DECK_MIN_SIZE cards are
-		// kept and so are not offered.
-		draw_centered(cstring("DISCARD INTO THE GRAVEYARD"), 108, 22, raylib.ORANGE)
-		discardable := max(len(deck) - DECK_MIN_SIZE, 0)
-		for row in 0 ..< min(discardable, 6) {
-			idx := row + deckmaster_scroll
-			if idx >= discardable {
-				break
+		case .INVENTORY:
+			// ESC closes it straight back to the run, the same back action as
+			// everywhere else in the game.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.C) {
+				play(sounds.ui_move)
+				state = .PLAYING
 			}
-			draw_deckmaster_row(
-				deck[idx].name,
-				i32(150 + 30 * row),
-				idx == deckmaster_selected,
-			)
-		}
-		draw_centered(
-			raylib.TextFormat("DISCARDS LEFT %i    ESC leave", deckmaster_discards_left),
-			340,
-			20,
-			raylib.GRAY,
-		)
-	case .DONE:
-		draw_centered(cstring("ENTER leave"), 108, 22, raylib.GRAY)
-	}
-	raylib.EndTextureMode()
-}
-
-case .SHOP:
+			draw_inventory(target)
+		case .SHOP:
 			// A relic chest over the shop already took its input above; freeze
 			// the stock list so it cannot answer the same press.
 			if relic_pick_open {
@@ -4177,4 +4153,125 @@ case .SHOP:
 		}
 		raylib.EndDrawing()
 	}
+}
+
+		// Draw a deckmaster row: a card name on the left, its effect on the right, the
+// selected one highlighted. Shared by the add and discard phases.
+draw_deckmaster_row :: proc(name: cstring, y: i32, selected: bool) {
+	col := selected ? raylib.YELLOW : raylib.WHITE
+	sub := selected ? raylib.YELLOW : raylib.LIGHTGRAY
+	raylib.DrawText(name, 140, y, 24, col)
+	raylib.DrawText(card_description(name), 400, y, 18, sub)
+}
+
+// The Deckmaster screen: take a card into the deck, then throw some away.
+draw_deckmaster :: proc(target: raylib.RenderTexture) {
+	raylib.BeginTextureMode(target)
+	raylib.ClearBackground(raylib.BLACK)
+	draw_centered(cstring("DECKMASTER"), 24, 40, raylib.WHITE)
+	draw_centered(
+		raylib.TextFormat("DECK %i   GRAVEYARD %i", len(deck), len(graveyard)),
+		74,
+		22,
+		raylib.GOLD,
+	)
+	switch deckmaster_phase {
+	case .ADD:
+		draw_centered(cstring("TAKE A CARD INTO YOUR DECK"), 108, 22, raylib.SKYBLUE)
+		for name, i in deckmaster_offers {
+			draw_deckmaster_row(name, i32(150 + 30 * i), i == deckmaster_selected)
+		}
+		draw_centered(
+			cstring("ENTER take    ESC skip"),
+			i32(150 + 30 * len(deckmaster_offers)),
+			20,
+			raylib.GRAY,
+		)
+	case .DISCARD:
+		// The discardable slice of the deck: the last DECK_MIN_SIZE cards are
+		// kept and so are not offered.
+		draw_centered(cstring("DISCARD INTO THE GRAVEYARD"), 108, 22, raylib.ORANGE)
+		discardable := max(len(deck) - DECK_MIN_SIZE, 0)
+		for row in 0 ..< min(discardable, 6) {
+			idx := row + deckmaster_scroll
+			if idx >= discardable {
+				break
+			}
+			draw_deckmaster_row(
+				deck[idx].name,
+				i32(150 + 30 * row),
+				idx == deckmaster_selected,
+			)
+		}
+		draw_centered(
+			raylib.TextFormat("DISCARDS LEFT %i    ESC leave", deckmaster_discards_left),
+			340,
+			20,
+			raylib.GRAY,
+		)
+	case .DONE:
+		draw_centered(cstring("ENTER leave"), 108, 22, raylib.GRAY)
+	}
+	raylib.EndTextureMode()
+}
+
+// The deck screen. The two halves of the same decision sit side by side: what
+// you still hold, and what you threw away and what that throw is now costing
+// you. The deck is listed as counts rather than one row per card, because
+// fifteen rows of "ATTACK" would bury the two rows that mattered.
+draw_inventory :: proc(target: raylib.RenderTexture) {
+	raylib.BeginTextureMode(target)
+	raylib.ClearBackground(raylib.BLACK)
+	draw_centered(cstring("DRAWING DECK"), 90, 28, raylib.WHITE)
+	draw_centered(
+		raylib.TextFormat("%i CARDS   -   FLOOR %i", len(deck), DECK_MIN_SIZE),
+		124,
+		16,
+		raylib.GOLD,
+	)
+	draw_centered(cstring("GRAVEYARD"), 90, 28, REVENANT_COLOR)
+	draw_centered(raylib.TextFormat("%i", len(graveyard)), 124, 16, raylib.DARKGRAY)
+
+	entries := deck_tally()
+	defer delete(entries)
+
+	// Deck column.
+	y: i32 = 160
+	for e in entries {
+		raylib.DrawText(e.name, 40, y, 20, raylib.WHITE)
+		raylib.DrawText(raylib.TextFormat("x%i", e.count), 210, y, 20, raylib.YELLOW)
+		raylib.DrawText(card_description(e.name), 262, y + 3, 15, raylib.LIGHTGRAY)
+		y += 26
+	}
+	// Everything above the floor is live: drawable now, discardable now. Below
+	// it the pile is the reserve the floor protects for the rest of the run.
+	draw_centered(
+		raylib.TextFormat(
+			"DRAWABLE %i    DISCARDABLE %i",
+			max(len(deck) - DECK_MIN_SIZE, 0),
+			max(len(deck) - DECK_MIN_SIZE, 0),
+		),
+		470,
+		16,
+		raylib.DARKGRAY,
+	)
+
+	// Graveyard column: what each discarded card has become, and whether it can
+	// still pay. A demoted one never will again.
+	gy: i32 = 160
+	for r, idx in graveyard {
+		raylib.DrawText(r.name, 440, gy, 20, REVENANT_COLOR)
+		raylib.DrawText(raylib.TextFormat("%i%%", i32(r.power * 100 + 0.5)), 600, gy, 18, raylib.GOLD)
+		pay: cstring = "PAYS"
+		col := raylib.DARKGRAY
+		if !revenant_pays_coins(i32(idx)) {
+			pay = "NO PAYOUT"
+			col = raylib.DARKPURPLE
+		}
+		raylib.DrawText(pay, 640, gy + 2, 14, col)
+		gy += 26
+	}
+
+	draw_centered(cstring("ESC goes back"), 560, 18, raylib.GRAY)
+	raylib.EndTextureMode()
 }

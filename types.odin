@@ -14,6 +14,7 @@ GameState :: enum {
 	PLAYING,
 	SHOP,
 	DECKMASTER,
+	INVENTORY,
 	EXPEDITION_MAP,
 	GAME_OVER,
 }
@@ -77,10 +78,6 @@ card :: struct {
 	name:        cstring,
 	description: cstring,
 	hover:       bool,
-	// Set when the card is a blind draw that has ALREADY been applied. It is on
-	// screen only so the player can see what they got -- clicking it dismisses
-	// it and starts the next wave instead of granting the bonus a second time.
-	applied:     bool,
 }
 
 card_definition :: struct {
@@ -758,6 +755,11 @@ Run_Save :: struct {
 	// because a run only ever advances one layer at a time.
 	exp_seed:          u32,
 	exp_cleared:       i32,
+	// Which node the player was standing in when the run was saved. The map is
+	// regenerated from the seed, but an uncommitted node has to be re-entered
+	// or a mid-node resume would put the player on the map able to walk back
+	// into a fight they had already started.
+	exp_in_node:       Node_Kind,
 	// The deck and the graveyard, as parallel lists of card names. Power is
 	// only meaningful for the graveyard, so it is stored alongside it rather
 	// than in a struct-per-entry format the flat save file cannot hold.

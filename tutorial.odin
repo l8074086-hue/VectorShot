@@ -467,7 +467,7 @@ spawn_tutorial_cards :: proc(cards: ^[dynamic]card, names: []cstring) {
 		}
 		append(
 			cards,
-			card{{start_x + spacing * f32(i), y}, {CARD_W, CARD_H}, name, desc, false, false},
+			card{{start_x + spacing * f32(i), y}, {CARD_W, CARD_H}, name, desc, false},
 		)
 	}
 }

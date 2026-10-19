@@ -866,7 +866,15 @@ start_run :: proc(stats: Run_Stats) {
 	deck_reset()
 	// EXPEDITION rolls a fresh map for every run, from the clock so two runs
 	// started in the same second are still different fights of the same shape.
-	expedition_generate(u32(raylib.GetTime() * 1000) | 1)
+	// Other modes clear it instead: leaving a stale map around is how the map
+	// screen survived into a mode that has none.
+	if run_rules.mode == .EXPEDITION {
+		expedition_generate(u32(raylib.GetTime() * 1000) | 1)
+	} else {
+		clear(&expedition_map)
+		expedition_cur_n = 0
+		expedition_done = false
+	}
 	clear(&pending_summons)
 	banner_timer = 0
 	if m := current_mission(); m != nil {
@@ -1839,6 +1847,7 @@ capture_run_save :: proc() -> Run_Save {
 		// how far along it the player is need storing.
 		exp_seed          = expedition_seed,
 		exp_cleared       = expedition_cleared_count(),
+		exp_in_node      = expedition_in_node,
 	}
 	for c in deck {
 		append(&rs.deck_names, c.name)
@@ -1894,6 +1903,7 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "boss_rush_index=%i\n", rs.boss_rush_index)
 	fmt.sbprintf(&sb, "exp_seed=%i\n", i32(rs.exp_seed))
 	fmt.sbprintf(&sb, "exp_cleared=%i\n", rs.exp_cleared)
+	fmt.sbprintf(&sb, "exp_in_node=%i\n", i32(rs.exp_in_node))
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
@@ -2050,6 +2060,8 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.exp_seed = u32(parse_run_i32(val, i32(rs.exp_seed)))
 		case "exp_cleared":
 			rs.exp_cleared = parse_run_i32(val, rs.exp_cleared)
+		case "exp_in_node":
+			rs.exp_in_node = Node_Kind(parse_run_i32(val, i32(rs.exp_in_node)))
 		case "deck":
 			parse_run_names(&rs.deck_names, val)
 		case "graveyard":
@@ -2168,10 +2180,26 @@ resume_run :: proc() -> bool {
 	// in case the loadout screen's pick should win for an endless run.
 	build_arena(arena)
 	// start_run chose its entry state from whatever mode the menu happened to
-	// hold, and run_rules.mode is only restored above. So a resumed expedition
-	// would otherwise drop into a phantom wave instead of its map.
+	// hold, and the real mode is only restored above -- so the entry state has
+	// to be chosen again from the RESTORED mode.
+	//
+	// This used to only correct towards the map. That was one-directional:
+	// start_run saw a leftover .EXPEDITION from a run the player had already
+	// abandoned, set state = .EXPEDITION_MAP, and then nothing ever put it
+	// back. Resuming any non-expedition save after touching expedition put the
+	// player on a map for a mode that has no map.
+	state = run_rules.mode == .EXPEDITION ? .EXPEDITION_MAP : .PLAYING
 	if run_rules.mode == .EXPEDITION {
-		state = .EXPEDITION_MAP
+		// If the save was taken mid-fight, put the player back in it. The node
+		// was never committed, so re-entering it re-spawns the same encounter
+		// rather than advancing the map.
+		expedition_in_node = rs.exp_in_node
+		#partial switch rs.exp_in_node {
+		case .BATTLE, .ELITE, .BOSS:
+			if expedition_chosen() != nil {
+				state = expedition_enter(&enemies)
+			}
+		}
 	}
 	return true
 }
@@ -3191,30 +3219,69 @@ deck_restore :: proc(names: [dynamic]cstring, gy_names: [dynamic]cstring, gy_pow
 	}
 }
 
-// Draw one card at random and apply its bonus. The card stays in the pool, so
-// this is a weighted roll over what you own, not a consumable hand.
+// The wave reward: deal the top three and let the player take one.
 //
-// A card whose stat is already maxed is a wasted wave reward, so re-roll rather
-// than hand one back that does nothing. The retry count is bounded: a deck can
-// legitimately be entirely maxed out, and then the last draw stands.
-deck_draw :: proc() -> cstring {
-	if len(deck) == 0 {
+// The deck is an ORDERED pile, so the offer is the front of it rather than a
+// weighted roll over everything. What you did not take goes back, and the pile
+// is reshuffled -- which is what makes the next deal a different three instead
+// of the same three in the same order.
+//
+// DECK_RETURN_TAKEN: the card you took goes back into the pile too.
+//
+// That flag is the whole difference between two readings of the same mechanic,
+// and the default is "return it". Consuming the drawn card instead drains the
+// pile by one every wave: from fifteen against a floor of eight it is empty by
+// wave 7 and pays nothing for the rest of the run, which no Deckmaster cadence
+// can keep up with. Returning it keeps the deck as the collection it was always
+// meant to be, so thinning still improves every future deal -- a smaller pile
+// simply has worse cards left in it.
+DECK_RETURN_TAKEN :: true
+
+// The three currently on offer, and how many are live.
+deck_offer_cards: [3]cstring
+deck_offer_n:     int
+
+deck_offer_next :: proc() -> bool {
+	deck_offer_n = min(len(deck), 3)
+	for i in 0 ..< deck_offer_n {
+		deck_offer_cards[i] = deck[i].name
+	}
+	return deck_offer_n > 0
+}
+
+// Take one of the offered cards. The chosen card applies; the offer then goes
+// back into the pile, which is reshuffled for the next deal.
+deck_offer_take :: proc(pick: int) -> cstring {
+	if pick < 0 || pick >= deck_offer_n {
 		return ""
 	}
-	tries := min(len(deck), 8)
-	for _ in 0 ..< tries {
-		pick := deck[rand.int_range(0, len(deck) - 1)]
-		if !upgrade_is_useful(pick.name) {
-			continue
-		}
-		apply_upgrade(pick.name)
-		return pick.name
+	name := deck_offer_cards[pick]
+	// The offered three are still sitting at the front of the pile.
+	for i in 0 ..< deck_offer_n {
+		unordered_remove(&deck, 0)
 	}
-	// Nothing useful left in the deck. Still show what was drawn rather than
-	// silently swallowing the reward.
-	pick := deck[rand.int_range(0, len(deck) - 1)]
-	apply_upgrade(pick.name)
-	return pick.name
+	if upgrade_is_useful(name) {
+		apply_upgrade(name)
+	}
+	for i in 0 ..< deck_offer_n {
+		if !DECK_RETURN_TAKEN || i != pick {
+			append(&deck, Deck_Card{deck_offer_cards[i]})
+		}
+	}
+	rand.shuffle(deck[:])
+	deck_offer_n = 0
+	return name
+}
+
+// Put the whole offer back untouched. Not currently reachable (the deal is
+// answered by picking one), but it keeps the offer and the pile in step if a
+// way out of the deal is ever added.
+deck_offer_cancel :: proc() {
+	for i in 0 ..< deck_offer_n {
+		append(&deck, Deck_Card{deck_offer_cards[i]})
+	}
+	rand.shuffle(deck[:])
+	deck_offer_n = 0
 }
 
 // Move a card out of the deck and into the graveyard as a revenant. Refused
@@ -5744,7 +5811,7 @@ spawn_cards :: proc(cards: ^[dynamic]card, count := 3) {
 
 	for i in 0 ..< n {
 		pos := raylib.Vector2{start_x + spacing * f32(i), y}
-		append(cards, card{pos, {CARD_W, CARD_H}, pool[i].name, pool[i].description, false, false})
+		append(cards, card{pos, {CARD_W, CARD_H}, pool[i].name, pool[i].description, false})
 	}
 }
 
@@ -5758,23 +5825,99 @@ card_description :: proc(name: cstring) -> cstring {
 	return ""
 }
 
-// Show a single, already-applied card: the blind draw you were dealt for
-// clearing a wave. There is nothing to choose here, only something to read.
-show_card_pickup :: proc(name: cstring) {
-	CARD_W: f32 = 160
-	CARD_H: f32 = 200
+// Put the current three-card offer on screen. They are laid out as a hand, and
+// picking one takes it; the other two go back into the pile.
+deck_offer_draw_cards :: proc() {
+	CARD_W: f32 = 120
+	CARD_H: f32 = 160
+	spacing: f32 = CARD_W + 40
 	center_x := f32(800) / 2
 	y := f32(600) / 2 - CARD_H / 2
-	append(
-		&cards,
-		card{
-			position    = {center_x - CARD_W / 2, y},
-			size        = {CARD_W, CARD_H},
-			name        = name,
-			description = card_description(name),
-			applied     = true,
-		},
-	)
+
+	n := deck_offer_n
+	total_width := spacing * f32(n) - (spacing - CARD_W)
+	start_x := center_x - total_width / 2
+
+	clear(&cards)
+	for i in 0 ..< n {
+		name := deck_offer_cards[i]
+		append(
+			&cards,
+			card {
+				position    = {start_x + spacing * f32(i), y},
+				size        = {CARD_W, CARD_H},
+				name        = name,
+				description = card_description(name),
+			},
+		)
+	}
+	offer_active = true
+}
+
+// Deal over: no card is on screen any more.
+deck_offer_clear :: proc() {
+	offer_active = false
+	deck_offer_n = 0
+	clear(&cards)
+}
+
+// Set while the three-card offer is the thing waiting to be answered.
+offer_active := false
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+//
+// The deck is a pile with an order, and thinning it is the central decision of
+// a run, so the player needs to be able to look at it: what they hold, how many
+// of each, and what has already been thrown away and what that throw cost.
+//
+// The deck is listed as counts rather than one row per card -- fifteen rows of
+// "ATTACK" would bury the two rows that actually mattered.
+
+// One distinct card and how many of them are held.
+Deck_Entry :: struct {
+	name:  cstring,
+	count: int,
+}
+
+// Collapse the deck into counts, ordered by how many you hold (most-held first)
+// and then alphabetically, so the list is stable between openings.
+deck_tally :: proc() -> [dynamic]Deck_Entry {
+	entries: [dynamic]Deck_Entry
+	defer delete(entries)
+	for c in deck {
+		found := false
+		for &e in entries {
+			if e.name == c.name {
+				e.count += 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			append(&entries, Deck_Entry{name = c.name, count = 1})
+		}
+	}
+	// Insertion sort: the list is a handful of entries, and this keeps it
+	// dependency-free and obviously correct.
+	for i in 1 ..< len(entries) {
+		key := entries[i]
+		j := i - 1
+		for j >= 0 && deck_entry_before(key, entries[j]) {
+			entries[j + 1] = entries[j]
+			j -= 1
+		}
+		entries[j + 1] = key
+	}
+	return entries
+}
+
+deck_entry_before :: proc(a, b: Deck_Entry) -> bool {
+	if a.count != b.count {
+		return a.count > b.count
+	}
+	return a.name < b.name
 }
 
 // ---------------------------------------------------------------------------
