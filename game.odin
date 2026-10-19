@@ -601,11 +601,15 @@ run_mod :: proc(m: Run_Modifier) -> bool {
 	return (run_rules.modifiers & (u32(1) << u32(int(m)))) != 0
 }
 
+// Flip one modifier bit. The test has to happen BEFORE the clear: clearing
+// first makes run_mod always false, so the proc could only ever turn things
+// off and a click could never enable anything.
 run_toggle_mod :: proc(m: Run_Modifier) {
 	bit := u32(1) << u32(int(m))
-	run_rules.modifiers &~= bit
-	if run_mod(m) {
-		run_rules.modifiers |= bit
+	if (run_rules.modifiers & bit) != 0 {
+		run_rules.modifiers &~= bit // was on, switch off
+	} else {
+		run_rules.modifiers |= bit // was off, switch on
 	}
 }
 

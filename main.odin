@@ -846,8 +846,10 @@ main :: proc() {
 					15,
 					col,
 				)
-				row := raylib.Rectangle{86, f32(310 + i32(mi) * 24), 620, 22}
-				hover := raylib.CheckCollisionPointRec(mouse_pos, row)
+				// Same hit test ui_row uses: the small mouse rect, not a point, so this row
+				// catches the cursor exactly the way every other clickable list does.
+				row := raylib.Rectangle{84, f32(312 + i32(mi) * 24), 630, 22}
+				hover := raylib.CheckCollisionRecs(mouse, row)
 				if hover && raylib.IsMouseButtonPressed(.LEFT) {
 					toggle_mod_pick(mi)
 				}
