@@ -129,6 +129,12 @@ enemy_kind_from_token :: proc(s: string) -> (Enemy_Kind, bool) {
 		return .RANGED, true
 	case "5", "charger", "charge":
 		return .CHARGER, true
+	case "6", "splitter", "split":
+		return .SPLITTER, true
+	case "7", "orbiter", "orb":
+		return .ORBITER, true
+	case "8", "sniper", "snipe":
+		return .SNIPER, true
 	}
 	return .GRUNT, false
 }
@@ -145,6 +151,8 @@ console_help :: proc() {
 	console_print("gun <damage|cooldown|spread|mag|ammo|pierce|speed|projectiles|bullet> <v>  (primary)")
 	console_print("give <dash|attack|speed|health|projectile|precision|pierce>")
 	console_print("nextwave   spawn the next wave now")
+	console_print("codex      unlock every bestiary entry")
+	console_print("screen <menu|playing|shop|deckmaster|inventory|codex|settings|equipment>")
 	console_print("clear      remove all enemies    ` or ESC closes")
 }
 
@@ -196,6 +204,17 @@ console_execute :: proc(cmd: string) {
 		wave += 1
 		console_print(string(raylib.TextFormat("wave %i spawned", wave - 1)))
 
+	case "codex":
+		unlock_all_codex()
+		console_print("codex unlocked")
+
+	case "screen":
+		if len(fields) < 2 {
+			console_print("usage: screen <name>", true)
+			return
+		}
+		screen_open(strings.clone_to_cstring(fields[1]))
+
 	case:
 		console_print(string(raylib.TextFormat("unknown command: %s", fields[0])), true)
 	}
@@ -212,6 +231,21 @@ console_cmd_spawn :: proc(fields: []string) {
 		return
 	}
 	elite := len(fields) >= 3 && is_elite_token(fields[2])
+
+	// Bosses need their own spawn path (arena boss setup), everything else
+	// uses the normal near-player spawner.
+	boss_kinds := [7]Enemy_Kind{.BOSS, .BOSS, .BOSS, .BOSS, .BOSS, .BOSS, .BOSS}
+	boss_names := [7]cstring{"packleader", "dustmaw", "colossus", "frostbite", "mechaniktron", "thornwald", "bogwraith"}
+	boss_arenas := [7]Arena_Kind{.GRASSLAND, .CANYON, .RUINS, .GLACIER, .FOUNDRY, .FOREST, .SWAMP}
+
+	for i in 0 ..< len(boss_names) {
+		if strings.clone_to_cstring(fields[1]) == boss_names[i] {
+			spawn_arena_boss_as(boss_arenas[i], random_spawn_pos(ARENA_BOSSES[boss_arenas[i]].size))
+			console_print(string(raylib.TextFormat("spawned boss %s", boss_names[i])))
+			return
+		}
+	}
+
 	spawn_enemy_near_player(kind, elite, wave)
 	console_print(
 		string(
@@ -296,6 +330,26 @@ console_cmd_set :: proc(fields: []string) {
 		spread_cut = val
 	case "invuln", "inv":
 		inv_timer = val
+	case "lifestel", "lifesteal":
+		lifesteal = val
+	case "meleedmg", "melee_damage":
+		bonus_melee_damage = val
+	case "meleespeed", "melee_speed":
+		melee_speed_mult = val
+	case "meleereach", "melee_reach":
+		melee_range_mult = val
+	case "knock", "knockback":
+		bonus_melee_knock = val
+	case "reload":
+		reload_time = val
+	case "dashcd", "dash_cd":
+		dash_cooldown_max = val
+	case "dashspeed", "dash_speed":
+		DASH_SPEED = val
+	case "dashdur", "dash_duration":
+		DASH_DURATION = val
+	case "statustime", "status_time":
+		status_time_mult = val
 	case:
 		console_print(string(raylib.TextFormat("unknown key: %s", fields[1])), true)
 		return
@@ -362,6 +416,42 @@ console_give :: proc(name: string) -> bool {
 		apply_upgrade("PRECISION")
 	case "pierce":
 		apply_upgrade("PIERCE")
+	case "melee":
+		apply_upgrade("MELEE")
+	case "swing":
+		apply_upgrade("SWING")
+	case "reach":
+		apply_upgrade("REACH")
+	case "knock", "knockback":
+		apply_upgrade("KNOCK")
+	case "lifestel", "lifesteal":
+		apply_upgrade("LIFESTEAL")
+	case "reload":
+		apply_upgrade("RELOAD")
+	case "dashcd":
+		apply_upgrade("DASHCD")
+	case "mag":
+		apply_upgrade("MAG")
+	case "ammo":
+		apply_upgrade("AMMO")
+	case "ignite":
+		apply_upgrade("IGNITE")
+	case "cryo":
+		apply_upgrade("CRYO")
+	case "venom":
+		apply_upgrade("VENOM")
+	case "static":
+		apply_upgrade("STATIC")
+	case "kindling":
+		apply_upgrade("KINDLING")
+	case "deepfreeze", "deep_freeze":
+		apply_upgrade("DEEP FREEZE")
+	case "virulence":
+		apply_upgrade("VIRULENCE")
+	case "conduit":
+		apply_upgrade("CONDUIT")
+	case "elementalist":
+		apply_upgrade("ELEMENTALIST")
 	case:
 		return false
 	}

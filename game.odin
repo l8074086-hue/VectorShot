@@ -2748,12 +2748,54 @@ map_unlocked :: proc(k: Arena_Kind) -> bool {
 	return settings.maps_unlocked & (1 << u32(int(k))) != 0
 }
 
-// Dev cheat (Ctrl+Shift+U): open every map without marking any as cleared.
+// Dev cheat (Ctrl+Shift+U): open every map and unlock every codex entry
+// without marking anything as cleared.
 unlock_all_maps :: proc() {
 	for k in Arena_Kind {
 		settings.maps_unlocked |= 1 << u32(int(k))
 	}
+	for i in 0 ..< len(BESTIARY) {
+		settings.bestiary_seen |= 1 << u64(i)
+	}
 	settings_save()
+}
+
+// Unlock every bestiary entry at once: used by the console codex command.
+unlock_all_codex :: proc() {
+	for i in 0 ..< len(BESTIARY) {
+		settings.bestiary_seen |= 1 << u64(i)
+	}
+	settings_save()
+}
+
+// Jump to a game screen from the console. Some screens need setup before
+// they're usable, so we handle each one explicitly.
+screen_open :: proc(name: cstring) {
+	switch name {
+	case "menu", "main":
+		state = .MAIN_MENU
+	case "playing":
+		state = .PLAYING
+	case "shop":
+		shop_selected = 0
+		build_shop()
+		state = .SHOP
+	case "deckmaster":
+		deckmaster_open()
+		state = .DECKMASTER
+	case "inventory", "inv":
+		state = .INVENTORY
+	case "codex":
+		state = .CODEX
+	case "settings":
+		state = .SETTINGS
+	case "equipment":
+		state = .EQUIPMENT
+	case:
+		console_print(string(raylib.TextFormat("unknown screen: %s", name)), true)
+		return
+	}
+	console_print(string(raylib.TextFormat("screen %s", name)))
 }
 
 // The arena's boss just died: record the clear, unlock the next map, and drop

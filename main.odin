@@ -650,12 +650,10 @@ main :: proc() {
 	for !raylib.WindowShouldClose() && !quit_requested {
 		dT := raylib.GetFrameTime()
 
-		// Debug console: only meaningful during a run. Toggle with ` and, while
-		// open, freeze the world (dT = 0) and sip its input instead.
-		if state != .PLAYING {
-			console_close()
-		}
-		if state == .PLAYING && raylib.IsKeyPressed(raylib.KeyboardKey.GRAVE) {
+		// Debug console: toggle with ` from any screen. While open it freezes the
+		// world (dT = 0) and sips input instead, so you can type without getting
+		// attacked or navigating menus by accident.
+		if raylib.IsKeyPressed(raylib.KeyboardKey.GRAVE) {
 			console_toggle()
 		}
 		if console_open {
