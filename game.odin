@@ -240,6 +240,14 @@ SPLITTER_CHILD_HP :: 2
 ORBITER_RING :: 210
 ORBITER_WEAVE_IN :: 1 // how far inside the ring it lunges
 ORBITER_CYCLE :: 2.2 // seconds per weave in/out
+ORBITER_PROJECTILE_SPEED :: 180 // speed of the orbiter's sniper shot on each weave cycle
+
+// SPLITTER: elite splitters cascade - on death they spawn smaller elite
+// splitters instead of runner children. Each generation is smaller and weaker.
+SPLITTER_CASCADE_CHILDREN :: 2 // how many children an elite splitter leaves
+SPLITTER_CASCADE_SCALE :: 0.65 // size multiplier per cascade generation
+SPLITTER_CASCADE_HP :: 1 // HP of each cascade child (they're fragile)
+
 // SNIPER: hold the far ring, telegraph with a growing glow, then fire one fast
 // aimed shot. Aiming is instant; the telegraph is the tell.
 SNIPER_TELEGRAPH :: 0.55
@@ -730,7 +738,14 @@ shop_rerolls_used: i32 = 0
 enemies: [dynamic]enemy
 // Positions where a SPLITTER died this frame; its halves are spawned in a
 // deferred pass (process_splits) so the enemy array isn't mutated while iterating.
-pending_splits: [dynamic]raylib.Vector2
+// A splitter half waiting to spawn. `elite` tracks whether the parent was an
+// elite splitter, so cascade children can also be elite (but smaller, weaker,
+// and unable to split again).
+split_pending :: struct {
+	pos: raylib.Vector2,
+	elite: bool,
+}
+pending_splits: [dynamic]split_pending
 // Minions a boss asked for this frame. Deferred alongside the splitter halves:
 // spawning them inside the enemy update loop reallocates `enemies` underneath
 // the `^enemy` that loop is holding (see boss_summon).
@@ -2555,38 +2570,73 @@ process_splits :: proc() {
 		return
 	}
 	s := ENEMIES[.SPLITTER]
-	// Halves become plain RUNNERs: same fast chase AI, a runner's colour so they
-	// read as runners (not more splitters), and they can't split again -- one
-	// splitter should never cascade into a flood.
-	child_base := ENEMIES[.RUNNER]
-	child_sz := s.size * SPLITTER_CHILD_SCALE
-	for pos in pending_splits {
-		for _ in 0 ..< 2 {
-			ang := rand.float32() * 2 * math.PI
-			off := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * (s.size.x * 0.45)
-			cp := pos + off - child_sz * 0.5
-			cp.x = clamp(cp.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - child_sz.x)
-			cp.y = clamp(cp.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - child_sz.y)
-			append(
-				&enemies,
-				enemy {
-					position = cp,
-					size = child_sz,
-					velocity = {0, 0},
-					attacking = false,
-					color = child_base.color,
-					damage = s.damage,
-					hp = f32(SPLITTER_CHILD_HP),
-					max_hp = f32(SPLITTER_CHILD_HP),
-					id = next_enemy_id,
-					speed = s.speed * 1.2,
-					kind = .RUNNER,
-					state = .CHASE,
-					elite = false,
-					plates = 0,
-				},
-			)
-			next_enemy_id += 1
+	for p in pending_splits {
+		if p.elite {
+			// Elite splitters cascade: spawn smaller elite splitters instead of
+			// runner children. Each generation is smaller and weaker, so the
+			// cascade self-limits (children have 1 HP and die to anything).
+			child_sz := s.size * SPLITTER_CASCADE_SCALE
+			for _ in 0 ..< SPLITTER_CASCADE_CHILDREN {
+				ang := rand.float32() * 2 * math.PI
+				off := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * (s.size.x * 0.45)
+				cp := p.pos + off - child_sz * 0.5
+				cp.x = clamp(cp.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - child_sz.x)
+				cp.y = clamp(cp.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - child_sz.y)
+				append(
+					&enemies,
+					enemy {
+						position = cp,
+						size = child_sz,
+						velocity = {0, 0},
+						attacking = false,
+						color = s.color,
+						damage = s.damage * 0.75,
+						hp = f32(SPLITTER_CASCADE_HP),
+						max_hp = f32(SPLITTER_CASCADE_HP),
+						id = next_enemy_id,
+						speed = s.speed * 1.1,
+						kind = .SPLITTER,
+						state = .CHASE,
+						elite = true,
+						plates = 0,
+					},
+				)
+				next_enemy_id += 1
+			}
+		} else {
+			// Normal splitters become plain RUNNERs: same fast chase AI, a
+			// runner's colour so they read as runners (not more splitters),
+			// and they can't split again -- one splitter should never cascade
+			// into a flood.
+			child_base := ENEMIES[.RUNNER]
+			child_sz := s.size * SPLITTER_CHILD_SCALE
+			for _ in 0 ..< 2 {
+				ang := rand.float32() * 2 * math.PI
+				off := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)} * (s.size.x * 0.45)
+				cp := p.pos + off - child_sz * 0.5
+				cp.x = clamp(cp.x, f32(WALL_THICK), f32(ARENA_W) - f32(WALL_THICK) - child_sz.x)
+				cp.y = clamp(cp.y, f32(WALL_THICK), f32(ARENA_H) - f32(WALL_THICK) - child_sz.y)
+				append(
+					&enemies,
+					enemy {
+						position = cp,
+						size = child_sz,
+						velocity = {0, 0},
+						attacking = false,
+						color = child_base.color,
+						damage = s.damage,
+						hp = f32(SPLITTER_CHILD_HP),
+						max_hp = f32(SPLITTER_CHILD_HP),
+						id = next_enemy_id,
+						speed = s.speed * 1.2,
+						kind = .RUNNER,
+						state = .CHASE,
+						elite = false,
+						plates = 0,
+					},
+				)
+				next_enemy_id += 1
+			}
 		}
 	}
 	clear(&pending_splits)
@@ -4472,6 +4522,22 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		if e.state_timer <= 0 {
 			e.state_timer = ORBITER_CYCLE
 			e.elite_step = 1 - e.elite_step // toggle weave in/out
+			// Elite orbiters fire a slow projectile at the player on each
+			// weave cycle, making their ring dangerous to stand in.
+			if e.elite {
+				append(
+					&enemy_bullets,
+					bullet {
+						position = ec - {5, 5},
+						size = {10, 10},
+						velocity = dir * ORBITER_PROJECTILE_SPEED,
+						damage = s.damage,
+						pierce = 0,
+					},
+				)
+				e.muzzle = ENEMY_MUZZLE_FLASH_TIME
+				e.muzzle_dir = dir
+			}
 		}
 		// Tangent around the player keeps them circling, not colliding.
 		perp := raylib.Vector2{-dir.y, dir.x}
@@ -4511,16 +4577,34 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 			e.flash = max(e.flash, 0.12 * (e.state_timer / SNIPER_TELEGRAPH))
 			e.state_timer -= dT
 			if e.state_timer <= 0 {
-				append(
-					&enemy_bullets,
-					bullet {
-						position = ec - {5, 5},
-						size = {12, 12},
-						velocity = dir * SNIPER_SHOT_SPEED,
-						damage = s.damage,
-						pierce = 0,
-					},
-				)
+				// Elite snipers fire a 3-shot spread volley instead of one
+				// aimed shot -- much harder to dodge.
+				if e.elite {
+					spread := [3]f32{-0.25, 0.0, 0.25}
+					for off in spread {
+						append(
+							&enemy_bullets,
+							bullet {
+								position = ec - {5, 5},
+								size = {12, 12},
+								velocity = raylib.Vector2Rotate(dir, off) * SNIPER_SHOT_SPEED,
+								damage = s.damage,
+								pierce = 0,
+							},
+						)
+					}
+				} else {
+					append(
+						&enemy_bullets,
+						bullet {
+							position = ec - {5, 5},
+							size = {12, 12},
+							velocity = dir * SNIPER_SHOT_SPEED,
+							damage = s.damage,
+							pierce = 0,
+						},
+					)
+				}
 				e.muzzle = ENEMY_MUZZLE_FLASH_TIME
 				e.muzzle_dir = dir
 				e.state = .RECOVER
@@ -4695,7 +4779,7 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 	// Splitters queue their halves the moment they die; process_splits spawns them
 	// in a deferred pass so the enemies array is never mutated mid-iteration.
 	if e.kind == .SPLITTER && e.hp <= 0 {
-		append(&pending_splits, e.position)
+		append(&pending_splits, split_pending{pos = e.position, elite = e.elite})
 	}
 	// RR's OFFENSE lesson clears when its turret goes down. Noted on the lethal
 	// hit here (the single damage funnel); no-op outside that tutorial.
@@ -5019,7 +5103,7 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 				// Splitters queue their halves here too (this path bypasses
 				// apply_enemy_damage), so a burn kill still splits.
 				if e.kind == .SPLITTER && e.hp <= 0 {
-					append(&pending_splits, e.position)
+					append(&pending_splits, split_pending{pos = e.position, elite = e.elite})
 				}
 				if e.hp <= 0 {
 					spawn_kill_rewards(e)

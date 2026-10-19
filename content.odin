@@ -1507,19 +1507,19 @@ BESTIARY := [?]Bestiary_Entry {
 		"ELITE.SPLITTER",
 		"ELITE SPLITTER",
 		.ENEMY,
-		"Crystalized splitter. Dies into two smaller copies of itself.",
+		"Crystalized splitter. When it dies, it splits into two smaller elite splitters instead of runner children. Each generation is smaller and more fragile.",
 	},
 	{
 		"ELITE.ORBITER",
 		"ELITE ORBITER",
 		.ENEMY,
-		"Crystalized orbiter. Circles at a fixed radius, darting in occasionally.",
+		"Crystalized orbiter. Circles at a fixed radius and fires a slow projectile at the player on every weave cycle.",
 	},
 	{
 		"ELITE.SNIPER",
 		"ELITE SNIPER",
 		.ENEMY,
-		"Crystalized sniper. Telegraphs its shot with an aim line before firing.",
+		"Crystalized sniper. Telegraphs its shot, then fires a 3-shot spread volley instead of one aimed shot.",
 	},
 	// --- revenants: discarded cards raised from the graveyard ---
 	{
