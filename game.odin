@@ -3672,16 +3672,26 @@ deckmaster_advance :: proc() {
 }
 
 update_deckmaster :: proc() {
+	// DONE has nothing to select, so it is answered separately and FIRST.
+	//
+	// It used to fall through to the "no selectable rows" bail-out below,
+	// which returned before the ENTER and ESC handlers were ever reached --
+	// so the screen that says ENTER leave did nothing at all, and the player
+	// was stuck in the Deckmaster for good. Two ESC presses reached it.
+	if deckmaster_phase == .DONE {
+		if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+			leave_deckmaster()
+		}
+		return
+	}
 	// How many selectable rows this phase has right now.
 	rows: int
 	switch deckmaster_phase {
 	case .ADD:
 		rows = len(deckmaster_offers)
 	case .DISCARD:
-		// Every card in the deck is discardable in principle, but the floor
-		// means the last few cannot be, so hide them rather than let the
-		// player select a move that will be refused.
-		//
 		// Every discardable card is selectable. The list is longer than the
 		// screen, so the window scrolls to follow the selection -- before, the
 		// selection ranged over every card while only six were drawn, so the
@@ -3692,9 +3702,9 @@ update_deckmaster :: proc() {
 		rows = 0
 	}
 	if rows <= 0 {
-		if deckmaster_phase != .DONE {
-			deckmaster_advance()
-		}
+		// Nothing to pick in this phase: skip straight on. The DONE phase
+		// returned above, so this can never strand the player here.
+		deckmaster_advance()
 		return
 	}
 	if deckmaster_selected < 0 || deckmaster_selected >= rows {
