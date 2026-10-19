@@ -2648,6 +2648,7 @@ Node_Kind :: enum {
 	SHOP,   // spend currency
 	RELIC,  // take or swap a relic
 	REST,   // camp: heal, or strip a card
+	DECKMASTER, // add a card to the deck, or discard one to the graveyard
 	BOSS,   // the run's boss
 }
 
@@ -2719,6 +2720,8 @@ node_kind_name :: proc(k: Node_Kind) -> cstring {
 		return "RELIC"
 	case .REST:
 		return "CAMP"
+	case .DECKMASTER:
+		return "DECK"
 	case .BOSS:
 		return "BOSS"
 	}
@@ -2738,6 +2741,8 @@ node_kind_color :: proc(k: Node_Kind) -> raylib.Color {
 		return raylib.VIOLET
 	case .REST:
 		return raylib.LIME
+	case .DECKMASTER:
+		return REVENANT_COLOR
 	case .BOSS:
 		return raylib.RED
 	}
@@ -2752,22 +2757,25 @@ exp_roll_kind :: proc(layer: i32) -> Node_Kind {
 	if layer == EXPEDITION_BOSS_LAYER - 1 {
 		return .BATTLE
 	}
-	// No shop or relic on the opening rows -- the player has neither the
-	// currency nor the relics yet, so those nodes would be dead weight.
+	// No shop, relic or Deckmaster on the opening rows -- the player has
+	// neither the currency nor the relics yet, and thinning a deck you have
+	// barely used is not a decision worth a layer.
 	r := exp_rng_range(100)
 	if layer <= 2 {
 		return r < 75 ? .BATTLE : .ELITE
 	}
 	switch r {
-	case 0 ..< 42:
+	case 0 ..< 40:
 		return .BATTLE
-	case 42 ..< 62:
+	case 40 ..< 58:
 		return .ELITE
-	case 62 ..< 75:
+	case 58 ..< 70:
 		return .SHOP
-	case 75 ..< 86:
+	case 70 ..< 80:
+		return .DECKMASTER
+	case 80 ..< 88:
 		return .RELIC
-	case 86 ..< 94:
+	case 88 ..< 94:
 		return .REST
 	case:
 		return .BATTLE
@@ -3013,11 +3021,28 @@ expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
 		shop_selected = 0
 		build_shop()
 		return .SHOP
+	case .DECKMASTER:
+		// The Deckmaster is a node here, not a timed visit. Taking it costs a
+		// layer, which is the real price: every card you discard here becomes
+		// a revenant you have to fight later in the run.
+		deckmaster_open()
+		return .DECKMASTER
 	case .RELIC:
 		draw_relic_choices()
 		relic_pick_open = true
 		return .EXPEDITION_MAP
 	case .REST:
+		// ONE LIFE: there is nothing here to rest. Healing is off, and the
+		// max-health fallback is equally dead -- more headroom you can never
+		// refill just means a longer grind to the same corpse. So the camp
+		// pays coins instead of pretending.
+		if run_mod(.ONE_LIFE) {
+			currency += CAMP_ONE_LIFE_COINS
+			show_banner(cstring("CAMPED"), raylib.GOLD, 2.0)
+			play(sounds.shop_buy)
+			expedition_commit()
+			return .EXPEDITION_MAP
+		}
 		// Camp: heal a real chunk, or take it as max health if already topped up.
 		if health < max_health {
 			health = min(max_health, health + max_health * 0.35)
@@ -3117,8 +3142,17 @@ graveyard: [dynamic]Revenant
 deck_reset :: proc() {
 	clear(&deck)
 	clear(&graveyard)
-	for _ in 0 ..< 3 {
-		append(&deck, Deck_Card{"HEALTH"})
+	// ONE LIFE replaces the three HEALTH cards with other live cards rather
+	// than just starting short: the deck stays at fifteen, so the draw weights
+	// and the discard budget into the floor are the same as any other run.
+	if run_mod(.ONE_LIFE) {
+		append(&deck, Deck_Card{"ATTACK"})
+		append(&deck, Deck_Card{"SPEED"})
+		append(&deck, Deck_Card{"PRECISION"})
+	} else {
+		for _ in 0 ..< 3 {
+			append(&deck, Deck_Card{"HEALTH"})
+		}
 	}
 	for _ in 0 ..< 3 {
 		append(&deck, Deck_Card{"ATTACK"})
@@ -3360,6 +3394,8 @@ ELITE_SPREAD := [3]f32{-0.30, 0.0, 0.30}
 PRECISION_SPREAD := [3]f32{-0.30, 0.0, 0.30}
 
 REVENANT_COLOR :: raylib.Color{190, 120, 255, 255}
+CAMP_ONE_LIFE_COINS :: 25
+
 REVENANTS_PER_WAVE :: 2
 REVENANT_HP_BONUS :: 1.15 // on top of the elite multiplier: "a bit tougher than an elite"
 REVENANT_COIN_MIN :: 20 // elites drop rand.int_range(10, 18); a revenant pays more
@@ -5149,6 +5185,12 @@ explode_at :: proc(center: raylib.Vector2) {
 
 // Enemies occasionally drop a small heal. Call right before removing an enemy.
 try_spawn_health_drop :: proc(pos: raylib.Vector2, drops: ^[dynamic]drop) {
+	// ONE LIFE: nothing on the field can heal you, so a health pickup is
+	// litter. It used to still spawn and be collected into a no-op that ate
+	// a walk-over and played a sound for a reward you never received.
+	if run_mod(.ONE_LIFE) {
+		return
+	}
 	if rand.float32() < 0.08 {
 		append(
 			drops,
@@ -5474,6 +5516,11 @@ apply_upgrade :: proc(name: cstring) {
 // they can be filtered out of card deals and shop stock.
 upgrade_is_useful :: proc(name: cstring) -> bool {
 	switch name {
+	// ONE LIFE: max health is only ever raised, never restored, so a HEALTH
+	// card buys you a bigger pool you can never refill. It is dead weight in
+	// the deck and a trap in the Deckmaster's offers.
+	case "HEALTH":
+		return !run_mod(.ONE_LIFE)
 	case "SPEED":
 		return SPEED < f32(MAX_SPEED)
 	case "ATTACK":
