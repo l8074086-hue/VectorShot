@@ -1298,3 +1298,178 @@ mission_objective_text :: proc(m: Mission) -> cstring {
 	}
 	return ""
 }
+
+
+// ---------------------------------------------------------------------------
+// Bestiary
+// ---------------------------------------------------------------------------
+//
+// One note per thing worth knowing about. Entries unlock as the player meets
+// them: an enemy when it first appears, a boss when it is fought, an arena
+// when it is entered, a character when they are picked.
+//
+// The ids are the unlock keys and never change; the display names and the
+// text can be rewritten freely.
+
+BESTIARY := [?]Bestiary_Entry {
+	// --- enemies ---
+	{
+		"ENEMY.GRUNT",
+		"GRUNT",
+		.ENEMY,
+		"It comes at you in the shape the training taught it, and it stops when the shape says so. There is always more of the shape.",
+	},
+	{
+		"ENEMY.RUNNER",
+		"RUNNER",
+		.ENEMY,
+		"Fast, thin, and gone. The one you hear is the one you did not hit.",
+	},
+	{
+		"ENEMY.SHOOTER",
+		"SHOOTER",
+		.ENEMY,
+		"Stands off at a distance and waits. Patient, in the way a machine is patient.",
+	},
+	{
+		"ENEMY.TANK",
+		"TANK",
+		.ENEMY,
+		"Built to be shot at until you are not. Nobody was issued a way to shoot it differently.",
+	},
+	{
+		"ENEMY.CHARGER",
+		"CHARGER",
+		.ENEMY,
+		"It decides before it moves. Once it has decided, nothing you are does not matter.",
+	},
+	{
+		"ENEMY.SPLITTER",
+		"SPLITTER",
+		.ENEMY,
+		"You do not kill these. You halve them, and you are owed the other half.",
+	},
+	{
+		"ENEMY.ORBITER",
+		"ORBITER",
+		.ENEMY,
+		"Never closes. Never leaves. Keeps the exact distance it decided on, for reasons it has not shared.",
+	},
+	{
+		"ENEMY.SNIPER",
+		"SNIPER",
+		.ENEMY,
+		"It has already aimed. The shot is only the paperwork.",
+	},
+	// --- bosses ---
+	{
+		"BOSS.PACKLEADER",
+		"PACKLEADER",
+		.BOSS,
+		"It taught the others everything except how to stop.",
+	},
+	{
+		"BOSS.DUSTMAW",
+		"DUSTMAW",
+		.BOSS,
+		"The ground remembers it was here before it was here.",
+	},
+	{
+		"BOSS.COLOSSUS",
+		"THE COLOSSUS",
+		.BOSS,
+		"The ruins were built to be too heavy to move. It moved anyway.",
+	},
+	{
+		"BOSS.FROSTBITE",
+		"FROSTBITE",
+		.BOSS,
+		"Cold that learned to hold a shape, and then to want things.",
+	},
+	{
+		"BOSS.MECHANIKTRON",
+		"MECHANIKTRON",
+		.BOSS,
+		"Nobody gave it an order. It has been making its own since.",
+	},
+	{
+		"BOSS.THORNWALD",
+		"THORNWALD",
+		.BOSS,
+		"The forest grew around it, and then the forest was never alone again.",
+	},
+	{
+		"BOSS.BOGWRAITH",
+		"BOGWRAITH",
+		.BOSS,
+		"The water is not deep. That is the least of it.",
+	},
+	// --- arenas ---
+	{
+		"ARENA.GRASSLAND",
+		"GRASSLAND",
+		.ARENA,
+		"Open ground. The grass here grows back in a day; the bodies took a week. Nobody asked why the grass was faster.",
+	},
+	{
+		"ARENA.CANYON",
+		"CANYON",
+		.ARENA,
+		"Long shelves and tight lanes. The walls are cut, not fallen, and the tools are still down there where they were put down.",
+	},
+	{
+		"ARENA.RUINS",
+		"RUINS",
+		.ARENA,
+		"A grid of pillars and nothing to hide behind. Whatever was here did not mind being seen.",
+	},
+	{
+		"ARENA.GLACIER",
+		"GLACIER",
+		.ARENA,
+		"Thin cover over deep cold. The wind carries sound the wrong way, so you hear them late and from the wrong side.",
+	},
+	{
+		"ARENA.FOUNDRY",
+		"FOUNDRY",
+		.ARENA,
+		"Machines that were left running, and stock that was left unstable, and neither of them has been turned off.",
+	},
+	{
+		"ARENA.FOREST",
+		"FOREST",
+		.ARENA,
+		"It grows back thicker than you cut it, and it does not care which way you came in.",
+	},
+	{
+		"ARENA.SWAMP",
+		"SWAMP",
+		.ARENA,
+		"Muddy pools, reeds, and a smell that gets into the metal. The reeds move before anything moves through them.",
+	},
+	// --- characters ---
+	{
+		"CHAR.RR",
+		"RR",
+		.CHARACTER,
+		"The one they send when nobody else will go. Not the strongest, and never once the slowest. Adaptation is what you call it when somebody keeps getting hit and stays in the fight anyway.",
+	},
+	{
+		"CHAR.TRACER",
+		"TRACER",
+		.CHARACTER,
+		"Fast, fragile, and entirely convinced she is faster than she is, which so far has held. The slide is how she says the things she will not say out loud.",
+	},
+	{
+		"CHAR.BUD",
+		"BUD",
+		.CHARACTER,
+		"Big, loud, and impossible to move. He guards with his whole body, and hits with the part of it he is not guarding with.",
+	},
+	{
+		"CHAR.NAVY",
+		"NAVY",
+		.CHARACTER,
+		"Takes aim before he fires, and does not fire after. Perfect accuracy when still, and he is only ever still on purpose.",
+	},
+}

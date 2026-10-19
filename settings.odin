@@ -48,6 +48,10 @@ Settings :: struct {
 	// into the next run.
 	relics_owned:     u32,
 	relics_equipped:  u32,
+	// Bestiary entries the player has met (bit i = BESTIARY[i] seen). A u64
+	// rather than a u32 so there is room to grow the bestiary without
+	// changing the save format.
+	bestiary_seen:   u64,
 }
 
 settings := Settings {
@@ -65,6 +69,7 @@ settings := Settings {
 	maps_unlocked  = 1, // the first map is always open
 	relics_owned   = 0,
 	relics_equipped = 0,
+	bestiary_seen  = 0,
 }
 
 // Volume the mixer should use right now (mute folds in here, as does the
@@ -133,6 +138,10 @@ settings_load :: proc() {
 			settings.relics_owned = u32(parse_run_i32(val, i32(settings.relics_owned)))
 		case "relics_equipped":
 			settings.relics_equipped = u32(parse_run_i32(val, i32(settings.relics_equipped)))
+		case "bestiary_seen":
+			if v, ok := strconv.parse_u64(val); ok {
+				settings.bestiary_seen = v
+			}
 		case "fullscreen":
 			settings.fullscreen = parse_bool(val, settings.fullscreen)
 		case "show_fps":
@@ -198,6 +207,7 @@ settings_save :: proc() {
 	fmt.sbprintf(&sb, "maps_unlocked=%i\n", i32(settings.maps_unlocked))
 	fmt.sbprintf(&sb, "relics_owned=%i\n", i32(settings.relics_owned))
 	fmt.sbprintf(&sb, "relics_equipped=%i\n", i32(settings.relics_equipped))
+	fmt.sbprintf(&sb, "bestiary_seen=%i\n", i64(settings.bestiary_seen))
 
 	_ = os.write_entire_file(SETTINGS_PATH, strings.to_string(sb))
 }

@@ -7,6 +7,7 @@ GameState :: enum {
 	DIFFICULTY,
 	MISSION_CONTROL,
 	EQUIPMENT,
+	CODEX,
 	TUTORIAL_SELECT,
 	SETTINGS,
 	SKILL_SELECT,
@@ -263,6 +264,24 @@ Relic_Kind :: enum {
 Relic :: struct {
 	name: cstring,
 	desc: cstring,
+}
+
+// A bestiary entry: one thing the player can learn about. Grouped so the
+// screen can lay them out in sections.
+Bestiary_Group :: enum {
+	ENEMY,
+	BOSS,
+	ARENA,
+	CHARACTER,
+}
+
+Bestiary_Entry :: struct {
+	// Stable key, used to look the entry up. Not the display name, so a
+	// rename of the display text cannot break the unlock tracking.
+	id:    cstring,
+	name:  cstring,
+	group: Bestiary_Group,
+	text:  cstring,
 }
 
 // Pickups left behind by slain enemies. Ammo drops can reuse this.

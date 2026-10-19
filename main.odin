@@ -1,6 +1,7 @@
 package main
 import "core:math"
 import "core:math/rand"
+import "core:strings"
 import "vendor:raylib"
 
 // One piece of decorative floor scatter. Drawn flat (non-colliding) so a big
@@ -598,6 +599,8 @@ main :: proc() {
 	// fullscreen preference (fullscreen is the default).
 	settings_load()
 	refresh_run_save_presence()
+	// The codex list is static, so it is built once here.
+	build_codex_rows()
 	apply_fullscreen()
 	defer settings_save()
 
@@ -731,17 +734,17 @@ main :: proc() {
 			can_continue := has_run_save()
 			if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
-				main_menu_sel = (main_menu_sel + 1) % 7
+				main_menu_sel = (main_menu_sel + 1) % 8
 				play(sounds.ui_move)
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
-				main_menu_sel = (main_menu_sel - 1 + 7) % 7
+				main_menu_sel = (main_menu_sel - 1 + 8) % 8
 				play(sounds.ui_move)
 			}
 			confirm := raylib.IsKeyPressed(raylib.KeyboardKey.ENTER)
 			for key, idx in NUMBER_KEYS {
-				if idx < 7 && raylib.IsKeyPressed(key) {
+				if idx < 8 && raylib.IsKeyPressed(key) {
 					main_menu_sel = idx
 					confirm = true
 				}
@@ -761,46 +764,52 @@ main :: proc() {
 			if can_continue {
 				cont_label = cstring("CONTINUE RUN")
 			}
-			k0, h0 := ui_row(cont_label, 180, 30, continue_col)
+			k0, h0 := ui_row(cont_label, 172, 30, continue_col)
 			k1, h1 := ui_row(
 				cstring("START RUN"),
-				232,
+				218,
 				30,
 				main_menu_sel == 1 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k2, h2 := ui_row(
 				cstring("MISSIONS"),
-				284,
+				264,
 				30,
 				main_menu_sel == 2 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k3, h3 := ui_row(
 				cstring("EQUIPMENT"),
-				336,
+				310,
 				30,
 				main_menu_sel == 3 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k4, h4 := ui_row(
-				cstring("TUTORIAL"),
-				388,
+				cstring("CODEX"),
+				356,
 				30,
 				main_menu_sel == 4 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k5, h5 := ui_row(
-				cstring("SETTINGS"),
-				440,
+				cstring("TUTORIAL"),
+				402,
 				30,
 				main_menu_sel == 5 ? raylib.RAYWHITE : raylib.GRAY,
 			)
 			k6, h6 := ui_row(
-				cstring("QUIT"),
-				492,
+				cstring("SETTINGS"),
+				448,
 				30,
 				main_menu_sel == 6 ? raylib.RAYWHITE : raylib.GRAY,
 			)
+			k7, h7 := ui_row(
+				cstring("QUIT"),
+				494,
+				30,
+				main_menu_sel == 7 ? raylib.RAYWHITE : raylib.GRAY,
+			)
 			draw_centered(
 				cstring("UP / DOWN to choose   -   ENTER to select"),
-				525,
+				556,
 				18,
 				raylib.DARKGRAY,
 			)
@@ -813,6 +822,7 @@ main :: proc() {
 				if h4 {main_menu_sel = 4}
 				if h5 {main_menu_sel = 5}
 				if h6 {main_menu_sel = 6}
+				if h7 {main_menu_sel = 7}
 			}
 			if (k0 || (confirm && main_menu_sel == 0)) && can_continue {
 				if resume_run() {
@@ -840,13 +850,16 @@ main :: proc() {
 				state = .EQUIPMENT
 			} else if k4 || (confirm && main_menu_sel == 4) {
 				play(sounds.ui_select)
+				state = .CODEX
+			} else if k5 || (confirm && main_menu_sel == 5) {
+				play(sounds.ui_select)
 				tutorial_select_sel = 0
 				state = .TUTORIAL_SELECT
-			} else if k5 || (confirm && main_menu_sel == 5) {
+			} else if k6 || (confirm && main_menu_sel == 6) {
 				play(sounds.ui_select)
 				settings_sel = 0
 				state = .SETTINGS
-			} else if k6 || (confirm && main_menu_sel == 6) {
+			} else if k7 || (confirm && main_menu_sel == 7) {
 				quit_requested = true
 			}
 		case .MODE_SELECT:
@@ -1670,6 +1683,10 @@ main :: proc() {
 					if idx < len(CHARACTERS) && raylib.IsKeyPressed(key) {
 						character = Character(idx)
 					}
+				}
+				// Looking at a character is what puts them in the bestiary.
+				if id := bestiary_id_for_character(character); id != "" {
+					bestiary_unlock(id)
 				}
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 					skill_state = .MAIN
@@ -3903,6 +3920,9 @@ main :: proc() {
 			}
 			raylib.EndTextureMode()
 
+		case .CODEX:
+			codex_update()
+			codex_draw(target)
 		case .DECKMASTER:
 			update_deckmaster()
 			draw_deckmaster(target)
@@ -3916,6 +3936,8 @@ main :: proc() {
 			}
 			draw_inventory(target)
 		case .SHOP:
+
+
 			// A relic chest over the shop already took its input above; freeze
 			// the stock list so it cannot answer the same press.
 			if relic_pick_open {
@@ -4268,6 +4290,224 @@ draw_deckmaster :: proc(target: raylib.RenderTexture) {
 		draw_centered(cstring("ENTER leave"), 108, 22, raylib.GRAY)
 	}
 	raylib.EndTextureMode()
+}
+
+// The codex: everything the player has met, and what it is.
+//
+// Two columns. The left is the list, grouped by kind and scrolling with the
+// selection; the right is the note for whichever one is selected. Locked
+// entries are listed but unreadable, so the player can see there is something
+// out there they have not met.
+codex_selected: int = 0
+codex_scroll:   int = 0
+
+CODEX_VISIBLE :: 18 // rows of the list on screen at once
+
+// One row of the codex list: either an entry or a group heading.
+Codex_Row :: struct {
+	entry:   int,     // index into BESTIARY, or -1 for a heading
+	heading: cstring,
+}
+
+// The list is built once at startup, because the bestiary never changes. The
+// selection is an ENTRY index while the scroll is a ROW index, so each entry
+// also records the row it sits on -- otherwise a heading in the middle of the
+// list would throw the two out of step.
+codex_rows: [dynamic]Codex_Row
+codex_row_of_entry: [dynamic]int
+
+build_codex_rows :: proc() {
+	clear(&codex_rows)
+	clear(&codex_row_of_entry)
+	last_group: Bestiary_Group = .ENEMY
+	for e, i in BESTIARY {
+		if i == 0 || e.group != last_group {
+			append(&codex_rows, Codex_Row{entry = -1, heading = bestiary_group_name(e.group)})
+		}
+		last_group = e.group
+		append(&codex_row_of_entry, len(codex_rows))
+		append(&codex_rows, Codex_Row{entry = i, heading = ""})
+	}
+}
+
+codex_update :: proc() {
+	n := len(BESTIARY)
+	if n == 0 {
+		return
+	}
+	if codex_selected < 0 || codex_selected >= n {
+		codex_selected = 0
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+		codex_selected = (codex_selected + 1) % n
+		play(sounds.ui_move)
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+		codex_selected = (codex_selected - 1 + n) % n
+		play(sounds.ui_move)
+	}
+	for key, idx in NUMBER_KEYS {
+		if int(idx) < n && raylib.IsKeyPressed(key) {
+			codex_selected = int(idx)
+			play(sounds.ui_move)
+		}
+	}
+	// Keep the selection on screen. The selection is an entry, the scroll is a
+	// row, so the entry's row is what has to stay in the window.
+	sel_row := codex_selected
+	if sel_row >= 0 && sel_row < len(codex_row_of_entry) {
+		sel_row = codex_row_of_entry[sel_row]
+	}
+	if sel_row < codex_scroll {
+		codex_scroll = sel_row
+	} else if sel_row >= codex_scroll + CODEX_VISIBLE {
+		codex_scroll = sel_row - CODEX_VISIBLE + 1
+	}
+	codex_scroll = clamp(codex_scroll, 0, max(len(codex_rows) - CODEX_VISIBLE, 0))
+	// ESC goes back, the same back action as every other screen.
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+		play(sounds.ui_move)
+		state = .MAIN_MENU
+	}
+}
+
+codex_draw :: proc(target: raylib.RenderTexture) {
+	raylib.BeginTextureMode(target)
+	raylib.ClearBackground(raylib.BLACK)
+	draw_centered(cstring("CODEX"), 24, 40, raylib.WHITE)
+	seen := 0
+	for e in BESTIARY {
+		if bestiary_known(e.id) {
+			seen += 1
+		}
+	}
+	draw_centered(
+		raylib.TextFormat("%i / %i FOUND", seen, len(BESTIARY)),
+		70,
+		18,
+		raylib.GOLD,
+	)
+
+	// Left column: the list.
+	//
+	// The rows are built first, headings included, and then windowed. Working
+	// the y straight off the entry index would not work: a heading row takes
+	// less height than an entry, so the two would drift apart and the list
+	// would overlap itself.
+	rows := codex_rows
+	y: i32 = 100
+	drawn: i32 = 0
+	for r in rows[codex_scroll:] {
+		if drawn >= CODEX_VISIBLE {
+			break
+		}
+		if r.entry < 0 {
+			raylib.DrawText(r.heading, 24, y, 14, raylib.DARKGRAY)
+			y += 20
+			drawn += 1
+			continue
+		}
+		e := BESTIARY[r.entry]
+		known := bestiary_known(e.id)
+		sel := r.entry == codex_selected
+		name_col := raylib.RAYWHITE
+		if !known {
+			name_col = raylib.DARKGRAY
+		} else if sel {
+			name_col = raylib.YELLOW
+		}
+		label := e.name
+		if !known {
+			label = "???"
+		}
+		raylib.DrawText(label, 40, y, 18, name_col)
+		if sel {
+			raylib.DrawRectangleLinesEx(
+				raylib.Rectangle{34, f32(y - 2), 250, 20},
+				1,
+				raylib.YELLOW,
+			)
+		}
+		y += 24
+		drawn += 1
+	}
+
+	// Right column: the note.
+	sel_entry := BESTIARY[codex_selected]
+	raylib.DrawRectangleLinesEx(
+		raylib.Rectangle{310, 96, 466, 440},
+		1,
+		raylib.DARKGRAY,
+	)
+	if bestiary_known(sel_entry.id) {
+		raylib.DrawText(sel_entry.name, 330, 112, 24, raylib.WHITE)
+		raylib.DrawText(bestiary_group_name(sel_entry.group), 330, 140, 14, raylib.DARKGRAY)
+		draw_wrapped(sel_entry.text, 330, 172, 430, 17, raylib.LIGHTGRAY)
+	} else {
+		raylib.DrawText("???", 330, 112, 24, raylib.DARKGRAY)
+		draw_wrapped(
+			cstring("Not yet met."),
+			330,
+			172,
+			430,
+			17,
+			raylib.DARKGRAY,
+		)
+	}
+	draw_centered(
+		cstring("UP / DOWN to choose   -   ESC goes back"),
+		566,
+		16,
+		raylib.GRAY,
+	)
+	raylib.EndTextureMode()
+}
+
+// Draw a block of text wrapped to a pixel width, one line per row, and return
+// the y coordinate just past the last line. Used by the codex, whose notes are
+// prose rather than a label.
+//
+// The line is assembled in a strings.Builder because Odin strings are
+// immutable, and handed to raylib through unsafe_string_to_cstring -- the
+// builder's buffer is still alive at that point, because the line is drawn
+// before anything else is written to it.
+draw_wrapped :: proc(text: cstring, x, y: i32, width: i32, size: i32, color: raylib.Color) -> i32 {
+	if text == nil {
+		return y
+	}
+	txt := string(text)
+	words, _ := strings.fields(txt)
+	defer delete(words)
+	cur_y := y
+	line: strings.Builder
+	strings.builder_init(&line)
+	defer strings.builder_destroy(&line)
+	used: i32 = 0
+	space := raylib.MeasureText(" ", size)
+	for w in words {
+		ww := raylib.MeasureText(strings.unsafe_string_to_cstring(w), size)
+		if used > 0 && used + space + ww > width {
+			s := strings.to_string(line)
+			raylib.DrawText(strings.unsafe_string_to_cstring(s), x, cur_y, size, color)
+			cur_y += size + 6
+			strings.builder_reset(&line)
+			used = 0
+		}
+		if used > 0 {
+			strings.write_string(&line, " ")
+			used += space
+		}
+		strings.write_string(&line, w)
+		used += ww
+	}
+	if used > 0 {
+		s := strings.to_string(line)
+		raylib.DrawText(strings.unsafe_string_to_cstring(s), x, cur_y, size, color)
+		cur_y += size + 6
+	}
+	return cur_y
 }
 
 // The deck screen. The two halves of the same decision sit side by side: what

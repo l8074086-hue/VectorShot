@@ -2447,6 +2447,11 @@ spawn_enemy_at :: proc(
 	}
 	append(&enemies, en)
 	next_enemy_id += 1
+	// Meeting an enemy is what puts it in the bestiary. The boss kinds have
+	// their own entries and unlock through spawn_arena_boss_as instead.
+	if id := bestiary_id_for_enemy(kind); id != "" {
+		bestiary_unlock(id)
+	}
 	// Where it landed, so the caller can decorate it. Returning the index
 	// rather than having the caller look at "the last element" matters: the
 	// array may be reallocated by the append, so a pointer taken before the
@@ -2613,6 +2618,10 @@ spawn_arena_boss :: proc(pos: raylib.Vector2) {
 }
 
 spawn_arena_boss_as :: proc(which: Arena_Kind, pos: raylib.Vector2) {
+	// Facing the boss is what puts it in the bestiary.
+	if id := bestiary_id_for_boss(which); id != "" {
+		bestiary_unlock(id)
+	}
 	b := ARENA_BOSSES[which]
 	hp_scale, dmg_scale, spd_scale := boss_scales(ARENAS[arena].waves)
 	append(
@@ -3706,6 +3715,143 @@ spawn_revenant :: proc(
 	e.revenant_effects = plan.effects
 	e.revenant_precision = name == "PRECISION"
 	e.color = REVENANT_COLOR
+}
+
+// --- bestiary ----------------------------------------------------------------
+//
+// Entries unlock as the player meets them, and the unlock is written straight
+// to settings.cfg so it survives a restart. The bitmask lives in the settings
+// rather than the run save, because the bestiary is a collection across runs,
+// not progress within one.
+
+// The heading a group gets in the codex list.
+bestiary_group_name :: proc(g: Bestiary_Group) -> cstring {
+	switch g {
+	case .ENEMY:
+		return "ENEMIES"
+	case .BOSS:
+		return "BOSSES"
+	case .ARENA:
+		return "ARENAS"
+	case .CHARACTER:
+		return "YOURS"
+	}
+	return ""
+}
+
+bestiary_index :: proc(id: cstring) -> int {
+	for e, i in BESTIARY {
+		if e.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// Has the player met this one yet?
+bestiary_known :: proc(id: cstring) -> bool {
+	i := bestiary_index(id)
+	if i < 0 {
+		return false
+	}
+	return (settings.bestiary_seen & (u64(1) << u64(i))) != 0
+}
+
+// Mark this one as met. Writing the settings file on every unlock would be
+// wasteful, so it is written only when something actually changed.
+bestiary_unlock :: proc(id: cstring) {
+	i := bestiary_index(id)
+	if i < 0 {
+		return
+	}
+	bit := u64(1) << u64(i)
+	if (settings.bestiary_seen & bit) != 0 {
+		return
+	}
+	settings.bestiary_seen |= bit
+	settings_save()
+}
+
+// The bestiary id for a regular enemy kind.
+bestiary_id_for_enemy :: proc(kind: Enemy_Kind) -> cstring {
+	switch kind {
+	case .GRUNT:
+		return "ENEMY.GRUNT"
+	case .RUNNER:
+		return "ENEMY.RUNNER"
+	case .RANGED:
+		return "ENEMY.SHOOTER"
+	case .TANK:
+		return "ENEMY.TANK"
+	case .CHARGER:
+		return "ENEMY.CHARGER"
+	case .SPLITTER:
+		return "ENEMY.SPLITTER"
+	case .ORBITER:
+		return "ENEMY.ORBITER"
+	case .SNIPER:
+		return "ENEMY.SNIPER"
+	case .BOSS, .DUMMY_DPS, .DUMMY_RANGED, .DUMMY_WEAK, .DUMMY_PATROL:
+		// The arena bosses have their own entries, and the practice dummies
+		// are not worth a page.
+		return ""
+	}
+	return ""
+}
+
+// The bestiary id for an arena's boss.
+bestiary_id_for_boss :: proc(which: Arena_Kind) -> cstring {
+	switch which {
+	case .GRASSLAND:
+		return "BOSS.PACKLEADER"
+	case .CANYON:
+		return "BOSS.DUSTMAW"
+	case .RUINS:
+		return "BOSS.COLOSSUS"
+	case .GLACIER:
+		return "BOSS.FROSTBITE"
+	case .FOUNDRY:
+		return "BOSS.MECHANIKTRON"
+	case .FOREST:
+		return "BOSS.THORNWALD"
+	case .SWAMP:
+		return "BOSS.BOGWRAITH"
+	}
+	return ""
+}
+
+bestiary_id_for_arena :: proc(which: Arena_Kind) -> cstring {
+	switch which {
+	case .GRASSLAND:
+		return "ARENA.GRASSLAND"
+	case .CANYON:
+		return "ARENA.CANYON"
+	case .RUINS:
+		return "ARENA.RUINS"
+	case .GLACIER:
+		return "ARENA.GLACIER"
+	case .FOUNDRY:
+		return "ARENA.FOUNDRY"
+	case .FOREST:
+		return "ARENA.FOREST"
+	case .SWAMP:
+		return "ARENA.SWAMP"
+	}
+	return ""
+}
+
+bestiary_id_for_character :: proc(c: Character) -> cstring {
+	switch c {
+	case .RR:
+		return "CHAR.RR"
+	case .TRACER:
+		return "CHAR.TRACER"
+	case .BUD:
+		return "CHAR.BUD"
+	case .NAVY:
+		return "CHAR.NAVY"
+	}
+	return ""
 }
 
 // --- the Deckmaster -----------------------------------------------------------
@@ -4891,6 +5037,10 @@ spot_blocked :: proc(box: raylib.Rectangle) -> bool {
 }
 
 build_arena :: proc(kind: Arena_Kind) {
+	// Entering an arena is what puts it in the bestiary.
+	if id := bestiary_id_for_arena(kind); id != "" {
+		bestiary_unlock(id)
+	}
 	clear(&walls)
 	clear(&barrels)
 	clear(&props)
