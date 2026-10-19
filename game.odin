@@ -873,6 +873,21 @@ start_run :: proc(stats: Run_Stats) {
 		expedition_done = false
 	}
 	clear(&pending_summons)
+	// Expedition per-node flags. They are only cleared inside the expedition
+	// reward block, so a run that ended inside an ELITE node left
+	// expedition_force_elite set -- and every enemy in every wave of the NEXT
+	// STANDARD run spawned as an elite. expedition_node_boss was the same
+	// problem: a run that ended in a boss node made the next expedition end
+	// instantly.
+	expedition_force_elite = false
+	expedition_node_boss = false
+	expedition_in_node = .BATTLE
+	// The modifiers are NOT reset here. The mode screen applies a toggle the
+	// moment it is pressed, so that the effect is visible before the run
+	// begins -- which means they are already set by the time start_run is
+	// reached, and clearing them here would throw the player's choices away.
+	// The mode screen restores the mask it was entered with if the player
+	// backs out without confirming.
 	// Per-run state for the between-wave reward. The latch in particular has
 	// to be cleared here: it is set when the reward is paid out, so a run that
 	// ended (or was saved) with the reward still on screen would start the
@@ -1891,12 +1906,38 @@ save_run :: proc() {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
 	// One comma-joined line each, in draw order.
+	//
+	// The join is written by hand on purpose. Odin's %v on a dynamic array
+	// prints ["HEALTH", "ATTACK"] -- brackets, quotes and a space after every
+	// comma -- so a save written that way does not read back as the card
+	// names it was written from.
 	if len(rs.deck_names) > 0 {
-		fmt.sbprintf(&sb, "deck=%v\n", rs.deck_names)
+		fmt.sbprintf(&sb, "deck=")
+		for i in 0 ..< len(rs.deck_names) {
+			if i > 0 {
+				fmt.sbprintf(&sb, ",")
+			}
+			fmt.sbprintf(&sb, "%s", rs.deck_names[i])
+		}
+		fmt.sbprintf(&sb, "\n")
 	}
 	if len(rs.graveyard_names) > 0 {
-		fmt.sbprintf(&sb, "graveyard=%v\n", rs.graveyard_names)
-		fmt.sbprintf(&sb, "graveyard_power=%v\n", rs.graveyard_power)
+		fmt.sbprintf(&sb, "graveyard=")
+		for i in 0 ..< len(rs.graveyard_names) {
+			if i > 0 {
+				fmt.sbprintf(&sb, ",")
+			}
+			fmt.sbprintf(&sb, "%s", rs.graveyard_names[i])
+		}
+		fmt.sbprintf(&sb, "\n")
+		fmt.sbprintf(&sb, "graveyard_power=")
+		for i in 0 ..< len(rs.graveyard_power) {
+			if i > 0 {
+				fmt.sbprintf(&sb, ",")
+			}
+			fmt.sbprintf(&sb, "%.3f", rs.graveyard_power[i])
+		}
+		fmt.sbprintf(&sb, "\n")
 	}
 	_ = os.write_entire_file(RUN_SAVE_PATH, strings.to_string(sb))
 	run_save_present = true
@@ -1912,6 +1953,23 @@ parse_run_f32 :: proc(s: string, fallback: f32) -> f32 {
 // The deck and the graveyard ride along in the save as one comma-joined line
 // each, so they need a splitter that turns "A,B,C" back into three entries.
 // Card names never contain a comma, so this is unambiguous.
+// Pull one field out of a comma-separated list, stripping the quotes, brackets
+// and spaces that Odin's %v would have wrapped it in. A save written by the
+// build that used %v still has to load.
+run_trim_field :: proc(s: string) -> string {
+	start := 0
+	end := len(s)
+	for start < end &&
+	   (s[start] == ' ' || s[start] == '\t' || s[start] == '"' || s[start] == '[') {
+		start += 1
+	}
+	for end > start &&
+	   (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '"' || s[end - 1] == ']') {
+		end -= 1
+	}
+	return s[start:end]
+}
+
 parse_run_names :: proc(out: ^[dynamic]cstring, val: string) {
 	clear(out)
 	start := 0
@@ -1920,7 +1978,10 @@ parse_run_names :: proc(out: ^[dynamic]cstring, val: string) {
 			continue
 		}
 		if i > start {
-			append(out, strings.clone_to_cstring(val[start:i]))
+			name := run_trim_field(val[start:i])
+			if name != "" {
+				append(out, strings.clone_to_cstring(name))
+			}
 		}
 		start = i + 1
 	}
@@ -1934,7 +1995,8 @@ parse_run_floats :: proc(out: ^[dynamic]f32, val: string) {
 			continue
 		}
 		if i > start {
-			append(out, parse_run_f32(val[start:i], 1.0))
+			// The same brackets and spaces the names needed stripping.
+			append(out, parse_run_f32(run_trim_field(val[start:i]), 1.0))
 		}
 		start = i + 1
 	}
@@ -2024,8 +2086,6 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.attack_effects = u32(parse_run_i32(val, i32(rs.attack_effects)))
 		case "relics_equipped":
 			rs.relics_equipped = u32(parse_run_i32(val, i32(rs.relics_equipped)))
-		case "relics_owned":
-			rs.relics_equipped = u32(parse_run_i32(val, i32(rs.relics_equipped)))
 		case "endless":
 			rs.endless = parse_bool(val, rs.endless)
 		case "mode":
@@ -2044,7 +2104,12 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 		case "exp_cleared":
 			rs.exp_cleared = parse_run_i32(val, rs.exp_cleared)
 		case "exp_in_node":
-			rs.exp_in_node = Node_Kind(parse_run_i32(val, i32(rs.exp_in_node)))
+			// Range checked: an out-of-range enum is undefined behaviour, and
+			// this file is on disk where it can be edited.
+			v := parse_run_i32(val, i32(rs.exp_in_node))
+			if v >= 0 && v < len(Node_Kind) {
+				rs.exp_in_node = Node_Kind(v)
+			}
 		case "deck":
 			parse_run_names(&rs.deck_names, val)
 		case "graveyard":
@@ -2184,9 +2249,17 @@ resume_run :: proc() -> bool {
 		expedition_in_node = rs.exp_in_node
 		#partial switch rs.exp_in_node {
 		case .BATTLE, .ELITE, .BOSS:
+			// A fight in progress: re-enter it. The node was never
+			// committed, so this respawns the same encounter rather than
+			// advancing the map.
 			if expedition_chosen() != nil {
 				state = expedition_enter(&enemies)
 			}
+		case .DECKMASTER, .SHOP, .RELIC, .REST:
+			// A utility node. It never spawned a fight, so there is
+			// nothing to resume into -- the player lands on the map with
+			// the node still un-committed and may take it again.
+			state = .EXPEDITION_MAP
 		}
 	}
 	return true
@@ -3066,7 +3139,10 @@ expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
 			currency += CAMP_ONE_LIFE_COINS
 			show_banner(cstring("CAMPED"), raylib.GOLD, 2.0)
 			play(sounds.shop_buy)
-			expedition_commit()
+			// NOTE: no expedition_commit() here. The caller commits the node
+			// once it returns to the map. Committing in here as well made the
+			// caller commit a SECOND node -- the next layer's -- so the player
+			// silently lost a whole layer every time they took a camp.
 			return .EXPEDITION_MAP
 		}
 		// Camp: heal a real chunk, or take it as max health if already topped up.
@@ -3079,7 +3155,7 @@ expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
 			show_banner(cstring("HARDENED"), raylib.LIME, 2.0)
 		}
 		play(sounds.health)
-		expedition_commit()
+		// No commit here either -- the caller does it, exactly once.
 		return .EXPEDITION_MAP
 	}
 	return .EXPEDITION_MAP
@@ -5686,8 +5762,14 @@ upgrade_is_useful :: proc(name: cstring) -> bool {
 		return .Shock in attack_effects && status_power[.Shock] < MAX_STATUS_POWER
 	case "ELEMENTALIST":
 		return attack_effects != {} && status_time_mult < MAX_STATUS_TIME_MULT
+	// These two have no cap, so they always have room.
+	case "DASH":
+		return true
 	}
-	return true // HEALTH, DASH, etc. always have room
+	// Anything else is a name this build does not know: a corrupt save, or a
+	// card that was renamed. It must never be offered, because it would look
+	// like a reward and grant nothing.
+	return false
 }
 
 apply_random_upgrade :: proc() {
@@ -5889,6 +5971,7 @@ deck_offer_draw_cards :: proc() {
 	start_x := center_x - total_width / 2
 
 	clear(&cards)
+	offer_pick = 0
 	for i in 0 ..< n {
 		name := deck_offer_cards[i]
 		append(
@@ -5913,6 +5996,35 @@ deck_offer_clear :: proc() {
 
 // Set while the three-card offer is the thing waiting to be answered.
 offer_active := false
+
+// The card offer has to be answerable without a mouse. Firing is blocked while
+// the offer is on screen, so a keyboard-only player would otherwise sit on the
+// offer for ever and never reach the second wave.
+offer_select :: proc() -> bool {
+	if !offer_active || deck_offer_n <= 0 {
+		return false
+	}
+	// Number keys pick directly, matching the relic overlay's habit.
+	for key, idx in NUMBER_KEYS {
+		if int(idx) < deck_offer_n && raylib.IsKeyPressed(key) {
+			offer_pick = int(idx)
+			return true
+		}
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+		offer_pick = (offer_pick - 1 + deck_offer_n) % deck_offer_n
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+		offer_pick = (offer_pick + 1) % deck_offer_n
+	}
+	return raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+	       raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)
+}
+
+// Which of the offered cards the keyboard has highlighted.
+offer_pick: int = 0
 
 // ---------------------------------------------------------------------------
 // Inventory

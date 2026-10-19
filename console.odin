@@ -53,7 +53,11 @@ console_close :: proc() {
 		return
 	}
 	console_open = false
-	raylib.SetExitKey(raylib.KeyboardKey.ESCAPE)
+	// KEY_NULL, not ESCAPE. The game sets the exit key to KEY_NULL on
+	// startup so ESC never closes the window mid-run; restoring ESCAPE here
+	// undid that, so opening the debug console and closing it again
+	// re-armed ESC as "quit the game".
+	raylib.SetExitKey(raylib.KeyboardKey.KEY_NULL)
 }
 
 // Append a line of output, scrolling older lines off the top. `error` only

@@ -356,6 +356,12 @@ tutorial_start :: proc(kind: Tutorial_Kind, char: Character) {
 		}
 	}
 	stats := start_loadout(c, primary, secondary, dash, util)
+	// The tutorial is a sandbox, so it forces a plain run. Without this it
+	// inherited whatever mode the last confirmed run used, and a player who
+	// had last played an expedition opened the tutorial on the expedition map
+	// instead of the practice arena.
+	run_rules.mode = .STANDARD
+	run_rules.modifiers = 0
 	start_run(stats)
 	tutorial_mode = true
 	tutorial_kind = kind

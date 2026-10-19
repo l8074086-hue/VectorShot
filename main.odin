@@ -195,7 +195,7 @@ draw_ingame_panel :: proc() {
 		}
 	}
 	raylib.DrawText(
-		cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust   -   BACKSPACE to resume"),
+		cstring("UP / DOWN to choose   -   LEFT / RIGHT to adjust   -   P to resume"),
 		i32(gx + 24),
 		i32(gy + gh - 30),
 		15,
@@ -564,6 +564,9 @@ draw_telegraphs :: proc() {
 // one snaps straight back the instant you look away.
 mode_focus: int = 0 // 0 = mode list, 1 = modifier list
 mode_pick: int = 0
+// The modifier mask the mode screen was entered with, so backing out of it
+// can undo the changes made there.
+mode_mods_snapshot: u32 = 0
 mod_pick: int = 0
 
 // Toggle a modifier, keeping the mutually exclusive pairs from coexisting.
@@ -808,6 +811,11 @@ main :: proc() {
 				// from the live mode so the screen opens on what's already set.
 				mode_pick = int(run_rules.mode)
 				mode_focus = 0
+				// A modifier toggle applies the moment it is pressed, so the
+				// mask is snapshotted here and put back if the player backs
+				// out. Otherwise arming ONE LIFE and pressing ESC left it
+				// armed for every later run, in any mode.
+				mode_mods_snapshot = run_rules.modifiers
 				state = .MODE_SELECT
 			} else if k2 || (confirm && main_menu_sel == 2) {
 				play(sounds.ui_select)
@@ -951,6 +959,9 @@ main :: proc() {
 			}
 			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 				play(sounds.ui_select)
+				// Backing out without confirming takes the modifier changes
+				// with it.
+				run_rules.modifiers = mode_mods_snapshot
 				state = .MAIN_MENU
 			}
 			hint := cstring("TAB switches panels   -   ENTER begins   -   ESC goes back")
@@ -2360,9 +2371,15 @@ main :: proc() {
 								}
 							}
 							if enemies[i].hp <= 0 {
-								count_kill(enemies[i].elite)
-								try_spawn_health_drop(enemies[i].position, &drops)
-								try_spawn_ammo_drop(enemies[i].position, &drops)
+								// Through the death funnel like every other kill.
+								// This path used to do the counting and the drops
+								// itself, which meant a boss killed by a dash never
+								// called arena_cleared (so the arena was never marked
+								// cleared, the next map never unlocked and no relic
+								// chest dropped) and a revenant killed by a dash was
+								// never retired from the graveyard, leaving its entry
+								// stuck as spawned forever.
+								spawn_kill_rewards(&enemies[i])
 								unordered_remove(&enemies, i)
 							}
 						}
@@ -2690,6 +2707,20 @@ main :: proc() {
 			}
 			if world_key_pressed(raylib.KeyboardKey.I) && debug_mode {
 				new_wave(&enemies, wave)
+				wave += 1
+			}
+			// Keyboard answer to the card offer. Without it the offer is
+			// mouse-only, and firing is blocked while it is up.
+			if !console_open && offer_select() {
+				pick := offer_pick
+				deck_offer_take(pick)
+				deck_offer_clear()
+				play(sounds.card)
+				if run_rules.mode == .EXPEDITION {
+					state = .EXPEDITION_MAP
+				} else if !debug_mode {
+					new_wave(&enemies, wave)
+				}
 				wave += 1
 			}
 			if !console_open && raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT) {
@@ -3549,10 +3580,14 @@ main :: proc() {
 				raylib.DrawText(label, i32(n.pos.x), i32(n.pos.y), 14, c)
 			}
 			raylib.EndMode2D()
-			for &c in cards {
+			for ci in 0 ..< len(cards) {
+				c := &cards[ci]
 				card_rect := raylib.Rectangle{c.position.x, c.position.y, c.size.x, c.size.y}
 				c.hover = raylib.CheckCollisionRecs(mouse, card_rect)
-				color := c.hover ? raylib.VIOLET : raylib.DARKPURPLE
+				// The keyboard cursor highlights too, so the offer is
+				// answerable without a mouse and still shows what is selected.
+				kb := offer_active && ci == offer_pick
+				color := c.hover || kb ? raylib.VIOLET : raylib.DARKPURPLE
 				raylib.DrawRectangleV(c.position, c.size, color)
 				x := i32(c.position.x)
 				y := i32(c.position.y)
@@ -3571,7 +3606,7 @@ main :: proc() {
 				}
 				desc_w := raylib.MeasureText(c.description, desc_fs)
 				raylib.DrawText(c.description, x + (w - desc_w) / 2, y + 78, desc_fs, raylib.BLACK)
-				if c.hover {
+				if c.hover || kb {
 					raylib.DrawRectangleLinesEx(card_rect, 2, raylib.WHITE)
 				}
 			}
