@@ -184,6 +184,10 @@ console_execute :: proc(cmd: string) {
 
 	case "clear", "kill":
 		clear(&enemies)
+		// The revenant bodies are gone without having died, so their queue
+		// entries have to go back in line. Otherwise they stay flagged as
+		// spawned for ever and never come back.
+		revenant_clear_bodies()
 		clear(&enemy_bullets)
 		console_print("cleared enemies")
 

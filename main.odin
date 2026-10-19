@@ -627,6 +627,20 @@ main :: proc() {
 	defer delete(explosions)
 	defer delete(sparks)
 	defer delete(shop_items)
+	// These are the rest of the global dynamic arrays. The run's own state
+	// (deck, graveyard, the expedition map, the deckmaster's offers) belongs
+	// to the process, but the effect and entity lists do not.
+	defer delete(pending_splits)
+	defer delete(pending_summons)
+	defer delete(crystals)
+	defer delete(rockets)
+	defer delete(boss_ghosts)
+	defer delete(damage_numbers)
+	defer delete(blood)
+	defer delete(expedition_map)
+	defer delete(deck)
+	defer delete(graveyard)
+	defer delete(deckmaster_offers)
 
 	camera: raylib.Camera2D
 
@@ -2928,7 +2942,13 @@ main :: proc() {
 					// A STATIC revenant is a charger whose body inflicts shock on
 					// contact. Applying it outside the i-frame gate means being
 					// shoved into one can re-shock you after your i-frames are up.
-					if enemies[i].revenant && enemies[i].revenant_effects != {} {
+					//
+					// Only the CHARGER does this. The ranged element revenants
+					// carry their element on their shot, and walking into one
+					// should not also set you on fire.
+					if enemies[i].revenant &&
+					   enemies[i].kind == .CHARGER &&
+					   enemies[i].revenant_effects != {} {
 						apply_player_effects(enemies[i].revenant_effects)
 					}
 					if inv_timer <= 0 {
@@ -4227,7 +4247,7 @@ draw_deckmaster :: proc(target: raylib.RenderTexture) {
 		// kept and so are not offered.
 		draw_centered(cstring("DISCARD INTO THE GRAVEYARD"), 108, 22, raylib.ORANGE)
 		discardable := max(len(deck) - DECK_MIN_SIZE, 0)
-		for row in 0 ..< min(discardable, 6) {
+		for row in 0 ..< min(discardable, DECKMASTER_VISIBLE_ROWS) {
 			idx := row + deckmaster_scroll
 			if idx >= discardable {
 				break

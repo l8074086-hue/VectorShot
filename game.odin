@@ -1863,6 +1863,13 @@ capture_run_save :: proc() -> Run_Save {
 // Write the current run to disk (checkpoint).
 save_run :: proc() {
 	rs := capture_run_save()
+	// capture_run_save builds three dynamic arrays; nothing frees them on its
+	// own, and save_run runs on every wave clear, so they leaked once per
+	// wave for the life of the process. The card NAMES are borrowed from the
+	// deck and the graveyard, so only the arrays are freed here.
+	defer delete(rs.deck_names)
+	defer delete(rs.graveyard_names)
+	defer delete(rs.graveyard_power)
 	sb: strings.Builder
 	strings.builder_init(&sb)
 	defer strings.builder_destroy(&sb)
@@ -2144,7 +2151,12 @@ has_run_save :: proc() -> bool {
 // Re-read presence from disk (called once at startup).
 refresh_run_save_presence :: proc() {
 	rs, ok := load_run()
-	_ = rs
+	// The arrays are ours to free. The card names inside them are cloned
+	// strings that outlive these buffers, and they are dropped with the
+	// struct anyway -- but the buffers themselves are heap allocations.
+	delete(rs.deck_names)
+	delete(rs.graveyard_names)
+	delete(rs.graveyard_power)
 	run_save_present = ok
 }
 
@@ -2199,7 +2211,14 @@ resume_run :: proc() -> bool {
 	// Deck and graveyard. An empty list in the save means a run written before
 	// the deck existed, which should fall back to the opening deck rather than
 	// leaving the player with nothing to draw.
+	//
+	// deck_restore copies the name POINTERS into the deck, so the buffers can
+	// be freed here but the strings they pointed at must live on -- which is
+	// why they are never freed at all.
 	deck_restore(rs.deck_names, rs.graveyard_names, rs.graveyard_power)
+	delete(rs.deck_names)
+	delete(rs.graveyard_names)
+	delete(rs.graveyard_power)
 	for eff in Status_Effect {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
@@ -3376,8 +3395,16 @@ deck_discard :: proc(idx: int) -> bool {
 	if len(deck) <= DECK_MIN_SIZE {
 		return false
 	}
+	// The floor protects the LAST DECK_MIN_SIZE cards, so only the ones above
+	// them may be thrown away. The check lives here rather than only in the
+	// UI, because this is the function that owns the rule.
+	if idx >= len(deck) - DECK_MIN_SIZE {
+		return false
+	}
 	append(&graveyard, Revenant{name = deck[idx].name, power = 1.0, spawned = false})
-	unordered_remove(&deck, idx)
+	// ordered_remove again: an unordered one would pull a PROTECTED card up
+	// into the discarded slot, so the reserve would churn every time.
+	ordered_remove(&deck, idx)
 	return true
 }
 
@@ -3410,8 +3437,18 @@ revenant_retire :: proc(idx: i32) {
 	if idx < 0 || int(idx) >= len(graveyard) {
 		return
 	}
-	unordered_remove(&graveyard, int(idx))
-	// Every remaining revenant shifts down one, so their stored indices do too.
+	// ordered_remove, NOT unordered_remove.
+	//
+	// Odin's unordered_remove moves the LAST element into the hole and leaves
+	// every other element exactly where it was -- it does not shift anything
+	// down. But the fix-up below assumes the entries above the removed one DID
+	// move down a slot. With unordered_remove, every surviving body above the
+	// removed index had its index decremented even though its entry had not
+	// moved, so they all pointed at the wrong card: the wrong one paid out,
+	// the wrong entry was deleted, and the corpse's own entry was left stuck
+	// as spawned forever so it never came back and never paid.
+	ordered_remove(&graveyard, int(idx))
+	// Every remaining revenant shifted down one, so their stored indices do too.
 	// Re-point the live bodies at their new slots.
 	for &e in enemies {
 		if e.revenant && e.revenant_idx > idx {
@@ -3485,6 +3522,16 @@ update_revenant_prompt :: proc(dT: f32) {
 		revenant_skip_all()
 		revenant_prompt = false
 		show_banner(cstring("THEY COME BACK WEAKER"), raylib.DARKPURPLE, 2.5)
+	}
+}
+
+// Every live revenant body is removed without dying -- the debug console's
+// clear does exactly that. Their queue entries have to go back into line, or
+// they stay flagged as spawned for ever: the revenant never comes back and
+// never pays, and the slot is occupied for the rest of the run.
+revenant_clear_bodies :: proc() {
+	for &r in graveyard {
+		r.spawned = false
 	}
 }
 
@@ -3565,6 +3612,17 @@ revenant_plan :: proc(name: cstring) -> Revenant_Plan {
 		return {.RANGED, {.Poison}}
 	case "STATIC":
 		return {.CHARGER, {.Shock}}
+	// The boosters are element cards too, so they rise as one -- the element
+	// is what they are about, even though the card only deepens a power the
+	// player already has.
+	case "KINDLING":
+		return {.RANGED, {.Burn}}
+	case "DEEP FREEZE":
+		return {.RANGED, {.Freeze}}
+	case "VIRULENCE":
+		return {.RANGED, {.Poison}}
+	case "CONDUIT":
+		return {.RANGED, {.Shock}}
 	}
 	// Anything else still rises, on a plain grunt body.
 	return {.GRUNT, {}}
@@ -4022,7 +4080,11 @@ update_enemy :: proc(e: ^enemy, dT: f32) {
 		e.position += dir * spd * dT
 
 	case .RUNNER:
-		if e.elite {
+		// Revenants are excluded: the elite branch is the Blinker, a burst of
+		// erratic zig-zag dashes, and a revenant is meant to wear an elite
+		// silhouette without picking up the elite behaviour. The SPEED
+		// revenant gets its speed from its own card instead.
+		if e.elite && !e.revenant {
 			// Blinker: bursts of erratic zig-zag dashes, charger-style.
 			e.state_timer -= dT
 			if e.state_timer > 0 {
@@ -5562,10 +5624,15 @@ spawn_relic_chest :: proc(pos: raylib.Vector2) {
 // `count_as_elite` is false only for the Devourer, which eats its victim: that
 // is not an elite kill and does not count towards the run's elite tally.
 spawn_kill_rewards :: proc(e: ^enemy, count_as_elite := true) {
+	// Everything this proc needs is copied out of the enemy FIRST. `e` points
+	// into the `enemies` array, and the calls below could one day grow it --
+	// which is the exact shape that caused the old boss_summon segfault.
 	pos := e.position
 	elite := e.elite && count_as_elite
 	col := e.color
 	kind := e.kind
+	is_revenant := e.revenant
+	revenant_idx := e.revenant_idx
 	spawn_death_burst(pos, col, elite)
 	// A boss always leaves a relic chest (walk over it to draw, then accept or
 	// discard). This is the universal death funnel, so it fires no matter what
@@ -5600,8 +5667,8 @@ spawn_kill_rewards :: proc(e: ^enemy, count_as_elite := true) {
 	// A revenant is a discarded card that came back. Killing one removes it for
 	// good and pays well above an elite -- unless you skipped it before, in
 	// which case it was demoted down to a form that never pays again.
-	if e.revenant {
-		if revenant_pays_coins(e.revenant_idx) {
+	if is_revenant {
+		if revenant_pays_coins(revenant_idx) {
 			append(
 				&drops,
 				drop {
@@ -5613,7 +5680,7 @@ spawn_kill_rewards :: proc(e: ^enemy, count_as_elite := true) {
 				},
 			)
 		}
-		revenant_retire(e.revenant_idx)
+		revenant_retire(revenant_idx)
 		return
 	}
 	if elite {

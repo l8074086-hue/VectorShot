@@ -391,11 +391,11 @@ spawn_tutorial_dummies :: proc() {
 // (effects, patrol route, aim). Returns nil if nothing was spawned. Only valid
 // until the next enemy is appended.
 spawn_tutorial_target :: proc(kind: Enemy_Kind, pos: raylib.Vector2) -> ^enemy {
-	spawn_enemy_at(kind, false, 1, pos)
-	if len(enemies) == 0 {
-		return nil
-	}
-	return &enemies[len(enemies) - 1]
+	// The index comes back from the spawn rather than being re-derived as
+	// "the last element" -- the old form pointed at whatever happened to be
+	// last, which is a different enemy if the spawn ever failed to append.
+	idx := spawn_enemy_at(kind, false, 1, pos)
+	return &enemies[idx]
 }
 
 // A stationary punching bag for melee lessons, with enough health that a whole
