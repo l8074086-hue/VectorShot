@@ -332,6 +332,32 @@ leave_shop :: proc() {
 // Keyboard handler for the relic chest overlay. 1-3 takes that relic: with a
 // free slot it just equips, with all three full it swaps out the oldest. ESC
 // closes it and takes nothing.
+// --- modal overlays ----------------------------------------------------------
+//
+// Every modal overlay is updated from exactly one place, once per frame, before
+// the screen switch runs. A screen then only has to ask whether an overlay is up
+// so it can freeze its own input.
+//
+// This used to be duplicated inside the PLAYING case, which is precisely how the
+// relic chest ended up deaf to the keyboard: an expedition map node could raise
+// one, but only PLAYING ever routed its input, so that path was mouse-only. With
+// a single dispatch point, raising an overlay from a screen can no longer forget
+// to wire it up.
+modal_overlay_active :: proc() -> bool {
+	return relic_pick_open || ingame_panel_open
+}
+
+update_modal_overlays :: proc() {
+	// Order matters: the relic chest is modal over the shop, so it is answered
+	// before anything behind it gets a look at the same key press.
+	if relic_pick_open {
+		relic_pick_update()
+	}
+	if ingame_panel_open {
+		ingame_panel_update()
+	}
+}
+
 // Keyboard handler for the relic chest overlay. Deliberately mouse-free:
 // 1-3 take a relic directly, LEFT/RIGHT move a cursor and ENTER takes the one it
 // is on, ESC closes. Anything that can open this overlay has to be reachable
@@ -616,6 +642,8 @@ main :: proc() {
 			dT = 0
 			console_update()
 		}
+		// One dispatch point for every modal overlay, before any screen runs.
+		update_modal_overlays()
 
 		// Dev cheat: Ctrl+Shift+U unlocks every map (persisted, but nothing is
 		// marked as cleared). Works from any screen so you can see the whole map
@@ -1987,11 +2015,7 @@ main :: proc() {
 			if len(expedition_map) == 0 {
 				state = .PLAYING
 			}
-			// A relic pick is modal. Route it through the same handler the
-			// PLAYING screen uses, or the overlay is mouse-only here.
-			if relic_pick_open {
-				relic_pick_update()
-			}
+			// A relic pick is modal; it already took its input above.
 			cur_layer := expedition_layer_now()
 			// ...and swallow map input until it is answered, or one ENTER press
 			// would travel AND accept the relic.
@@ -2177,13 +2201,9 @@ main :: proc() {
 			// skipping this frame's update+draw. The canvas texture keeps the last
 			// frame, which the present step redraws with the panel over it. Auto-pause
 			// (focus loss) freezes the same way, minus the panel input.
-			if ingame_panel_open {
-				ingame_panel_update()
-			}
-			if relic_pick_open {
-				relic_pick_update()
-			}
-			if ingame_panel_open || auto_paused || relic_pick_open {
+			// Overlays were already given their input above; freeze the world
+			// beneath them instead of feeding the same key press twice.
+			if modal_overlay_active() || auto_paused {
 				break
 			}
 			camera.target = position + size * 0.5
@@ -3712,10 +3732,9 @@ main :: proc() {
 			raylib.EndTextureMode()
 
 		case .SHOP:
-			// The shop can hand out a relic, so it has to route the overlay's
-			// input too. Freeze the rest of the shop while it is up.
+			// A relic chest over the shop already took its input above; freeze
+			// the stock list so it cannot answer the same press.
 			if relic_pick_open {
-				relic_pick_update()
 				break
 			}
 			n := len(shop_items)
