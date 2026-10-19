@@ -332,16 +332,39 @@ leave_shop :: proc() {
 // Keyboard handler for the relic chest overlay. 1-3 takes that relic: with a
 // free slot it just equips, with all three full it swaps out the oldest. ESC
 // closes it and takes nothing.
+// Keyboard handler for the relic chest overlay. Deliberately mouse-free:
+// 1-3 take a relic directly, LEFT/RIGHT move a cursor and ENTER takes the one it
+// is on, ESC closes. Anything that can open this overlay has to be reachable
+// without a mouse, so every caller routes its input through here.
 relic_pick_update :: proc() {
 	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
 	   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
 		relic_pick_open = false
+		relic_swap_pending = nil
 		play(sounds.ui_move)
 		return
 	}
 	for key, idx in NUMBER_KEYS {
 		if idx < relic_pick_count && raylib.IsKeyPressed(key) {
 			take_relic(relic_pick_choices[idx])
+			return
+		}
+	}
+	// Cursor fallback for anyone not reaching for the number keys.
+	if relic_pick_count > 0 {
+		if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+			relic_pick_idx = (relic_pick_idx + relic_pick_count - 1) % relic_pick_count
+			play(sounds.ui_move)
+		}
+		if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+			relic_pick_idx = (relic_pick_idx + 1) % relic_pick_count
+			play(sounds.ui_move)
+		}
+		if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+			take_relic(relic_pick_choices[relic_pick_idx])
 			return
 		}
 	}
@@ -453,6 +476,23 @@ relic_pick_draw :: proc() {
 		}
 	}
 	draw_centered(cstring("ESC to skip"), i32(y + h) - 16, 14, raylib.DARKGRAY)
+	// Spell out the keys and ring whichever card the cursor is on, so the
+	// overlay is usable without ever reaching for the mouse.
+	if !full && relic_pick_count > 0 {
+		cur := raylib.Rectangle {
+			x + 30 + f32(relic_pick_idx) * (bw + 16),
+			by,
+			bw,
+			bh,
+		}
+		raylib.DrawRectangleLinesEx(cur, 2, raylib.YELLOW)
+		draw_centered(
+			cstring("1-3 or LEFT/RIGHT + ENTER to take"),
+			i32(y + h) - 16,
+			14,
+			raylib.DARKGRAY,
+		)
+	}
 }
 
 // Attack telegraphs, drawn on the ground under the enemies. Every boss/sniper
@@ -1947,9 +1987,14 @@ main :: proc() {
 			if len(expedition_map) == 0 {
 				state = .PLAYING
 			}
+			// A relic pick is modal. Route it through the same handler the
+			// PLAYING screen uses, or the overlay is mouse-only here.
+			if relic_pick_open {
+				relic_pick_update()
+			}
 			cur_layer := expedition_layer_now()
-			// A relic pick is modal: swallow map input until it is answered, or
-			// ENTER would travel AND accept the relic in the same press.
+			// ...and swallow map input until it is answered, or one ENTER press
+			// would travel AND accept the relic.
 			if !relic_pick_open {
 			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
 			   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
@@ -3667,6 +3712,12 @@ main :: proc() {
 			raylib.EndTextureMode()
 
 		case .SHOP:
+			// The shop can hand out a relic, so it has to route the overlay's
+			// input too. Freeze the rest of the shop while it is up.
+			if relic_pick_open {
+				relic_pick_update()
+				break
+			}
 			n := len(shop_items)
 			reroll_row := n // the row after the offers
 			leave_row := n + 1
