@@ -3210,19 +3210,32 @@ main :: proc() {
 			if player_poison > 0 {
 				raylib.DrawText("POISONED", 216, 12, 16, raylib.Color{120, 230, 120, 255})
 			}
-			if endless_mode {
-				draw_centered(raylib.TextFormat("WAVE %i  -  ENDLESS", int(wave)), 6, 24, raylib.GOLD)
-			} else {
+			if run_rules.mode == .BOSS_RUSH {
+				// "BOSS 3 / 7" beats a wave counter in a mode with no waves.
 				draw_centered(
 					raylib.TextFormat(
-						"WAVE %i / %i",
-						int(min(wave, ARENAS[arena].waves)),
-						int(ARENAS[arena].waves),
+						"BOSS %i / %i",
+						int(min(boss_rush_index + 1, boss_rush_total())),
+						int(boss_rush_total()),
 					),
 					6,
 					24,
-					raylib.LIGHTGRAY,
+					raylib.GOLD,
 				)
+			} else if endless_mode {
+				draw_centered(raylib.TextFormat("WAVE %i  -  ENDLESS", int(wave)), 6, 24, raylib.GOLD)
+			} else {
+				label: cstring = raylib.TextFormat(
+					"WAVE %i / %i",
+					int(min(wave, ARENAS[arena].waves)),
+					int(ARENAS[arena].waves),
+				)
+				col := raylib.LIGHTGRAY
+				if run_rules.mode == .ENDLESS {
+					label = raylib.TextFormat("WAVE %i  -  ENDLESS MODE", int(wave))
+					col = raylib.GOLD
+				}
+				draw_centered(label, 6, 24, col)
 			}
 			// Big centred callout: the arena's boss name as it arrives, then ARENA
 			// CLEARED when it dies. Fades over its last second.

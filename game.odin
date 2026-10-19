@@ -1751,6 +1751,11 @@ capture_run_save :: proc() -> Run_Save {
 		attack_effects     = attack_effects_to_u32(),
 		relics_equipped   = settings.relics_equipped,
 		endless            = endless_mode,
+		// Run-scoped rules, so a resumed run keeps the mode and modifiers it
+		// was started with instead of whatever the menu happens to say now.
+		mode              = run_rules.mode,
+		modifiers         = run_rules.modifiers,
+		boss_rush_index   = boss_rush_index,
 	}
 	for eff in Status_Effect {
 		rs.status_power[int(eff)] = status_power[eff]
@@ -1794,6 +1799,9 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "attack_effects=%i\n", i32(rs.attack_effects))
 	fmt.sbprintf(&sb, "relics_equipped=%i\n", i32(rs.relics_equipped))
 	fmt.sbprintf(&sb, "endless=%v\n", rs.endless)
+	fmt.sbprintf(&sb, "mode=%i\n", i32(rs.mode))
+	fmt.sbprintf(&sb, "modifiers=%i\n", i32(rs.modifiers))
+	fmt.sbprintf(&sb, "boss_rush_index=%i\n", rs.boss_rush_index)
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
@@ -1896,6 +1904,17 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.relics_equipped = u32(parse_run_i32(val, i32(rs.relics_equipped)))
 		case "endless":
 			rs.endless = parse_bool(val, rs.endless)
+		case "mode":
+			// Clamped: a save from a future build could name a mode this one
+			// doesn't have, and indexing a table with it would be out of bounds.
+			m := parse_run_i32(val, i32(rs.mode))
+			if m >= 0 && m < len(RUN_MODE_INFO) {
+				rs.mode = Run_Mode(m)
+			}
+		case "modifiers":
+			rs.modifiers = u32(parse_run_i32(val, i32(rs.modifiers)))
+		case "boss_rush_index":
+			rs.boss_rush_index = parse_run_i32(val, rs.boss_rush_index)
 		case:
 			if len(key) > 13 && key[:13] == "status_power_" {
 				i := parse_run_i32(key[13:], -1)
@@ -1982,6 +2001,14 @@ resume_run :: proc() -> bool {
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
+	// Put the run's own rules back before anything reads them, so the resumed
+	// run continues as the mode it began as (a Boss Rush picks up mid-chain).
+	run_rules.mode = rs.mode
+	run_rules.modifiers = rs.modifiers
+	boss_rush_index = rs.boss_rush_index
+	if boss_rush_index < 0 {
+		boss_rush_index = 0
+	}
 	// An older save (from before per-arena bosses) may sit past this arena's boss
 	// wave; treat that as already-endedless so we don't re-run a boss it skipped.
 	if !endless_mode && wave > ARENAS[arena].waves {
@@ -2484,14 +2511,17 @@ boss_rush_advance :: proc() {
 		settings_save()
 		return
 	}
-	next_arena := boss_rush_next()
-	show_banner(RUN_MODE_BOSS_NAMES[next_arena], raylib.GOLD, 3.0)
-	// Spawn the next boss under the arena identity it owns, so its art, its
-	// crystals and its tuning all come along without duplicating the table.
-	spawn_arena_boss_as(next_arena, random_spawn_pos(ARENA_BOSSES[next_arena].size))
+	// Deliberately does NOT spawn the next boss here. The field has just gone
+	// empty, and spawning into it right now would hide that from the
+	// between-waves check -- which is what offers the card pick and the shop.
+	// A rush with no upgrades between bosses is just seven fights in a row.
+	// Instead we leave the field empty and let the normal reward flow run; the
+	// next new_wave picks the chain back up at the new index.
 }
 
-// Boss display names, indexed by arena, for the rush banner.
+// Boss display names, indexed by arena. Used by the HUD to show how far
+// through a BOSS RUSH chain you are, and by the game-over screen to name the
+// boss that finished you.
 RUN_MODE_BOSS_NAMES := [Arena_Kind]cstring {
 	.GRASSLAND = "PACKLEADER",
 	.CANYON    = "DUSTMAW",

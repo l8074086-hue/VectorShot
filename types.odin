@@ -729,6 +729,16 @@ Run_Save :: struct {
 	status_power:      [4]f32, // per-Status_Effect power
 	relics_equipped:   u32,    // Up to 3 equipped relics for this run
 	endless:           bool,   // arena boss already down: this run is in endless mode
+	// Which kind of run this is, and the modifiers it was started with. These
+	// belong to the RUN, not to the player: they are written into the run save
+	// so a resumed run keeps playing the mode it began as (a Boss Rush resumes
+	// mid-chain rather than restarting it), and deliberately never go into
+	// settings.cfg as a session preference.
+	mode:              Run_Mode,
+	modifiers:         u32,
+	// How many bosses a BOSS RUSH run has beaten. Meaningless in other modes,
+	// but without it a resumed rush would start again from the first boss.
+	boss_rush_index:   i32,
 }
 
 // Snapshot of a finished run, shown on the results screen. Captured at death so
