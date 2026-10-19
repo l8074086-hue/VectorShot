@@ -4470,9 +4470,16 @@ codex_draw :: proc(target: raylib.RenderTexture) {
 // prose rather than a label.
 //
 // The line is assembled in a strings.Builder because Odin strings are
-// immutable, and handed to raylib through unsafe_string_to_cstring -- the
-// builder's buffer is still alive at that point, because the line is drawn
-// before anything else is written to it.
+// immutable, and drawn with unsafe_to_cstring -- the builder's buffer is
+// null-terminated, and it is still alive at that point because the line is
+// drawn before anything else is written to it.
+//
+// The word widths are measured from a null-terminated COPY of each word.
+// strings.fields returns views into the original text rather than copies, and
+// a view is not null-terminated at its end -- so handing one to MeasureText
+// measured the word plus everything after it. "grass" came out 55 characters
+// wide instead of 5, every word overflowed the panel on its own, and the
+// notes rendered as a column of single words.
 draw_wrapped :: proc(text: cstring, x, y: i32, width: i32, size: i32, color: raylib.Color) -> i32 {
 	if text == nil {
 		return y
@@ -4486,11 +4493,17 @@ draw_wrapped :: proc(text: cstring, x, y: i32, width: i32, size: i32, color: ray
 	defer strings.builder_destroy(&line)
 	used: i32 = 0
 	space := raylib.MeasureText(" ", size)
+	// Scratch space for a null-terminated copy of one word.
+	buf: [256]u8
 	for w in words {
-		ww := raylib.MeasureText(strings.unsafe_string_to_cstring(w), size)
+		n := copy(buf[:], w)
+		if n >= len(buf) {
+			n = len(buf) - 1
+		}
+		buf[n] = 0
+		ww := raylib.MeasureText(cstring(&buf[0]), size)
 		if used > 0 && used + space + ww > width {
-			s := strings.to_string(line)
-			raylib.DrawText(strings.unsafe_string_to_cstring(s), x, cur_y, size, color)
+			raylib.DrawText(strings.unsafe_to_cstring(&line), x, cur_y, size, color)
 			cur_y += size + 6
 			strings.builder_reset(&line)
 			used = 0
@@ -4503,8 +4516,7 @@ draw_wrapped :: proc(text: cstring, x, y: i32, width: i32, size: i32, color: ray
 		used += ww
 	}
 	if used > 0 {
-		s := strings.to_string(line)
-		raylib.DrawText(strings.unsafe_string_to_cstring(s), x, cur_y, size, color)
+		raylib.DrawText(strings.unsafe_to_cstring(&line), x, cur_y, size, color)
 		cur_y += size + 6
 	}
 	return cur_y
