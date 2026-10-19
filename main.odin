@@ -3903,7 +3903,6 @@ main :: proc() {
 					raylib.GRAY,
 				)
 			}
-			console_draw()
 			if tutorial_mode {
 				tutorial_draw()
 			}
@@ -4225,6 +4224,11 @@ main :: proc() {
 				18,
 				raylib.GRAY,
 			)
+		}
+		// Debug console: drawn last so it sits on top of every state and
+		// overlay. Only visible when the console is open (` from any screen).
+		if console_open {
+			console_draw()
 		}
 		raylib.EndDrawing()
 	}
