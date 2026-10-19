@@ -2660,8 +2660,12 @@ main :: proc() {
 			// eject an entity through the outer wall's far edge.
 			clamp_to_arena(&position, size)
 			if world_key_pressed(raylib.KeyboardKey.F) {
+				// F is the debug draw: a blind pull from the real deck, same
+				// path a cleared wave takes.
 				clear(&cards)
-				spawn_cards(&cards, card_choices)
+				if drawn := deck_draw(); drawn != "" {
+					show_card_pickup(drawn)
+				}
 			}
 			if world_key_pressed(raylib.KeyboardKey.G) && !gf_ctrl {
 				pop(&cards)
@@ -2680,19 +2684,24 @@ main :: proc() {
 					}
 					if raylib.CheckCollisionRecs(mouse, card_rect) {
 						picked := cards[i].name
-						apply_upgrade(picked)
-						play(sounds.card)
+						was_applied := cards[i].applied
 						clear(&cards)
-						if tutorial_mode {
-							// The tutorial dealt these cards to teach the
-							// mechanic; picking one is the lesson, not a
-							// genuine between-wave reward. The helper also
-							// remembers the element for the status follow-up.
-							tutorial_note_card(picked)
-						} else {
-							// An expedition card is the reward for clearing a
-							// node; picking it returns you to the map rather than
-							// rolling the next wave.
+						// A blind draw was already granted the moment it was
+						// dealt; clicking it just puts it away.
+						if !was_applied {
+							play(sounds.card)
+							apply_upgrade(picked)
+							if tutorial_mode {
+								// The tutorial dealt these cards to teach the
+								// mechanic; picking one is the lesson, not a
+								// genuine between-wave reward. The helper also
+								// remembers the element for the status follow-up.
+								tutorial_note_card(picked)
+							}
+						}
+						if !tutorial_mode {
+							// A card is the reward for clearing a wave;
+							// picking it rolls the next one.
 							if run_rules.mode == .EXPEDITION {
 								state = .EXPEDITION_MAP
 							} else if !debug_mode {
@@ -3023,25 +3032,41 @@ main :: proc() {
 						arena_cleared()
 						state = .EXPEDITION_MAP
 					} else if !run_mod(.NO_CARDS) {
-						spawn_cards(&cards, card_choices)
+						// A cleared node pays out a blind draw, same as a wave.
+						drawn := deck_draw()
+						if drawn != "" {
+							show_card_pickup(drawn)
+						}
 					}
 					break
 				}
-				// Every 5th cleared wave opens the shop instead of a card pick.
-				// (`wave` is the *next* wave, so wave-1 is the one just cleared.)
-				if run_mod(.NO_SHOP) {
-					// Suppressed: fall through to cards, or to nothing at all.
-					if !run_mod(.NO_CARDS) && (!debug_mode || wave == 1) {
-						spawn_cards(&cards, card_choices)
-					}
-				} else if wave > 1 && (wave - 1) % 5 == 0 {
+				// Every 5th cleared wave opens a visit instead of a card
+				// draw: the shop and the Deckmaster take turns. (`wave` is the
+				// *next* wave, so wave-1 is the one just cleared.)
+				cleared := wave - 1
+				visit := cleared > 0 && cleared % VISIT_EVERY == 0
+				if visit && !run_mod(.NO_SHOP) && !run_mod(.NO_CARDS) && visit_is_deckmaster(cleared) {
+					// The Deckmaster: add a card to the deck, or put one in
+					// the graveyard to thin the pool. ESC backs out.
+					deckmaster_open()
+					state = .DECKMASTER
+				} else if visit && !run_mod(.NO_SHOP) {
 					shop_selected = 0
 					build_shop()
 					state = .SHOP
-				} else if !run_mod(.NO_CARDS) && (!debug_mode || wave == 1) {
-					spawn_cards(&cards, card_choices)
+				} else if !run_mod(.NO_CARDS) && !debug_mode {
+					// Otherwise the reward for clearing a wave is not a
+					// choice: you draw one card at random from your own deck
+					// and it applies. What you own decides what you get.
+					//
+					// Debug is excluded because it never spawns the next
+					// wave, so it would sit here dealing a card every frame
+					// with no enemies to clear. Press F there to draw one.
+					drawn := deck_draw()
+					if drawn != "" {
+						show_card_pickup(drawn)
+					}
 				}
-				// In debug (not shop wave), skip the card reward after wave 1.
 			}
 			// Mission Control: a selected "level" checks its objective every frame
 			// and clears itself (paying the reward) the moment it's met. No-op on a
@@ -3731,7 +3756,70 @@ main :: proc() {
 			}
 			raylib.EndTextureMode()
 
-		case .SHOP:
+		case .DECKMASTER:
+			update_deckmaster()
+			draw_deckmaster(target)
+		// Draw a deckmaster row: a card name on the left, its effect on the right, the
+// selected one highlighted. Shared by the add and discard phases.
+draw_deckmaster_row :: proc(name: cstring, y: i32, selected: bool) {
+	col := selected ? raylib.YELLOW : raylib.WHITE
+	sub := selected ? raylib.YELLOW : raylib.LIGHTGRAY
+	raylib.DrawText(name, 140, y, 24, col)
+	raylib.DrawText(card_description(name), 400, y, 18, sub)
+}
+
+// The Deckmaster screen: take a card into the deck, then throw some away.
+draw_deckmaster :: proc(target: raylib.RenderTexture) {
+	raylib.BeginTextureMode(target)
+	raylib.ClearBackground(raylib.BLACK)
+	draw_centered(cstring("DECKMASTER"), 24, 40, raylib.WHITE)
+	draw_centered(
+		raylib.TextFormat("DECK %i   GRAVEYARD %i", len(deck), len(graveyard)),
+		74,
+		22,
+		raylib.GOLD,
+	)
+	switch deckmaster_phase {
+	case .ADD:
+		draw_centered(cstring("TAKE A CARD INTO YOUR DECK"), 108, 22, raylib.SKYBLUE)
+		for name, i in deckmaster_offers {
+			draw_deckmaster_row(name, i32(150 + 30 * i), i == deckmaster_selected)
+		}
+		draw_centered(
+			cstring("ENTER take    ESC skip"),
+			i32(150 + 30 * len(deckmaster_offers)),
+			20,
+			raylib.GRAY,
+		)
+	case .DISCARD:
+		// The discardable slice of the deck: the last DECK_MIN_SIZE cards are
+		// kept and so are not offered.
+		draw_centered(cstring("DISCARD INTO THE GRAVEYARD"), 108, 22, raylib.ORANGE)
+		discardable := max(len(deck) - DECK_MIN_SIZE, 0)
+		for row in 0 ..< min(discardable, 6) {
+			idx := row + deckmaster_scroll
+			if idx >= discardable {
+				break
+			}
+			draw_deckmaster_row(
+				deck[idx].name,
+				i32(150 + 30 * row),
+				idx == deckmaster_selected,
+			)
+		}
+		draw_centered(
+			raylib.TextFormat("DISCARDS LEFT %i    ESC leave", deckmaster_discards_left),
+			340,
+			20,
+			raylib.GRAY,
+		)
+	case .DONE:
+		draw_centered(cstring("ENTER leave"), 108, 22, raylib.GRAY)
+	}
+	raylib.EndTextureMode()
+}
+
+case .SHOP:
 			// A relic chest over the shop already took its input above; freeze
 			// the stock list so it cannot answer the same press.
 			if relic_pick_open {

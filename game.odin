@@ -811,6 +811,9 @@ start_run :: proc(stats: Run_Stats) {
 	// Rush progress is per-run state, not a preference.
 	boss_rush_index = 0
 	boss_rush_won = false
+	// Every run opens on the same fifteen-card deck. (resume_run restores the
+	// real one afterwards, so a resumed run does not get a fresh deck.)
+	deck_reset()
 	// EXPEDITION rolls a fresh map for every run, from the clock so two runs
 	// started in the same second are still different fights of the same shape.
 	expedition_generate(u32(raylib.GetTime() * 1000) | 1)
@@ -1778,6 +1781,13 @@ capture_run_save :: proc() -> Run_Save {
 		exp_seed          = expedition_seed,
 		exp_cleared       = expedition_cleared_count(),
 	}
+	for c in deck {
+		append(&rs.deck_names, c.name)
+	}
+	for r in graveyard {
+		append(&rs.graveyard_names, r.name)
+		append(&rs.graveyard_power, r.power)
+	}
 	for eff in Status_Effect {
 		rs.status_power[int(eff)] = status_power[eff]
 	}
@@ -1828,6 +1838,14 @@ save_run :: proc() {
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
+	// One comma-joined line each, in draw order.
+	if len(rs.deck_names) > 0 {
+		fmt.sbprintf(&sb, "deck=%v\n", rs.deck_names)
+	}
+	if len(rs.graveyard_names) > 0 {
+		fmt.sbprintf(&sb, "graveyard=%v\n", rs.graveyard_names)
+		fmt.sbprintf(&sb, "graveyard_power=%v\n", rs.graveyard_power)
+	}
 	_ = os.write_entire_file(RUN_SAVE_PATH, strings.to_string(sb))
 	run_save_present = true
 }
@@ -1837,6 +1855,37 @@ parse_run_f32 :: proc(s: string, fallback: f32) -> f32 {
 		return v
 	}
 	return fallback
+}
+
+// The deck and the graveyard ride along in the save as one comma-joined line
+// each, so they need a splitter that turns "A,B,C" back into three entries.
+// Card names never contain a comma, so this is unambiguous.
+parse_run_names :: proc(out: ^[dynamic]cstring, val: string) {
+	clear(out)
+	start := 0
+	for i in 0 ..= len(val) {
+		if i < len(val) && val[i] != ',' {
+			continue
+		}
+		if i > start {
+			append(out, strings.clone_to_cstring(val[start:i]))
+		}
+		start = i + 1
+	}
+}
+
+parse_run_floats :: proc(out: ^[dynamic]f32, val: string) {
+	clear(out)
+	start := 0
+	for i in 0 ..= len(val) {
+		if i < len(val) && val[i] != ',' {
+			continue
+		}
+		if i > start {
+			append(out, parse_run_f32(val[start:i], 1.0))
+		}
+		start = i + 1
+	}
 }
 parse_run_i32 :: proc(s: string, fallback: i32) -> i32 {
 	if v, ok := strconv.parse_i64(s); ok {
@@ -1942,6 +1991,12 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.exp_seed = u32(parse_run_i32(val, i32(rs.exp_seed)))
 		case "exp_cleared":
 			rs.exp_cleared = parse_run_i32(val, rs.exp_cleared)
+		case "deck":
+			parse_run_names(&rs.deck_names, val)
+		case "graveyard":
+			parse_run_names(&rs.graveyard_names, val)
+		case "graveyard_power":
+			parse_run_floats(&rs.graveyard_power, val)
 		case:
 			if len(key) > 13 && key[:13] == "status_power_" {
 				i := parse_run_i32(key[13:], -1)
@@ -2015,6 +2070,10 @@ resume_run :: proc() -> bool {
 	active_mission = rs.active_mission
 	mission_cleared_this_run = rs.mission_cleared
 	attack_effects_from_u32(rs.attack_effects)
+	// Deck and graveyard. An empty list in the save means a run written before
+	// the deck existed, which should fall back to the opening deck rather than
+	// leaving the player with nothing to draw.
+	deck_restore(rs.deck_names, rs.graveyard_names, rs.graveyard_power)
 	for eff in Status_Effect {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
@@ -2946,7 +3005,337 @@ expedition_restore :: proc(seed: u32, cleared_count: i32) {
 	}
 }
 
+// --- deck --------------------------------------------------------------------
+//
+// Cards are items you own, not stat increments you were handed. The deck is a
+// weighted pool: each between-wave reward draws one at random and applies that
+// card's bonus, and the card STAYS in the deck. So the deck's contents decide
+// what you tend to get, and making it smaller makes each draw better.
+//
+// Discarding moves a card out of the pool and into the graveyard as a revenant
+// -- the thing you raised from it. That is the only way to thin the deck, and it
+// is why thinning costs something instead of being free.
+//
+//   starting deck  15      floor  8      max discards  7
+
+DECK_MIN_SIZE :: 8
+
+// One card you own.
+Deck_Card :: struct {
+	name: cstring, // matches a CARD_POOL entry
+}
+
+// A discarded card, waiting to come back as an enemy. `power` starts at 1.0 and
+// demotes toward DEMOTE_FLOOR each time you skip it; once demoted it can no
+// longer pay coins, which is the price of letting it go.
+Revenant :: struct {
+	name:  cstring,
+	power: f32,
+}
+
+DEMOTE_FLOOR :: 0.6
+DEMOTE_STEP :: 0.2 // 1.0 -> 0.8 -> 0.6
+
+deck: [dynamic]Deck_Card
+graveyard: [dynamic]Revenant
+
+// The opening deck: three health, three attack, three speed, two precision, and
+// one of each element. Deliberately includes every status card so the
+// power-boost cards (KINDLING, DEEP FREEZE, ...) are live options immediately.
+deck_reset :: proc() {
+	clear(&deck)
+	clear(&graveyard)
+	for _ in 0 ..< 3 {
+		append(&deck, Deck_Card{"HEALTH"})
+	}
+	for _ in 0 ..< 3 {
+		append(&deck, Deck_Card{"ATTACK"})
+	}
+	for _ in 0 ..< 3 {
+		append(&deck, Deck_Card{"SPEED"})
+	}
+	for _ in 0 ..< 2 {
+		append(&deck, Deck_Card{"PRECISION"})
+	}
+	elements := [4]cstring{"IGNITE", "CRYO", "VENOM", "STATIC"}
+	for e in elements {
+		append(&deck, Deck_Card{e})
+	}
+}
+
+// Put a saved deck and graveyard back. A save with no deck at all predates the
+// deck system, so it gets the opening one; anything else is taken at face value
+// so a run resumed mid-visit keeps whatever the player had built up.
+deck_restore :: proc(names: [dynamic]cstring, gy_names: [dynamic]cstring, gy_power: [dynamic]f32) {
+	clear(&deck)
+	clear(&graveyard)
+	for name in names {
+		append(&deck, Deck_Card{name})
+	}
+	if len(deck) == 0 {
+		deck_reset()
+		return
+	}
+	for name, i in gy_names {
+		p: f32 = 1.0
+		if i < len(gy_power) {
+			p = gy_power[i]
+		}
+		append(&graveyard, Revenant{name = name, power = p})
+	}
+}
+
+// Draw one card at random and apply its bonus. The card stays in the pool, so
+// this is a weighted roll over what you own, not a consumable hand.
+//
+// A card whose stat is already maxed is a wasted wave reward, so re-roll rather
+// than hand one back that does nothing. The retry count is bounded: a deck can
+// legitimately be entirely maxed out, and then the last draw stands.
+deck_draw :: proc() -> cstring {
+	if len(deck) == 0 {
+		return ""
+	}
+	tries := min(len(deck), 8)
+	for _ in 0 ..< tries {
+		pick := deck[rand.int_range(0, len(deck) - 1)]
+		if !upgrade_is_useful(pick.name) {
+			continue
+		}
+		apply_upgrade(pick.name)
+		return pick.name
+	}
+	// Nothing useful left in the deck. Still show what was drawn rather than
+	// silently swallowing the reward.
+	pick := deck[rand.int_range(0, len(deck) - 1)]
+	apply_upgrade(pick.name)
+	return pick.name
+}
+
+// Move a card out of the deck and into the graveyard as a revenant. Refused
+// when it would take the deck under the floor, which is what bounds how many of
+// your own decisions you can have walking around at once.
+deck_discard :: proc(idx: int) -> bool {
+	if idx < 0 || idx >= len(deck) {
+		return false
+	}
+	if len(deck) <= DECK_MIN_SIZE {
+		return false
+	}
+	append(&graveyard, Revenant{name = deck[idx].name, power = 1.0})
+	unordered_remove(&deck, idx)
+	return true
+}
+
+// Add a card to the deck. Only cards that still do something are offered, so a
+// deck cannot be stuffed with no-op filler.
+deck_add :: proc(name: cstring) -> bool {
+	if !upgrade_is_useful(name) {
+		return false
+	}
+	append(&deck, Deck_Card{name})
+	return true
+}
+
+// Weaken a queued revenant after you skip it, and strip its payout.
+revenant_skip :: proc(idx: int) -> bool {
+	if idx < 0 || idx >= len(graveyard) {
+		return false
+	}
+	r := &graveyard[idx]
+	r.power = max(r.power - DEMOTE_STEP, DEMOTE_FLOOR)
+	return true
+}
+
+// A revenant only pays while it is still at full power: skipping one strips the
+// coins permanently, which is the entire cost of dodging it.
+revenant_pays_coins :: proc(idx: int) -> bool {
+	if idx < 0 || idx >= len(graveyard) {
+		return false
+	}
+	return graveyard[idx].power >= 1.0
+}
+
+// --- the Deckmaster -----------------------------------------------------------
+//
+// The only place the deck can be reshaped. Every visit it hands out a small
+// number of adds and discards, and the discards are what feed the graveyard, so
+// thinning your pool is deliberately priced in revenants.
+//
+// A visit runs as three phases: take an add, then throw discards, then leave.
+
+DECKMASTER_ADDS :: 1 // adds offered per visit
+DECKMASTER_DISCARDS :: 2 // discards allowed per visit
+
+// How many of each phase action is still available this visit.
+deckmaster_adds_left: int
+deckmaster_discards_left: int
+
+// The cards on offer this visit, drawn from the pool with capped stats
+// filtered out so every offer still does something.
+deckmaster_offers: [dynamic]cstring
+
+Deckmaster_Phase :: enum {
+	ADD, // pick a card to put in the deck
+	DISCARD, // pick a card to feed to the graveyard
+	DONE, // nothing left to give; leaving
+}
+
+deckmaster_phase: Deckmaster_Phase
+deckmaster_selected: int
+deckmaster_scroll: int
+
+// Deal a fresh visit. Resets the per-visit budget and re-rolls the adds.
+deckmaster_open :: proc() {
+	clear(&deckmaster_offers)
+	pool: [dynamic]card_definition
+	defer delete(pool)
+	for c in CARD_POOL {
+		if !upgrade_is_useful(c.name) {
+			continue
+		}
+		append(&pool, c)
+	}
+	rand.shuffle(pool[:])
+	for i in 0 ..< min(DECKMASTER_ADDS, len(pool)) {
+		append(&deckmaster_offers, pool[i].name)
+	}
+	deckmaster_adds_left = len(deckmaster_offers)
+	deckmaster_discards_left = DECKMASTER_DISCARDS
+	deckmaster_phase = .ADD
+	deckmaster_selected = 0
+	deckmaster_scroll = 0
+}
+
+// Close the Deckmaster and roll the next wave (or return to the map).
+leave_deckmaster :: proc() {
+	clear(&deckmaster_offers)
+	state = .PLAYING
+	play(sounds.ui_select)
+	if run_rules.mode == .EXPEDITION {
+		state = .EXPEDITION_MAP
+		expedition_commit()
+		save_run()
+		return
+	}
+	if tutorial_mode {
+		tutorial_note(.SHOP_DONE)
+	} else {
+		if !debug_mode {
+			new_wave(&enemies, wave)
+		}
+		wave += 1
+		// Discards made here are the whole point of the visit, so checkpoint
+		// before the next wave rather than waiting for it to be cleared.
+		save_run()
+	}
+}
+
+// Move from ADD to DISCARD, or from DISCARD to DONE, once a phase runs out of
+// actions or the player skips it.
+deckmaster_advance :: proc() {
+	switch deckmaster_phase {
+	case .ADD:
+		deckmaster_phase = .DISCARD
+		deckmaster_selected = 0
+		deckmaster_scroll = 0
+	case .DISCARD:
+		deckmaster_phase = .DONE
+		deckmaster_selected = 0
+	case .DONE:
+	}
+}
+
+update_deckmaster :: proc() {
+	// How many selectable rows this phase has right now.
+	rows: int
+	switch deckmaster_phase {
+	case .ADD:
+		rows = len(deckmaster_offers)
+	case .DISCARD:
+		// Every card in the deck is discardable in principle, but the floor
+		// means the last few cannot be, so hide them rather than let the
+		// player select a move that will be refused.
+		rows = max(len(deck) - DECK_MIN_SIZE, 0)
+	case .DONE:
+		rows = 0
+	}
+	if rows <= 0 {
+		if deckmaster_phase != .DONE {
+			deckmaster_advance()
+		}
+		return
+	}
+	if deckmaster_selected < 0 || deckmaster_selected >= rows {
+		deckmaster_selected = rows - 1
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+		deckmaster_selected = (deckmaster_selected + 1) % rows
+		play(sounds.ui_move)
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+		deckmaster_selected = (deckmaster_selected - 1 + rows) % rows
+		play(sounds.ui_move)
+	}
+	// ESC skips the current phase; from the last phase it leaves.
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+		if deckmaster_phase == .DONE {
+			leave_deckmaster()
+		} else {
+			deckmaster_advance()
+		}
+		play(sounds.ui_move)
+		return
+	}
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+	   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+		switch deckmaster_phase {
+		case .ADD:
+			if deckmaster_adds_left > 0 && deckmaster_selected < len(deckmaster_offers) {
+				name := deckmaster_offers[deckmaster_selected]
+				if deck_add(name) {
+					deckmaster_adds_left -= 1
+					play(sounds.card)
+				} else {
+					play(sounds.ui_move)
+				}
+			}
+			deckmaster_advance()
+		case .DISCARD:
+			if deckmaster_discards_left > 0 && deck_discard(deckmaster_selected) {
+				deckmaster_discards_left -= 1
+				play(sounds.card)
+			} else {
+				play(sounds.ui_move)
+			}
+			// Discarding shrinks the list under the cursor, so keep it in range.
+			discardable := max(len(deck) - DECK_MIN_SIZE, 0)
+			if deckmaster_selected >= discardable {
+				deckmaster_selected = max(discardable - 1, 0)
+			}
+			if deckmaster_discards_left <= 0 {
+				deckmaster_advance()
+			}
+		case .DONE:
+			leave_deckmaster()
+		}
+	}
+}
+
 // --- boss rush ---------------------------------------------------------------
+
+// --- visits ------------------------------------------------------------------
+//
+// Every VISIT_EVERY cleared waves the run stops for a visit instead of dealing a
+// card. The shop and the Deckmaster take turns, so you get each of them roughly
+// once every ten waves.
+VISIT_EVERY :: 5
+
+// 1st, 3rd, 5th ... visit is the Deckmaster; 2nd, 4th ... is the shop.
+visit_is_deckmaster :: proc(cleared: i32) -> bool {
+	return (cleared / VISIT_EVERY) % 2 == 1
+}
 // BOSS RUSH chains the whole bestiary together. It borrows the arena map the
 // player picked (so it feels like somewhere), but walks every boss in turn
 // regardless of which arena it "belongs" to, and never awards a map clear.
@@ -4924,8 +5313,37 @@ spawn_cards :: proc(cards: ^[dynamic]card, count := 3) {
 
 	for i in 0 ..< n {
 		pos := raylib.Vector2{start_x + spacing * f32(i), y}
-		append(cards, card{pos, {CARD_W, CARD_H}, pool[i].name, pool[i].description, false})
+		append(cards, card{pos, {CARD_W, CARD_H}, pool[i].name, pool[i].description, false, false})
 	}
+}
+
+// The card's flavour line from the pool, for displaying a blind draw.
+card_description :: proc(name: cstring) -> cstring {
+	for c in CARD_POOL {
+		if c.name == name {
+			return c.description
+		}
+	}
+	return ""
+}
+
+// Show a single, already-applied card: the blind draw you were dealt for
+// clearing a wave. There is nothing to choose here, only something to read.
+show_card_pickup :: proc(name: cstring) {
+	CARD_W: f32 = 160
+	CARD_H: f32 = 200
+	center_x := f32(800) / 2
+	y := f32(600) / 2 - CARD_H / 2
+	append(
+		&cards,
+		card{
+			position    = {center_x - CARD_W / 2, y},
+			size        = {CARD_W, CARD_H},
+			name        = name,
+			description = card_description(name),
+			applied     = true,
+		},
+	)
 }
 
 // ---------------------------------------------------------------------------
