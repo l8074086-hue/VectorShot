@@ -2415,6 +2415,10 @@ main :: proc() {
 			// Spawn any halves queued by splitters that died this frame. Deferred
 			// so the enemy array isn't mutated while the combat loops run.
 			process_splits()
+			// Same deferral for minions a boss queued during its own update: the
+			// enemy array must not grow while the loop above is still holding
+			// pointers into it.
+			process_summons()
 
 			if inv_timer > 0 {
 				inv_timer -= dT

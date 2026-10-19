@@ -546,6 +546,14 @@ enemies: [dynamic]enemy
 // Positions where a SPLITTER died this frame; its halves are spawned in a
 // deferred pass (process_splits) so the enemy array isn't mutated while iterating.
 pending_splits: [dynamic]raylib.Vector2
+// Minions a boss asked for this frame. Deferred alongside the splitter halves:
+// spawning them inside the enemy update loop reallocates `enemies` underneath
+// the `^enemy` that loop is holding (see boss_summon).
+summon_request :: struct {
+	kind:  Enemy_Kind,
+	count: i32,
+}
+pending_summons: [dynamic]summon_request
 bullets: [dynamic]bullet
 enemy_bullets: [dynamic]bullet
 cards: [dynamic]card
@@ -2097,6 +2105,7 @@ process_splits :: proc() {
 		}
 	}
 	clear(&pending_splits)
+	clear(&pending_summons)
 }
 
 // Is this wave the arena's boss finale? One boss per run, on the arena's last

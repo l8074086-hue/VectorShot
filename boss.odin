@@ -97,10 +97,37 @@ boss_fan :: proc(
 }
 
 // Call in some help at the arena's own wave so adds are scaled like the fight.
+// Queue a summon instead of spawning it inline.
+//
+// Boss AI runs inside the enemy update loop, which is holding `e := &enemies[i]`
+// across the call. Spawning here would append to `enemies` under that pointer --
+// and an append that grows capacity REALLOCATES the backing array, leaving `e`
+// dangling. Every later `e.position` / `e.size` in that loop body is then a
+// use-after-free, which is exactly the random SIGSEGV this used to throw.
+//
+// Deferred for the same reason splitter halves are (see pending_splits): the
+// array must not be mutated while the combat loops are walking it.
 boss_summon :: proc(kind: Enemy_Kind, count: i32) {
-	for _ in 0 ..< count {
-		spawn_enemy_at(kind, false, ARENAS[arena].waves, random_spawn_pos(ENEMIES[kind].size))
+	append(&pending_summons, summon_request{kind = kind, count = count})
+}
+
+// Spawn everything the bosses queued this frame. Called once, after the enemy
+// update loop has finished.
+process_summons :: proc() {
+	if len(pending_summons) == 0 {
+		return
 	}
+	for req in pending_summons {
+		for _ in 0 ..< req.count {
+			spawn_enemy_at(
+				req.kind,
+				false,
+				ARENAS[arena].waves,
+				random_spawn_pos(ENEMIES[req.kind].size),
+			)
+		}
+	}
+	clear(&pending_summons)
 }
 
 // A player-hazard detonation: draws a blast and hurts the player if they're
