@@ -2447,9 +2447,9 @@ spawn_enemy_at :: proc(
 	}
 	append(&enemies, en)
 	next_enemy_id += 1
-	// Meeting an enemy is what puts it in the bestiary. The boss kinds have
-	// their own entries and unlock through spawn_arena_boss_as instead.
-	if id := bestiary_id_for_enemy(kind); id != "" {
+	// Meeting an enemy is what puts it in the bestiary. Elites unlock their
+	// crystalized entry; bosses unlock through spawn_arena_boss_as instead.
+	if id := bestiary_id_for_enemy(kind, elite); id != "" {
 		bestiary_unlock(id)
 	}
 	// Where it landed, so the caller can decorate it. Returning the index
@@ -3757,6 +3757,11 @@ spawn_revenant :: proc(
 	e.revenant_effects = plan.effects
 	e.revenant_precision = name == "PRECISION"
 	e.color = REVENANT_COLOR
+
+	// Meeting a revenant puts its card in the bestiary.
+	if id := bestiary_id_for_revenant(name); id != "" {
+		bestiary_unlock(id)
+	}
 }
 
 // --- bestiary ----------------------------------------------------------------
@@ -3815,28 +3820,75 @@ bestiary_unlock :: proc(id: cstring) {
 }
 
 // The bestiary id for a regular enemy kind.
-bestiary_id_for_enemy :: proc(kind: Enemy_Kind) -> cstring {
+bestiary_id_for_enemy :: proc(kind: Enemy_Kind, elite: bool = false) -> cstring {
 	switch kind {
 	case .GRUNT:
+		if elite {
+			return "ELITE.GRUNT"
+		}
 		return "ENEMY.GRUNT"
 	case .RUNNER:
+		if elite {
+			return "ELITE.RUNNER"
+		}
 		return "ENEMY.RUNNER"
 	case .RANGED:
+		if elite {
+			return "ELITE.SHOOTER"
+		}
 		return "ENEMY.SHOOTER"
 	case .TANK:
+		if elite {
+			return "ELITE.TANK"
+		}
 		return "ENEMY.TANK"
 	case .CHARGER:
+		if elite {
+			return "ELITE.CHARGER"
+		}
 		return "ENEMY.CHARGER"
 	case .SPLITTER:
+		if elite {
+			return "ELITE.SPLITTER"
+		}
 		return "ENEMY.SPLITTER"
 	case .ORBITER:
+		if elite {
+			return "ELITE.ORBITER"
+		}
 		return "ENEMY.ORBITER"
 	case .SNIPER:
+		if elite {
+			return "ELITE.SNIPER"
+		}
 		return "ENEMY.SNIPER"
 	case .BOSS, .DUMMY_DPS, .DUMMY_RANGED, .DUMMY_WEAK, .DUMMY_PATROL:
 		// The arena bosses have their own entries, and the practice dummies
 		// are not worth a page.
 		return ""
+	}
+	return ""
+}
+
+// The bestiary id for a revenant raised from a discarded card.
+bestiary_id_for_revenant :: proc(name: cstring) -> cstring {
+	switch name {
+	case "HEALTH":
+		return "REVENANT.HEALTH"
+	case "ATTACK":
+		return "REVENANT.ATTACK"
+	case "SPEED":
+		return "REVENANT.SPEED"
+	case "PRECISION":
+		return "REVENANT.PRECISION"
+	case "IGNITE":
+		return "REVENANT.IGNITE"
+	case "CRYO":
+		return "REVENANT.CRYO"
+	case "VENOM":
+		return "REVENANT.VENOM"
+	case "STATIC":
+		return "REVENANT.STATIC"
 	}
 	return ""
 }

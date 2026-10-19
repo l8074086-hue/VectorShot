@@ -1472,4 +1472,102 @@ BESTIARY := [?]Bestiary_Entry {
 		.CHARACTER,
 		"Fell from Earth. Disciplined, ordered, military -- VectorPlane made him a square. He draws the same as RR, but a native's square is the ground and a human's is a posture.",
 	},
+	// --- elites: crystalized variants carrying a sliver of the dead Crimson Star ---
+	{
+		"ELITE.GRUNT",
+		"ELITE GRUNT",
+		.ENEMY,
+		"Crystalized grunt. The shard on its back is a sliver of the dead Crimson Star. It feeds on allies to heal.",
+	},
+	{
+		"ELITE.RUNNER",
+		"ELITE RUNNER",
+		.ENEMY,
+		"Crystalized runner. Bursts in erratic zig-zag dashes, harder to line up.",
+	},
+	{
+		"ELITE.SHOOTER",
+		"ELITE SHOOTER",
+		.ENEMY,
+		"Crystalized shooter. Fires a fan of three shards that fly out, then boomerang back.",
+	},
+	{
+		"ELITE.TANK",
+		"ELITE TANK",
+		.ENEMY,
+		"Crystalized tank. Bulwark plates guard its sides; hits arriving from the wrong direction shatter them.",
+	},
+	{
+		"ELITE.CHARGER",
+		"ELITE CHARGER",
+		.ENEMY,
+		"Crystalized charger. Goes translucent while passing through terrain.",
+	},
+	{
+		"ELITE.SPLITTER",
+		"ELITE SPLITTER",
+		.ENEMY,
+		"Crystalized splitter. Dies into two smaller copies of itself.",
+	},
+	{
+		"ELITE.ORBITER",
+		"ELITE ORBITER",
+		.ENEMY,
+		"Crystalized orbiter. Circles at a fixed radius, darting in occasionally.",
+	},
+	{
+		"ELITE.SNIPER",
+		"ELITE SNIPER",
+		.ENEMY,
+		"Crystalized sniper. Telegraphs its shot with an aim line before firing.",
+	},
+	// --- revenants: discarded cards raised from the graveyard ---
+	{
+		"REVENANT.HEALTH",
+		"REVENANT HEALTH",
+		.ENEMY,
+		"A HEALTH card the player threw away, raised from the graveyard. Comes back as a tank with extra health.",
+	},
+	{
+		"REVENANT.ATTACK",
+		"REVENANT ATTACK",
+		.ENEMY,
+		"An ATTACK card the player threw away, raised from the graveyard. Comes back as a grunt with double damage.",
+	},
+	{
+		"REVENANT.SPEED",
+		"REVENANT SPEED",
+		.ENEMY,
+		"A SPEED card the player threw away, raised from the graveyard. Comes back as a runner, faster than normal.",
+	},
+	{
+		"REVENANT.PRECISION",
+		"REVENANT PRECISION",
+		.ENEMY,
+		"A PRECISION card the player threw away, raised from the graveyard. Comes back as a shooter firing three straight shots.",
+	},
+	{
+		"REVENANT.IGNITE",
+		"REVENANT IGNITE",
+		.ENEMY,
+		"An IGNITE card the player threw away, raised from the graveyard. Comes back as a shooter that burns on hit.",
+	},
+	{
+		"REVENANT.CRYO",
+		"REVENANT CRYO",
+		.ENEMY,
+		"A CRYO card the player threw away, raised from the graveyard. Comes back as a shooter that freezes on hit.",
+	},
+	{
+		"REVENANT.VENOM",
+		"REVENANT VENOM",
+		.ENEMY,
+		"A VENOM card the player threw away, raised from the graveyard. Comes back as a shooter that poisons on hit.",
+	},
+	{
+		"REVENANT.STATIC",
+		"REVENANT STATIC",
+		.ENEMY,
+		"A STATIC card the player threw away, raised from the graveyard. Comes back as a charger that shocks on contact.",
+	},
 }
