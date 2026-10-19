@@ -582,7 +582,7 @@ RUN_MODE_INFO := [Run_Mode]Run_Mode_Info {
 	.STANDARD = {"STANDARD", "WAVES, THEN THE ARENA BOSS, THEN ENDLESS", true},
 	.ENDLESS = {"ENDLESS", "WAVES FOREVER. NO BOSS, NO MAP CLEAR", true},
 	.BOSS_RUSH = {"BOSS RUSH", "BACK-TO-BACK BOSSES. NO TRASH WAVES", true},
-	.EXPEDITION = {"EXPEDITION", "BRANCHING MAP OF NODES", false},
+	.EXPEDITION = {"EXPEDITION", "BRANCHING MAP OF NODES", true},
 }
 
 // The rules the current run is playing under. Reset to STANDARD with no
@@ -807,6 +807,9 @@ start_run :: proc(stats: Run_Stats) {
 	// Rush progress is per-run state, not a preference.
 	boss_rush_index = 0
 	boss_rush_won = false
+	// EXPEDITION rolls a fresh map for every run, from the clock so two runs
+	// started in the same second are still different fights of the same shape.
+	expedition_generate(u32(raylib.GetTime() * 1000) | 1)
 	clear(&pending_summons)
 	banner_timer = 0
 	if m := current_mission(); m != nil {
@@ -818,7 +821,13 @@ start_run :: proc(stats: Run_Stats) {
 	// rather than being overwritten by them.
 	apply_equipped_relics()
 	update_rr_adaptation()
-	state = .PLAYING
+	// EXPEDITION opens on the map, not in a fight: the player chooses the first
+	// node rather than being dropped into a wave.
+	if run_rules.mode == .EXPEDITION {
+		state = .EXPEDITION_MAP
+	} else {
+		state = .PLAYING
+	}
 }
 
 // Zero the per-run tallies shown on the results screen.
@@ -1760,6 +1769,10 @@ capture_run_save :: proc() -> Run_Save {
 		mode              = run_rules.mode,
 		modifiers         = run_rules.modifiers,
 		boss_rush_index   = boss_rush_index,
+		// The map is regenerated from the seed on resume, so only the seed and
+		// how far along it the player is need storing.
+		exp_seed          = expedition_seed,
+		exp_cleared       = expedition_cleared_count(),
 	}
 	for eff in Status_Effect {
 		rs.status_power[int(eff)] = status_power[eff]
@@ -1806,6 +1819,8 @@ save_run :: proc() {
 	fmt.sbprintf(&sb, "mode=%i\n", i32(rs.mode))
 	fmt.sbprintf(&sb, "modifiers=%i\n", i32(rs.modifiers))
 	fmt.sbprintf(&sb, "boss_rush_index=%i\n", rs.boss_rush_index)
+	fmt.sbprintf(&sb, "exp_seed=%i\n", i32(rs.exp_seed))
+	fmt.sbprintf(&sb, "exp_cleared=%i\n", rs.exp_cleared)
 	for i in 0 ..< 4 {
 		fmt.sbprintf(&sb, "status_power_%i=%.3f\n", i, rs.status_power[i])
 	}
@@ -1919,6 +1934,10 @@ load_run :: proc() -> (rs: Run_Save, ok: bool) {
 			rs.modifiers = u32(parse_run_i32(val, i32(rs.modifiers)))
 		case "boss_rush_index":
 			rs.boss_rush_index = parse_run_i32(val, rs.boss_rush_index)
+		case "exp_seed":
+			rs.exp_seed = u32(parse_run_i32(val, i32(rs.exp_seed)))
+		case "exp_cleared":
+			rs.exp_cleared = parse_run_i32(val, rs.exp_cleared)
 		case:
 			if len(key) > 13 && key[:13] == "status_power_" {
 				i := parse_run_i32(key[13:], -1)
@@ -2013,6 +2032,11 @@ resume_run :: proc() -> bool {
 	if boss_rush_index < 0 {
 		boss_rush_index = 0
 	}
+	// Rebuild the exact map the player was standing on, then re-walk the route
+	// they had already taken.
+	if run_rules.mode == .EXPEDITION {
+		expedition_restore(rs.exp_seed, rs.exp_cleared)
+	}
 	// An older save (from before per-arena bosses) may sit past this arena's boss
 	// wave; treat that as already-endedless so we don't re-run a boss it skipped.
 	if !endless_mode && wave > ARENAS[arena].waves {
@@ -2021,6 +2045,12 @@ resume_run :: proc() -> bool {
 	// start_run already forced the arena from the mission; re-assert the saved one
 	// in case the loadout screen's pick should win for an endless run.
 	build_arena(arena)
+	// start_run chose its entry state from whatever mode the menu happened to
+	// hold, and run_rules.mode is only restored above. So a resumed expedition
+	// would otherwise drop into a phantom wave instead of its map.
+	if run_rules.mode == .EXPEDITION {
+		state = .EXPEDITION_MAP
+	}
 	return true
 }
 
@@ -2203,11 +2233,16 @@ spawn_enemy_near_player :: proc(kind: Enemy_Kind, elite: bool, wave: i32) {
 	spawn_enemy_at(kind, elite, wave, p)
 }
 
+// Normal wave spawn. An EXPEDITION elite node forces every spawn elite by
+// pushing the chance to 1 rather than adding a second spawner.
 spawn_enemies :: proc(enemies: ^[dynamic]enemy, num: i32, wave: i32) {
 	elite_chance := min(
 		ELITE_BASE_CHANCE + ELITE_CHANCE_PER_WAVE * f32(wave - 1),
 		f32(ELITE_CHANCE_CAP),
 	)
+	if expedition_force_elite {
+		elite_chance = 1
+	}
 	for _ in 0 ..< num {
 		kind := pick_enemy_kind(wave)
 		elite := wave >= 2 && rand.float32() < elite_chance
@@ -2527,6 +2562,9 @@ expedition_done: bool = false
 // Set when the player has entered a node but not yet cleared it, so a resume
 // knows to put them back in the fight rather than the map.
 expedition_in_node: Node_Kind = .BATTLE
+// True while fighting the expedition's boss node, and while forcing elite spawns.
+expedition_node_boss: bool = false
+expedition_force_elite: bool = false
 
 // Deterministic LCG, private to the map builder.
 exp_rng_state: u32 = 1
@@ -2764,6 +2802,17 @@ expedition_commit :: proc() -> bool {
 	return true
 }
 
+// How many nodes the player has finished, for the run save.
+expedition_cleared_count :: proc() -> i32 {
+	n: i32 = 0
+	for nd in expedition_map {
+		if nd.cleared {
+			n += 1
+		}
+	}
+	return n
+}
+
 // Which layer the current choice sits on, for the map heading.
 expedition_layer_now :: proc() -> i32 {
 	n := expedition_chosen()
@@ -2771,6 +2820,99 @@ expedition_layer_now :: proc() -> i32 {
 		return n.layer
 	}
 	return 0
+}
+
+// Where a node sits on screen. The map runs bottom-up -- layer 0 at the bottom,
+// the boss at the top -- so a run reads the way it is travelled.
+expedition_node_pos :: proc(
+	nd: Expedition_Node,
+	top, row_h, slot_w, centre_x: f32,
+) -> raylib.Vector2 {
+	y := top + f32(EXPEDITION_BOSS_LAYER - nd.layer) * row_h
+	w := f32(expedition_layer_width(nd.layer))
+	x := centre_x + (f32(nd.col) - (w - 1) * 0.5) * slot_w
+	return raylib.Vector2{x, y}
+}
+
+// Is this node one the player can travel to right now?
+expedition_is_available :: proc(idx: int) -> bool {
+	for i: i32 = 0; i < expedition_cur_n; i += 1 {
+		if expedition_cur[i] == i32(idx) {
+			return true
+		}
+	}
+	return false
+}
+
+// --- expedition node handling ------------------------------------------------
+
+// Run the encounter for the node the player just picked, then hand control back
+// to the map screen. Battle-ish nodes spawn a wave here and return to the map
+// once it is cleared; the utility nodes resolve immediately.
+expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
+	n := expedition_chosen()
+	if n == nil {
+		return .EXPEDITION_MAP
+	}
+	kind := n.kind
+	expedition_in_node = kind
+
+	// Difficulty scales with depth, so layer 13 is not the same fight as layer 0.
+	layer := n.layer
+	// Each node is one "wave" for the purposes of the arena counters.
+	wave := layer + 1
+
+	switch kind {
+	case .BOSS:
+		// The expedition's boss uses the arena the run was pointed at.
+		fight := ARENA_BOSSES[arena]
+		show_banner(fight.name, fight.color, 3.0)
+		spawn_boss_wave(enemies, wave)
+		expedition_node_boss = true
+		return .PLAYING
+	case .ELITE:
+		// A normal wave, but every spawn is forced elite.
+		expedition_force_elite = true
+		spawn_enemies(enemies, elite_wave_size(wave), wave)
+		return .PLAYING
+	case .BATTLE:
+		spawn_enemies(enemies, node_wave_size(wave), wave)
+		return .PLAYING
+	case .SHOP:
+		shop_selected = 0
+		build_shop()
+		return .SHOP
+	case .RELIC:
+		draw_relic_choices()
+		relic_pick_open = true
+		return .EXPEDITION_MAP
+	case .REST:
+		// Camp: heal a real chunk, or take it as max health if already topped up.
+		if health < max_health {
+			health = min(max_health, health + max_health * 0.35)
+			show_banner(cstring("RESTED"), raylib.LIME, 2.0)
+		} else {
+			max_health += 10
+			health = min(max_health, health + 10)
+			show_banner(cstring("HARDENED"), raylib.LIME, 2.0)
+		}
+		play(sounds.health)
+		expedition_commit()
+		return .EXPEDITION_MAP
+	}
+	return .EXPEDITION_MAP
+}
+
+// Wave size for a node. Kept modest on purpose: an expedition is fourteen short
+// fights, not fourteen endless waves.
+node_wave_size :: proc(layer_wave: i32) -> i32 {
+	base := 3 + layer_wave / 2
+	return max(i32(f32(base) * wave_size_mult()), 1)
+}
+
+elite_wave_size :: proc(layer_wave: i32) -> i32 {
+	base := 2 + layer_wave / 3
+	return max(i32(f32(base) * wave_size_mult()), 1)
 }
 
 // Rebuild a map and replay a route taken so far. `cleared_count` says how many

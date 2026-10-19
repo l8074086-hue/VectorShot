@@ -309,6 +309,14 @@ draw_sidebar_hud :: proc(ox, oy, avail: f32) {
 leave_shop :: proc() {
 	state = .PLAYING
 	play(sounds.ui_select)
+	// An EXPEDITION shop node returns to the map, not into another wave: the
+	// player picks where to go next.
+	if run_rules.mode == .EXPEDITION {
+		state = .EXPEDITION_MAP
+		expedition_commit()
+		save_run()
+		return
+	}
 	if tutorial_mode {
 		// The tutorial opened this shop to teach it; leaving is the lesson, so don't
 		// spawn a real wave.
@@ -1933,6 +1941,192 @@ main :: proc() {
 					play(sounds.ui_select)
 				}
 			}
+		case .EXPEDITION_MAP:
+			// The expedition map. Drawn bottom-up: layer 0 at the bottom, the
+			// boss at the top, so the run reads the way it is travelled.
+			if len(expedition_map) == 0 {
+				state = .PLAYING
+			}
+			cur_layer := expedition_layer_now()
+			// A relic pick is modal: swallow map input until it is answered, or
+			// ENTER would travel AND accept the relic in the same press.
+			if !relic_pick_open {
+			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+				if expedition_pick > 0 {
+					expedition_pick -= 1
+					play(sounds.ui_move)
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+				if expedition_pick + 1 < expedition_cur_n {
+					expedition_pick += 1
+					play(sounds.ui_move)
+				}
+			}
+			for key, idx in NUMBER_KEYS {
+				if i32(idx) < expedition_cur_n && raylib.IsKeyPressed(key) {
+					expedition_take(i32(idx))
+					play(sounds.ui_move)
+				}
+			}
+			}
+
+			raylib.BeginTextureMode(target)
+			raylib.ClearBackground(raylib.Color{10, 10, 14, 255})
+			draw_centered(cstring("EXPEDITION"), 26, 32, raylib.GOLD)
+			draw_centered(
+				raylib.TextFormat(
+					"LAYER %i / %i      %i COINS      %i / %i HP",
+					cur_layer + 1,
+					EXPEDITION_LAYERS,
+					currency,
+					i32(health),
+					i32(max_health),
+				),
+				56,
+				15,
+				raylib.GRAY,
+			)
+
+			// Geometry: the map is drawn from the top down, so layer N sits at
+			// y = top + (BOSS_LAYER - N) * row.
+			row_h: f32 = 30
+			top: f32 = 88
+			slot_w: f32 = 66
+			cx: f32 = 400
+
+			// Edges first, so nodes draw on top of them.
+			for ni in 0 ..< len(expedition_map) {
+				nd := &expedition_map[ni]
+				from := expedition_node_pos(nd^, top, row_h, slot_w, cx)
+				for k: i32 = 0; k < nd.next_n; k += 1 {
+					to_i := nd.next[k]
+					if to_i < 0 || to_i >= i32(len(expedition_map)) {
+						continue
+					}
+					to := expedition_node_pos(
+						expedition_map[to_i],
+						top,
+						row_h,
+						slot_w,
+						cx,
+					)
+					// Highlight the edges leaving the node under the cursor.
+					lit := expedition_cur_n > 0 &&
+						expedition_cur[expedition_pick] == i32(ni)
+					col := raylib.Color{60, 60, 74, 255}
+					w: f32 = 2
+					if lit {
+						col = raylib.GOLD
+						w = 3
+					} else if nd.cleared {
+						col = raylib.Color{90, 90, 110, 255}
+					}
+					raylib.DrawLineEx(from, to, w, col)
+				}
+			}
+			// Then the nodes themselves. Indexed, not ranged by value: the
+			// selection has to be compared by index, since a loop copy is a
+			// different address from the one in expedition_map.
+			for ni in 0 ..< len(expedition_map) {
+				nd := &expedition_map[ni]
+				p := expedition_node_pos(nd^, top, row_h, slot_w, cx)
+				col := node_kind_color(nd.kind)
+				available := expedition_is_available(ni)
+				chosen := expedition_cur_n > 0 &&
+					expedition_cur[expedition_pick] == i32(ni)
+				rad: f32 = 10
+				if nd.kind == .BOSS {
+					rad = 16
+				}
+				body := col
+				if nd.cleared {
+					// Cleared nodes stay on the map as a record of the route.
+					body = raylib.Color{col.r / 3, col.g / 3, col.b / 3, 255}
+				}
+				raylib.DrawCircleV(p, rad, body)
+				if nd.cleared {
+					// A tick through the middle.
+					raylib.DrawLineEx(
+						p + {-rad * 0.45, 0},
+						p + {-rad * 0.1, rad * 0.4},
+						2,
+						raylib.Color{col.r, col.g, col.b, 200},
+					)
+					raylib.DrawLineEx(
+						p + {-rad * 0.1, rad * 0.4},
+						p + {rad * 0.5, -rad * 0.45},
+						2,
+						raylib.Color{col.r, col.g, col.b, 200},
+					)
+				}
+				if available && !chosen {
+					raylib.DrawCircleLines(i32(p.x), i32(p.y), rad + 3, raylib.GRAY)
+				}
+				if chosen {
+					// The selection ring: the only thing you can act on.
+					raylib.DrawCircleLines(i32(p.x), i32(p.y), rad + 7, raylib.YELLOW)
+					raylib.DrawText(
+						node_kind_name(nd.kind),
+						i32(p.x) - 26,
+						i32(p.y + rad + 10),
+						14,
+						raylib.YELLOW,
+					)
+				}
+			}
+
+			// Legend, bottom left.
+			ly: i32 = 546
+			lx: i32 = 20
+			for k in Node_Kind {
+				raylib.DrawCircleV(
+					raylib.Vector2{f32(lx + 6), f32(ly + 6)},
+					5,
+					node_kind_color(k),
+				)
+				raylib.DrawText(
+					node_kind_name(k),
+					lx + 16,
+					ly,
+					12,
+					raylib.DARKGRAY,
+				)
+				lx += 88
+			}
+			draw_centered(
+				cstring("LEFT / RIGHT to choose   -   ENTER to travel   -   ESC to quit run"),
+				578,
+				14,
+				raylib.DARKGRAY,
+			)
+			raylib.EndTextureMode()
+
+			if !relic_pick_open &&
+			   (raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			   	raylib.IsKeyPressed(raylib.KeyboardKey.SPACE)) {
+				if expedition_chosen() != nil {
+					play(sounds.ui_select)
+					// Utility nodes resolve here and land back on the map.
+					next := expedition_enter(&enemies)
+					if next == .EXPEDITION_MAP && expedition_chosen() != nil {
+						expedition_commit()
+					}
+					state = next
+					if next == .EXPEDITION_MAP {
+						save_run()
+					}
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) && !relic_pick_open {
+				play(sounds.ui_select)
+				// Abandon the run properly: game_over() finalises the results
+				// snapshot the results screen reads.
+				clear_run_save()
+				game_over()
+			}
 		case .PLAYING:
 			// In-game settings panel is up: handle its input and freeze the world by
 			// skipping this frame's update+draw. The canvas texture keeps the last
@@ -2431,7 +2625,12 @@ main :: proc() {
 							// remembers the element for the status follow-up.
 							tutorial_note_card(picked)
 						} else {
-							if !debug_mode {
+							// An expedition card is the reward for clearing a
+							// node; picking it returns you to the map rather than
+							// rolling the next wave.
+							if run_rules.mode == .EXPEDITION {
+								state = .EXPEDITION_MAP
+							} else if !debug_mode {
 								new_wave(&enemies, wave)
 							}
 							wave += 1
@@ -2746,6 +2945,23 @@ main :: proc() {
 			if !tutorial_mode && !console_open && len(enemies) == 0 && len(cards) == 0 {
 				// Between waves: checkpoint the run so it can be continued later.
 				save_run()
+				// EXPEDITION: a cleared node always goes back to the map, and
+				// always pays out a card. There is no "next wave" -- the player
+				// chooses where to go, which is the entire point of the mode.
+				if run_rules.mode == .EXPEDITION {
+					was_boss := expedition_node_boss
+					expedition_node_boss = false
+					expedition_force_elite = false
+					if !expedition_commit() || was_boss {
+						// Ran out of map, or beat the expedition boss.
+						show_banner(cstring("EXPEDITION COMPLETE"), raylib.GOLD, 4.0)
+						arena_cleared()
+						state = .EXPEDITION_MAP
+					} else if !run_mod(.NO_CARDS) {
+						spawn_cards(&cards, card_choices)
+					}
+					break
+				}
 				// Every 5th cleared wave opens the shop instead of a card pick.
 				// (`wave` is the *next* wave, so wave-1 is the one just cleared.)
 				if run_mod(.NO_SHOP) {

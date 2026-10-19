@@ -13,6 +13,7 @@ GameState :: enum {
 	SKILL_SELECT,
 	PLAYING,
 	SHOP,
+	EXPEDITION_MAP,
 	GAME_OVER,
 }
 
@@ -739,6 +740,11 @@ Run_Save :: struct {
 	// How many bosses a BOSS RUSH run has beaten. Meaningless in other modes,
 	// but without it a resumed rush would start again from the first boss.
 	boss_rush_index:   i32,
+	// EXPEDITION only. The seed rebuilds the identical map; `cleared` is how
+	// many nodes are behind the player, which is enough to replay the route
+	// because a run only ever advances one layer at a time.
+	exp_seed:          u32,
+	exp_cleared:       i32,
 }
 
 // Snapshot of a finished run, shown on the results screen. Captured at death so
