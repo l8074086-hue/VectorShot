@@ -1317,7 +1317,7 @@ BESTIARY := [?]Bestiary_Entry {
 		"ENEMY.GRUNT",
 		"GRUNT",
 		.ENEMY,
-		"The basic shape of VectorPlane, twisted by the corruption into something hostile. It still moves in straight lines and stops where it stops.",
+		"The basic shape of VectorPlane, twisted by the corruption into something hostile. It comes at you in a straight line and never changes course.",
 	},
 	{
 		"ENEMY.RUNNER",
@@ -1359,7 +1359,7 @@ BESTIARY := [?]Bestiary_Entry {
 		"ENEMY.SNIPER",
 		"SNIPER",
 		.ENEMY,
-		"It draws a line at you and holds it there. The corruption made the line stay.",
+		"It draws a line at you and holds it there. The corruption taught it to draw a line and not break it.",
 	},
 	// --- bosses ---
 	{
@@ -1402,7 +1402,7 @@ BESTIARY := [?]Bestiary_Entry {
 		"BOSS.BOGWRAITH",
 		"BOGWRAITH",
 		.BOSS,
-		"It keeps the water still around it, which water does not do. The shape is the only part of it paying attention.",
+		"It keeps the water still around it, which water does not do. Only its shape is still; everything else is water.",
 	},
 	// --- arenas ---
 	{
