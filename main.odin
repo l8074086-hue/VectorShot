@@ -3033,7 +3033,16 @@ main :: proc() {
 				}
 			}
 
-			if !tutorial_mode && !console_open && len(enemies) == 0 && len(cards) == 0 {
+			// The reward runs exactly once per fight. `len(cards) == 0` alone
+			// is NOT enough to gate it: the card click handler empties the hand
+			// earlier in this same frame, so the block would see an empty hand
+			// and fire a second time. See between_wave_reward_done.
+			if !tutorial_mode &&
+			   !console_open &&
+			   !between_wave_reward_done &&
+			   len(enemies) == 0 &&
+			   len(cards) == 0 {
+				between_wave_reward_done = true
 				// Between waves: checkpoint the run so it can be continued later.
 				save_run()
 				// EXPEDITION: a cleared node always goes back to the map, and
@@ -3083,6 +3092,12 @@ main :: proc() {
 					if drawn != "" {
 						show_card_pickup(drawn)
 					}
+				} else if run_mod(.NO_CARDS) && !debug_mode {
+					// NO CARDS pays nothing, but the run still has to move on.
+					// Without this there is no reward to click, so no wave ever
+					// spawns and the run sits on an empty arena forever.
+					new_wave(&enemies, wave)
+					wave += 1
 				}
 			}
 			// Mission Control: a selected "level" checks its objective every frame

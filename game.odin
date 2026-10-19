@@ -2389,6 +2389,8 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
+	// A new fight: the reward is owed again.
+	between_wave_reward_done = false
 	// BOSS RUSH: every "wave" is a boss. No trash, no arena script -- the
 	// chain advances itself inside arena_cleared when one of them dies.
 	if run_rules.mode == .BOSS_RUSH {
@@ -2991,16 +2993,19 @@ expedition_enter :: proc(enemies: ^[dynamic]enemy) -> GameState {
 		// The expedition's boss uses the arena the run was pointed at.
 		fight := ARENA_BOSSES[arena]
 		show_banner(fight.name, fight.color, 3.0)
+		between_wave_reward_done = false
 		spawn_boss_wave(enemies, wave)
 		expedition_node_boss = true
 		return .PLAYING
 	case .ELITE:
 		// A normal wave, but every spawn is forced elite.
+		between_wave_reward_done = false
 		expedition_force_elite = true
 		spawn_enemies(enemies, elite_wave_size(wave), wave)
 		spawn_revenants(enemies, wave)
 		return .PLAYING
 	case .BATTLE:
+		between_wave_reward_done = false
 		spawn_enemies(enemies, node_wave_size(wave), wave)
 		spawn_revenants(enemies, wave)
 		return .PLAYING
@@ -3259,6 +3264,20 @@ revenant_skip_all :: proc() {
 		}
 	}
 }
+
+// Latch for the between-wave reward.
+//
+// This used to be implicit: the reward block only ran while `len(cards) == 0`,
+// so clearing the cards WAS the "already paid out" signal. That breaks in
+// EXPEDITION, because the card click handler clears them at line ~2697 and the
+// reward block runs later in the SAME frame -- so the block saw an empty hand
+// and fired twice. The second firing called expedition_commit() again, marking
+// a node cleared that the player never fought, and dealt a second card. That
+// stale card then suppressed the next node's reward and looped the whole cycle.
+//
+// An explicit flag survives the ordering: it is only cleared when a new fight
+// actually starts.
+between_wave_reward_done := false
 
 // The skip offer. Shown once every non-revenant on the field is dead and only
 // revenants are left: at that point the wave cannot progress on its own, so the
