@@ -175,6 +175,10 @@ enemy :: struct {
 	revenant_idx:     i32,
 	revenant_effects: Status_Set,
 	revenant_precision: bool,
+	// SPLITTER: cascade generation depth for elite splitters. Gen 0 is the
+	// original; each cascade child increments it. At MAX_SPLITTER_CASCADE_GENERATIONS
+	// children stop splitting and become runner children instead.
+	splitter_gen:     i32,
 }
 
 // Enemy kinds that exist only to be shot in tutorial arenas. `pick_enemy_kind`

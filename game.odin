@@ -244,9 +244,12 @@ ORBITER_PROJECTILE_SPEED :: 180 // speed of the orbiter's sniper shot on each we
 
 // SPLITTER: elite splitters cascade - on death they spawn smaller elite
 // splitters instead of runner children. Each generation is smaller and weaker.
+// CASCADE_MAX_GENERATIONS caps how deep the cascade goes so it can't go
+// infinite.
 SPLITTER_CASCADE_CHILDREN :: 2 // how many children an elite splitter leaves
 SPLITTER_CASCADE_SCALE :: 0.65 // size multiplier per cascade generation
 SPLITTER_CASCADE_HP :: 1 // HP of each cascade child (they're fragile)
+SPLITTER_CASCADE_MAX_GENERATIONS :: 3 // max cascade depth before children stop splitting
 
 // SNIPER: hold the far ring, telegraph with a growing glow, then fire one fast
 // aimed shot. Aiming is instant; the telegraph is the tell.
@@ -739,11 +742,11 @@ enemies: [dynamic]enemy
 // Positions where a SPLITTER died this frame; its halves are spawned in a
 // deferred pass (process_splits) so the enemy array isn't mutated while iterating.
 // A splitter half waiting to spawn. `elite` tracks whether the parent was an
-// elite splitter, so cascade children can also be elite (but smaller, weaker,
-// and unable to split again).
+// elite splitter, and `gen` is the cascade depth so the cascade self-limits.
 split_pending :: struct {
 	pos: raylib.Vector2,
 	elite: bool,
+	gen: i32,
 }
 pending_splits: [dynamic]split_pending
 // Minions a boss asked for this frame. Deferred alongside the splitter halves:
@@ -2449,6 +2452,7 @@ spawn_enemy_at :: proc(
 		state     = .CHASE,
 		elite     = elite,
 		plates    = elite && kind == .TANK ? ELITE_TANK_PLATES : 0,
+		splitter_gen = 0,
 	}
 	if elite && kind == .TANK {
 		// Spread the plates evenly, with a random base so every Bulwark
@@ -2571,7 +2575,7 @@ process_splits :: proc() {
 	}
 	s := ENEMIES[.SPLITTER]
 	for p in pending_splits {
-		if p.elite {
+		if p.elite && p.gen < SPLITTER_CASCADE_MAX_GENERATIONS {
 			// Elite splitters cascade: spawn smaller elite splitters instead of
 			// runner children. Each generation is smaller and weaker, so the
 			// cascade self-limits (children have 1 HP and die to anything).
@@ -2599,15 +2603,16 @@ process_splits :: proc() {
 						state = .CHASE,
 						elite = true,
 						plates = 0,
+						splitter_gen = p.gen + 1,
 					},
 				)
 				next_enemy_id += 1
 			}
 		} else {
-			// Normal splitters become plain RUNNERs: same fast chase AI, a
-			// runner's colour so they read as runners (not more splitters),
-			// and they can't split again -- one splitter should never cascade
-			// into a flood.
+			// Normal splitters (or elite splitters at max cascade depth)
+			// become plain RUNNERs: same fast chase AI, a runner's colour so
+			// they read as runners (not more splitters), and they can't split
+			// again -- one splitter should never cascade into a flood.
 			child_base := ENEMIES[.RUNNER]
 			child_sz := s.size * SPLITTER_CHILD_SCALE
 			for _ in 0 ..< 2 {
@@ -4779,7 +4784,7 @@ apply_enemy_damage :: proc(e: ^enemy, amount: f32, from: raylib.Vector2) -> Enem
 	// Splitters queue their halves the moment they die; process_splits spawns them
 	// in a deferred pass so the enemies array is never mutated mid-iteration.
 	if e.kind == .SPLITTER && e.hp <= 0 {
-		append(&pending_splits, split_pending{pos = e.position, elite = e.elite})
+		append(&pending_splits, split_pending{pos = e.position, elite = e.elite, gen = e.splitter_gen})
 	}
 	// RR's OFFENSE lesson clears when its turret goes down. Noted on the lethal
 	// hit here (the single damage funnel); no-op outside that tutorial.
@@ -5103,7 +5108,7 @@ update_status :: proc(enemies: ^[dynamic]enemy, dT: f32) {
 				// Splitters queue their halves here too (this path bypasses
 				// apply_enemy_damage), so a burn kill still splits.
 				if e.kind == .SPLITTER && e.hp <= 0 {
-					append(&pending_splits, split_pending{pos = e.position, elite = e.elite})
+					append(&pending_splits, split_pending{pos = e.position, elite = e.elite, gen = e.splitter_gen})
 				}
 				if e.hp <= 0 {
 					spawn_kill_rewards(e)
