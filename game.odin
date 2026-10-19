@@ -5883,9 +5883,14 @@ Deck_Entry :: struct {
 
 // Collapse the deck into counts, ordered by how many you hold (most-held first)
 // and then alphabetically, so the list is stable between openings.
+//
+// The returned array belongs to the CALLER, who must delete it. There is
+// deliberately no `defer delete` here: a defer would free the backing buffer
+// on the way out, and the caller would be handed a slice pointing at freed
+// memory. Reading it back gives garbage cstring pointers, and handing one of
+// those to DrawText segfaults the game the moment the deck screen opens.
 deck_tally :: proc() -> [dynamic]Deck_Entry {
 	entries: [dynamic]Deck_Entry
-	defer delete(entries)
 	for c in deck {
 		found := false
 		for &e in entries {
