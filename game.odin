@@ -876,6 +876,16 @@ start_run :: proc(stats: Run_Stats) {
 		expedition_done = false
 	}
 	clear(&pending_summons)
+	// Per-run state for the between-wave reward. The latch in particular has
+	// to be cleared here: it is set when the reward is paid out, so a run that
+	// ended (or was saved) with the reward still on screen would start the
+	// next run with the latch still set, the reward block gated off, and no
+	// wave ever spawned. The run would sit on an empty arena forever.
+	between_wave_reward_done = false
+	offer_active = false
+	deck_offer_n = 0
+	revenant_prompt = false
+	revenant_prompt_timer = 0
 	banner_timer = 0
 	if m := current_mission(); m != nil {
 		arena = m.arena
@@ -2316,7 +2326,12 @@ wave_size_mult :: proc() -> f32 {
 
 // Build and append one enemy at `pos`. Used by both the wave spawner and the
 // debug console's `spawn` command.
-spawn_enemy_at :: proc(kind: Enemy_Kind, elite: bool, wave: i32, pos: raylib.Vector2) {
+spawn_enemy_at :: proc(
+	kind: Enemy_Kind,
+	elite: bool,
+	wave: i32,
+	pos: raylib.Vector2,
+) -> int {
 	hp_scale, dmg_scale, spd_scale := enemy_scales(wave)
 	s := ENEMIES[kind]
 	sz := s.size
@@ -2362,6 +2377,11 @@ spawn_enemy_at :: proc(kind: Enemy_Kind, elite: bool, wave: i32, pos: raylib.Vec
 	}
 	append(&enemies, en)
 	next_enemy_id += 1
+	// Where it landed, so the caller can decorate it. Returning the index
+	// rather than having the caller look at "the last element" matters: the
+	// array may be reallocated by the append, so a pointer taken before the
+	// call is dangling.
+	return len(enemies) - 1
 }
 
 // Spawn just outside the player so a console-spawned enemy is immediately
@@ -3240,11 +3260,28 @@ DECK_RETURN_TAKEN :: true
 // The three currently on offer, and how many are live.
 deck_offer_cards: [3]cstring
 deck_offer_n:     int
+// Where in the deck each offered card sits, so taking one can pull exactly
+// those out rather than assuming they are the first three.
+deck_offer_indices: [3]int
 
+// Deal the offer: the first three cards in the pile that still DO something.
+//
+// The skip matters. A card's stat can be capped out while the card is still in
+// the deck -- ATTACK stops mattering once the damage bonus is maxed -- and a
+// late-game pile can be mostly dead cards. Offering three of those would waste
+// the wave's only reward on a pick that grants nothing.
 deck_offer_next :: proc() -> bool {
-	deck_offer_n = min(len(deck), 3)
-	for i in 0 ..< deck_offer_n {
-		deck_offer_cards[i] = deck[i].name
+	deck_offer_n = 0
+	for i in 0 ..< len(deck) {
+		if deck_offer_n >= 3 {
+			break
+		}
+		if !upgrade_is_useful(deck[i].name) {
+			continue
+		}
+		deck_offer_indices[deck_offer_n] = i
+		deck_offer_cards[deck_offer_n] = deck[i].name
+		deck_offer_n += 1
 	}
 	return deck_offer_n > 0
 }
@@ -3256,15 +3293,17 @@ deck_offer_take :: proc(pick: int) -> cstring {
 		return ""
 	}
 	name := deck_offer_cards[pick]
-	// The offered three are still sitting at the front of the pile.
-	for i in 0 ..< deck_offer_n {
-		unordered_remove(&deck, 0)
+	// Pull the offered cards out of the pile, highest index first so the
+	// remaining indices stay valid as the array shrinks.
+	for i := deck_offer_n - 1; i >= 0; i -= 1 {
+		unordered_remove(&deck, deck_offer_indices[i])
 	}
 	if upgrade_is_useful(name) {
 		apply_upgrade(name)
 	}
+	// Whatever goes back goes on top, and then the pile is reshuffled.
 	for i in 0 ..< deck_offer_n {
-		if !DECK_RETURN_TAKEN || i != pick {
+		if DECK_RETURN_TAKEN || i != pick {
 			append(&deck, Deck_Card{deck_offer_cards[i]})
 		}
 	}
@@ -3408,7 +3447,7 @@ update_revenant_prompt :: proc(dT: f32) {
 	// payout, so it must not be something you trigger by reflex. The prompt
 	// is also held for a beat before it can fire, so a key that was already
 	// down when the prompt appeared cannot skip a revenant unseen.
-	if raylib.IsKeyPressed(raylib.KeyboardKey.X) && revenant_prompt_timer > 0.6 {
+	if world_key_pressed(raylib.KeyboardKey.X) && revenant_prompt_timer > 0.6 {
 		revenant_skip_all()
 		revenant_prompt = false
 		show_banner(cstring("THEY COME BACK WEAKER"), raylib.DARKPURPLE, 2.5)
@@ -3536,8 +3575,12 @@ spawn_revenant :: proc(
 	plan := revenant_plan(name)
 	s := ENEMIES[plan.kind]
 
-	spawn_enemy_at(plan.kind, false, wave, random_spawn_pos(s.size))
-	e := &enemies[len(enemies) - 1]
+	// The enemy is appended to the global list (that is where spawn_enemy_at
+	// puts it), so it is read back from there rather than from the array passed
+	// in -- the two are the same today, but reading the right one keeps a
+	// future caller from decorating the wrong element.
+	idx_spawned := spawn_enemy_at(plan.kind, false, wave, random_spawn_pos(s.size))
+	e := &enemies[idx_spawned]
 
 	// Baseline bulk: a shade above an elite, for every revenant alike. This is
 	// deliberately NOT multiplied by the card bonus -- stacking both made a
@@ -3581,8 +3624,14 @@ spawn_revenant :: proc(
 //
 // A visit runs as three phases: take an add, then throw discards, then leave.
 
-DECKMASTER_ADDS :: 1 // adds offered per visit
-DECKMASTER_DISCARDS :: 2 // discards allowed per visit
+// Cards put on offer per visit. The player takes one of them, so this is the
+// size of the CHOICE, not the number of cards that end up in the deck.
+DECKMASTER_ADDS :: 3
+// Discards allowed per visit. With one add and two discards, a visit thins
+// the pile by one, which is the direction the whole mechanic wants.
+DECKMASTER_DISCARDS :: 2
+// How many discardable cards the list shows at once.
+DECKMASTER_VISIBLE_ROWS :: 6
 
 // How many of each phase action is still available this visit.
 deckmaster_adds_left: int
@@ -3617,7 +3666,8 @@ deckmaster_open :: proc() {
 	for i in 0 ..< min(DECKMASTER_ADDS, len(pool)) {
 		append(&deckmaster_offers, pool[i].name)
 	}
-	deckmaster_adds_left = len(deckmaster_offers)
+	// Three on offer, one taken: the choice is the point.
+	deckmaster_adds_left = 1
 	deckmaster_discards_left = DECKMASTER_DISCARDS
 	deckmaster_phase = .ADD
 	deckmaster_selected = 0
@@ -3673,6 +3723,12 @@ update_deckmaster :: proc() {
 		// Every card in the deck is discardable in principle, but the floor
 		// means the last few cannot be, so hide them rather than let the
 		// player select a move that will be refused.
+		//
+		// Every discardable card is selectable. The list is longer than the
+		// screen, so the window scrolls to follow the selection -- before, the
+		// selection ranged over every card while only six were drawn, so the
+		// seventh could be highlighted on nothing and ENTER would throw away a
+		// card the player had never seen.
 		rows = max(len(deck) - DECK_MIN_SIZE, 0)
 	case .DONE:
 		rows = 0
@@ -3695,6 +3751,24 @@ update_deckmaster :: proc() {
 	   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
 		deckmaster_selected = (deckmaster_selected - 1 + rows) % rows
 		play(sounds.ui_move)
+	}
+	// Scroll the window so the selected card is always one of the drawn ones.
+	// The selection is an index into the DISCARDABLE slice; the window is just
+	// a view onto it.
+	if deckmaster_phase == .DISCARD {
+		visible := min(max(len(deck) - DECK_MIN_SIZE, 0), DECKMASTER_VISIBLE_ROWS)
+		if visible > 0 {
+			if deckmaster_selected < deckmaster_scroll {
+				deckmaster_scroll = deckmaster_selected
+			} else if deckmaster_selected >= deckmaster_scroll + visible {
+				deckmaster_scroll = deckmaster_selected - visible + 1
+			}
+			deckmaster_scroll = clamp(
+				deckmaster_scroll,
+				0,
+				max(max(len(deck) - DECK_MIN_SIZE, 0) - visible, 0),
+			)
+		}
 	}
 	// ESC skips the current phase; from the last phase it leaves.
 	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
@@ -3731,6 +3805,10 @@ update_deckmaster :: proc() {
 			discardable := max(len(deck) - DECK_MIN_SIZE, 0)
 			if deckmaster_selected >= discardable {
 				deckmaster_selected = max(discardable - 1, 0)
+			}
+			visible := min(discardable, DECKMASTER_VISIBLE_ROWS)
+			if deckmaster_scroll > max(discardable - visible, 0) {
+				deckmaster_scroll = max(discardable - visible, 0)
 			}
 			if deckmaster_discards_left <= 0 {
 				deckmaster_advance()
