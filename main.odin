@@ -485,7 +485,11 @@ draw_telegraphs :: proc() {
 
 // The mode screen has two panels, so its selection state lives here rather than
 // in a local: it has to survive across the frames the player sits on the screen.
+// `mode_pick` especially must NOT be a frame-local seeded from run_rules.mode --
+// that resets the cursor every frame, so clicking another mode or arrowing onto
+// one snaps straight back the instant you look away.
 mode_focus: int = 0 // 0 = mode list, 1 = modifier list
+mode_pick: int = 0
 mod_pick: int = 0
 
 // Toggle a modifier, keeping the mutually exclusive pairs from coexisting.
@@ -724,7 +728,10 @@ main :: proc() {
 			} else if k1 || (confirm && main_menu_sel == 1) {
 				play(sounds.ui_select)
 				active_mission = -1
-				// Mode first, then difficulty, then the loadout.
+				// Mode first, then difficulty, then the loadout. Seed the cursor
+				// from the live mode so the screen opens on what's already set.
+				mode_pick = int(run_rules.mode)
+				mode_focus = 0
 				state = .MODE_SELECT
 			} else if k2 || (confirm && main_menu_sel == 2) {
 				play(sounds.ui_select)
@@ -746,12 +753,10 @@ main :: proc() {
 			}
 		case .MODE_SELECT:
 			// Pick the kind of run before anything else: mode and modifiers are
-			// the frame the rest of the run plays inside, so they come first.
 			//
 			// Two panels share this screen, so TAB moves between them. The number
 			// keys mean "pick mode 1-4" on one and "toggle modifier 1-8" on the
 			// other, which is why they cannot both be live at once.
-			mode_pick := int(run_rules.mode)
 			if raylib.IsKeyPressed(raylib.KeyboardKey.TAB) {
 				mode_focus = 1 - mode_focus
 				play(sounds.ui_move)
