@@ -2470,6 +2470,336 @@ unlock_all_maps :: proc() {
 
 // The arena's boss just died: record the clear, unlock the next map, and drop
 // into endless survival. Idempotent, so it only fires once per run.
+// --- expedition --------------------------------------------------------------
+//
+// A branching map of nodes, Peglin-style. The map is generated from a single
+// seed and every node's state is stored by index, so a resumed run rebuilds the
+// identical map and then re-applies what the player already cleared. That is why
+// this uses its own deterministic LCG instead of the global `rand`: the map has
+// to come back identical after a reload, while combat rolls should stay fresh.
+
+EXPEDITION_LAYERS :: 14
+EXPEDITION_BOSS_LAYER :: EXPEDITION_LAYERS - 1
+
+Node_Kind :: enum {
+	BATTLE, // a normal wave
+	ELITE,  // a wave stuffed with elites
+	SHOP,   // spend currency
+	RELIC,  // take or swap a relic
+	REST,   // camp: heal, or strip a card
+	BOSS,   // the run's boss
+}
+
+// How many nodes a layer holds. The opening rows are wide enough to feel like a
+// real choice, the middle tapers, and the last is a single boss.
+expedition_layer_width :: proc(layer: i32) -> i32 {
+	if layer == 0 {
+		return 3
+	}
+	if layer >= EXPEDITION_BOSS_LAYER {
+		return 1
+	}
+	if layer <= 2 {
+		return 4
+	}
+	if layer >= EXPEDITION_BOSS_LAYER - 3 {
+		return 2
+	}
+	return 3
+}
+
+Expedition_Node :: struct {
+	layer:   i32,
+	col:     i32,
+	kind:    Node_Kind,
+	next:    [3]i32, // indices into expedition_map; -1 when unused
+	next_n:  i32,
+	cleared: bool,
+}
+
+// The generated map, where the player stands on it, and the seed it came from.
+expedition_map: [dynamic]Expedition_Node
+expedition_seed: u32 = 0
+expedition_cur: [4]i32 = {-1, -1, -1, -1}
+expedition_cur_n: i32 = 0
+expedition_pick: i32 = 0
+expedition_done: bool = false
+// Set when the player has entered a node but not yet cleared it, so a resume
+// knows to put them back in the fight rather than the map.
+expedition_in_node: Node_Kind = .BATTLE
+
+// Deterministic LCG, private to the map builder.
+exp_rng_state: u32 = 1
+
+exp_rng :: proc() -> u32 {
+	exp_rng_state = exp_rng_state * 1664525 + 1013904223
+	return exp_rng_state >> 16
+}
+
+exp_rng_range :: proc(n: i32) -> i32 {
+	if n <= 1 {
+		return 0
+	}
+	return i32(exp_rng() % u32(n))
+}
+
+node_kind_name :: proc(k: Node_Kind) -> cstring {
+	switch k {
+	case .BATTLE:
+		return "BATTLE"
+	case .ELITE:
+		return "ELITE"
+	case .SHOP:
+		return "SHOP"
+	case .RELIC:
+		return "RELIC"
+	case .REST:
+		return "CAMP"
+	case .BOSS:
+		return "BOSS"
+	}
+	return "?"
+}
+
+// Node colour, so the map reads at a glance without a legend.
+node_kind_color :: proc(k: Node_Kind) -> raylib.Color {
+	switch k {
+	case .BATTLE:
+		return raylib.LIGHTGRAY
+	case .ELITE:
+		return raylib.ORANGE
+	case .SHOP:
+		return raylib.GOLD
+	case .RELIC:
+		return raylib.VIOLET
+	case .REST:
+		return raylib.LIME
+	case .BOSS:
+		return raylib.RED
+	}
+	return raylib.WHITE
+}
+
+// Weighted roll for a non-boss node. CAMP is deliberately scarce: it is the only
+// node that gives health back, and a map full of them has no teeth.
+exp_roll_kind :: proc(layer: i32) -> Node_Kind {
+	// The row before the boss is always a fight, so the run ends on momentum
+	// rather than a shopping trip.
+	if layer == EXPEDITION_BOSS_LAYER - 1 {
+		return .BATTLE
+	}
+	// No shop or relic on the opening rows -- the player has neither the
+	// currency nor the relics yet, so those nodes would be dead weight.
+	r := exp_rng_range(100)
+	if layer <= 2 {
+		return r < 75 ? .BATTLE : .ELITE
+	}
+	switch r {
+	case 0 ..< 42:
+		return .BATTLE
+	case 42 ..< 62:
+		return .ELITE
+	case 62 ..< 75:
+		return .SHOP
+	case 75 ..< 86:
+		return .RELIC
+	case 86 ..< 94:
+		return .REST
+	case:
+		return .BATTLE
+	}
+}
+
+// Build the whole map from `seed`. Deterministic: the same seed always yields
+// the same shape, kinds and edges, which is exactly what makes resume safe.
+expedition_generate :: proc(seed: u32) {
+	clear(&expedition_map)
+	exp_rng_state = seed | 1 // the LCG is absorbing at 0, so never allow it
+	expedition_seed = seed
+	expedition_done = false
+
+	layer_start: [EXPEDITION_LAYERS]i32
+	off: i32 = 0
+
+	// Pass 1: lay the nodes out.
+	for layer: i32 = 0; layer < EXPEDITION_LAYERS; layer += 1 {
+		layer_start[layer] = off
+		w := expedition_layer_width(layer)
+		for col: i32 = 0; col < w; col += 1 {
+			kind := exp_roll_kind(layer)
+			if layer == EXPEDITION_BOSS_LAYER {
+				kind = .BOSS
+			}
+			append(
+				&expedition_map,
+				Expedition_Node {
+					layer = layer,
+					col = col,
+					kind = kind,
+					next = {-1, -1, -1},
+					next_n = 0,
+					cleared = false,
+				},
+			)
+			off += 1
+		}
+	}
+
+	// Pass 2: wire the layers together.
+	//
+	// Iterating TARGETS rather than sources is what makes this correct: every
+	// node in the next layer explicitly collects at least one incoming edge, so
+	// full reachability holds by construction. (The obvious version -- each node
+	// picks who it points at -- leaves orphans whenever a row of four fans into a
+	// row of two, which is most of the mid-map.)
+	for layer: i32 = 0; layer < EXPEDITION_LAYERS - 1; layer += 1 {
+		cur_w := expedition_layer_width(layer)
+		next_w := expedition_layer_width(layer + 1)
+
+		// Give every node in the next layer at least one parent.
+		for t: i32 = 0; t < next_w; t += 1 {
+			base := i32(f32(t) / f32(max(next_w, 1)) * f32(cur_w))
+			picks: [3]i32 = {-1, -1, -1}
+			pn: i32 = 0
+			for _ in 0 ..< 3 {
+				jitter := exp_rng_range(3) - 1
+				c := base + jitter
+				if c < 0 {
+					c = 0
+				}
+				if c >= cur_w {
+					c = cur_w - 1
+				}
+				dup := false
+				for s: i32 = 0; s < pn; s += 1 {
+					if picks[s] == c {
+						dup = true
+					}
+				}
+				if !dup && pn < 3 {
+					picks[pn] = c
+					pn += 1
+				}
+			}
+			if pn == 0 {
+				picks[0] = base
+				pn = 1
+			}
+			for s: i32 = 0; s < pn; s += 1 {
+				expedition_map[layer_start[layer] + picks[s]].next_n += 1
+				slot := expedition_map[layer_start[layer] + picks[s]].next_n - 1
+				if slot < 3 {
+					expedition_map[layer_start[layer] + picks[s]].next[slot] =
+						layer_start[layer + 1] + t
+				}
+			}
+		}
+
+		// And give every node in this layer somewhere to go, so no path is a
+		// dead end.
+		for c: i32 = 0; c < cur_w; c += 1 {
+			idx := layer_start[layer] + c
+			if expedition_map[idx].next_n == 0 {
+				expedition_map[idx].next[0] = layer_start[layer + 1] + exp_rng_range(next_w)
+				expedition_map[idx].next_n = 1
+			}
+		}
+	}
+
+	expedition_reset_position()
+}
+
+// Every node in the first layer is available from the start.
+expedition_reset_position :: proc() {
+	expedition_cur = {-1, -1, -1, -1}
+	expedition_cur_n = expedition_layer_width(0)
+	for i: i32 = 0; i < expedition_cur_n; i += 1 {
+		expedition_cur[i] = i // first-layer indices are just 0..n-1
+	}
+	expedition_pick = 0
+}
+
+// Highlight one of the currently available nodes. False if out of range.
+expedition_take :: proc(which: i32) -> bool {
+	if which < 0 || which >= expedition_cur_n {
+		return false
+	}
+	idx := expedition_cur[which]
+	if idx < 0 || idx >= i32(len(expedition_map)) {
+		return false
+	}
+	expedition_pick = which
+	return true
+}
+
+expedition_chosen :: proc() -> ^Expedition_Node {
+	if expedition_pick < 0 || expedition_pick >= expedition_cur_n {
+		return nil
+	}
+	idx := expedition_cur[expedition_pick]
+	if idx < 0 || idx >= i32(len(expedition_map)) {
+		return nil
+	}
+	return &expedition_map[idx]
+}
+
+// Mark the selected node done and open whatever it leads to. Returns false when
+// there is nothing ahead, i.e. the expedition is over.
+expedition_commit :: proc() -> bool {
+	n := expedition_chosen()
+	if n == nil {
+		return false
+	}
+	n.cleared = true
+	next_n := n.next_n
+	for i: i32 = 0; i < next_n; i += 1 {
+		expedition_cur[i] = n.next[i]
+	}
+	expedition_cur_n = next_n
+	expedition_pick = 0
+	if next_n == 0 {
+		expedition_done = true
+		return false
+	}
+	return true
+}
+
+// Which layer the current choice sits on, for the map heading.
+expedition_layer_now :: proc() -> i32 {
+	n := expedition_chosen()
+	if n != nil {
+		return n.layer
+	}
+	return 0
+}
+
+// Rebuild a map and replay a route taken so far. `cleared_count` says how many
+// nodes the player has already finished; because the map is generated in layer
+// order and a run only ever advances one layer at a time, the first N nodes are
+// exactly the ones behind them.
+expedition_restore :: proc(seed: u32, cleared_count: i32) {
+	expedition_generate(seed)
+	done: i32 = 0
+	for done < cleared_count && done < i32(len(expedition_map)) {
+		expedition_map[done].cleared = true
+		done += 1
+	}
+	if done <= 0 {
+		expedition_reset_position()
+		return
+	}
+	// Re-walk the cleared prefix to land on the correct frontier.
+	last := &expedition_map[done - 1]
+	for i: i32 = 0; i < last.next_n; i += 1 {
+		expedition_cur[i] = last.next[i]
+	}
+	expedition_cur_n = last.next_n
+	expedition_pick = 0
+	if expedition_cur_n == 0 {
+		expedition_done = true
+	}
+}
+
 // --- boss rush ---------------------------------------------------------------
 // BOSS RUSH chains the whole bestiary together. It borrows the arena map the
 // player picked (so it feels like somewhere), but walks every boss in turn
