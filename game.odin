@@ -2100,6 +2100,13 @@ resume_run :: proc() -> bool {
 	// loadout and re-apply the accumulated upgrade state on top.
 	arena = rs.arena
 	active_mission = rs.active_mission
+	// The mode and modifiers have to be restored BEFORE start_run runs, not
+	// after. start_run reads both: it builds the opening deck (which differs
+	// under ONE LIFE), it decides whether to generate an expedition map, and
+	// it picks the entry state. Restoring them afterwards meant a resumed run
+	// was set up with whatever mode the menu happened to hold.
+	run_rules.mode = rs.mode
+	run_rules.modifiers = rs.modifiers
 	start_run(start_loadout(rs.character, rs.primary, rs.secondary, rs.dash, rs.utility))
 
 	SPEED = rs.speed
@@ -2141,10 +2148,8 @@ resume_run :: proc() -> bool {
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
-	// Put the run's own rules back before anything reads them, so the resumed
-	// run continues as the mode it began as (a Boss Rush picks up mid-chain).
-	run_rules.mode = rs.mode
-	run_rules.modifiers = rs.modifiers
+	// The mode and modifiers were restored above, before start_run, so the run
+	// was set up as the mode it began as (a Boss Rush picks up mid-chain).
 	boss_rush_index = rs.boss_rush_index
 	if boss_rush_index < 0 {
 		boss_rush_index = 0
