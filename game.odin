@@ -431,8 +431,6 @@ size: raylib.Vector2 = {30, 30}
 health: f32 = 100
 max_health: f32 = 100
 inv_timer: f32 = 0
-player_poison: f32 = 0 // seconds of poison left on the player (DoT)
-
 // Status the player is currently under. The timer array is the source of
 // truth: > 0 means active. Kept separate from the player's own upgrades, so a
 // run cannot bank these.
@@ -837,7 +835,6 @@ start_run :: proc(stats: Run_Stats) {
 	reload_time_base = stats.reload_time
 	dash_timer = 0
 	inv_timer = 0
-	player_poison = 0
 	for eff in Status_Effect {
 		player_effect_timer[eff] = 0
 	}
@@ -3312,17 +3309,6 @@ deck_offer_take :: proc(pick: int) -> cstring {
 	return name
 }
 
-// Put the whole offer back untouched. Not currently reachable (the deal is
-// answered by picking one), but it keeps the offer and the pile in step if a
-// way out of the deal is ever added.
-deck_offer_cancel :: proc() {
-	for i in 0 ..< deck_offer_n {
-		append(&deck, Deck_Card{deck_offer_cards[i]})
-	}
-	rand.shuffle(deck[:])
-	deck_offer_n = 0
-}
-
 // Move a card out of the deck and into the graveyard as a revenant. Refused
 // when it would take the deck under the floor, which is what bounds how many of
 // your own decisions you can have walking around at once.
@@ -3349,15 +3335,6 @@ deck_add :: proc(name: cstring) -> bool {
 }
 
 // Weaken a queued revenant after you skip it, and strip its payout.
-revenant_skip :: proc(idx: int) -> bool {
-	if idx < 0 || idx >= len(graveyard) {
-		return false
-	}
-	r := &graveyard[idx]
-	r.power = max(r.power - DEMOTE_STEP, DEMOTE_FLOOR)
-	return true
-}
-
 // A revenant only pays while it is still at full power: skipping one strips the
 // coins permanently, which is the entire cost of dodging it.
 revenant_pays_coins :: proc(idx: i32) -> bool {
