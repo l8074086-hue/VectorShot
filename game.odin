@@ -202,6 +202,10 @@ POISON_DPS :: 2.5
 FREEZE_TIME :: 2.0
 FREEZE_SLOW :: 0.45 // move-speed multiplier while frozen
 SHOCK_TIME :: 1.2 // stunned (no move, no attack) while shocked
+// Fraction of an effect's own duration it must fall below before another
+// application can top it up. See apply_status: this is what stops a fast weapon
+// from pinning a debuff on permanently.
+STATUS_REFRESH_GATE :: 0.5
 MAX_STATUS_POWER :: 4.0 // cap on per-element power (damage / slow / stun)
 MAX_STATUS_TIME_MULT :: 2.5 // cap on the global duration multiplier
 // What enemy hits can do to the player. Only poison is wired so far: the
@@ -3680,8 +3684,22 @@ apply_status :: proc(e: ^enemy, set: Status_Set) {
 		return
 	}
 	for eff in set {
+		// A fresh application must not be able to hold an effect up forever.
+		//
+		// This used to be an unconditional `max(...)`, which meant any weapon
+		// fast enough to land a shot per frame pinned its target's status
+		// permanently: an SMG refreshing a 1.2s SHOCK before it could ever
+		// expire = an enemy stunned forever just by holding the trigger. Same
+		// for FREEZE's slow and for the two damage-over-ticks.
+		//
+		// Topping up only once an effect has run most of its course keeps the
+		// "hold them locked down" fantasy from turning into a perma.
+		dur := status_duration(eff)
+		if e.effect_timer[eff] > dur * STATUS_REFRESH_GATE {
+			continue
+		}
 		e.effects += {eff}
-		e.effect_timer[eff] = max(e.effect_timer[eff], status_duration(eff))
+		e.effect_timer[eff] = max(e.effect_timer[eff], dur)
 	}
 }
 
