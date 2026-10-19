@@ -3,6 +3,7 @@ import "vendor:raylib"
 
 GameState :: enum {
 	MAIN_MENU,
+	MODE_SELECT,
 	DIFFICULTY,
 	MISSION_CONTROL,
 	EQUIPMENT,

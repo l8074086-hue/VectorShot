@@ -277,6 +277,14 @@ BOSS_HP_PER_WAVE :: 0.06 // vs ENEMY_HP_PER_WAVE (0.16)
 // damage on top of that growth is what compounds: it was reaching 30 a hit in
 // the last arena, which is a fifth of a realistic bar per connect.
 BOSS_DMG_PER_WAVE :: 0.0
+// How hard the opt-in run modifiers push the three enemy stats. Read at spawn
+// time rather than folded into a stat up front, so a modifier stays meaningful
+// across a resumed run.
+MOD_TOUGH_HP :: 1.6
+MOD_SWIFT_SPD :: 1.25
+MOD_BRUTAL_DMG :: 1.35
+MOD_THIN_COUNT :: 0.6
+MOD_SWARM_COUNT :: 1.5
 
 // Boss-only stat scaling, mirroring enemy_scales' shape.
 boss_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
@@ -285,6 +293,16 @@ boss_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
 	// Speed still tracks enemies: a boss that outruns you is unfair for a
 	// different reason than one that out-tanks you.
 	_, _, spd = enemy_scales(wave)
+	// Modifiers apply to the boss too, or TOUGH would soften a finale.
+	if run_mod(.TOUGH) {
+		hp *= MOD_TOUGH_HP
+	}
+	if run_mod(.BRUTAL) {
+		dmg *= MOD_BRUTAL_DMG
+	}
+	if run_mod(.SWIFT) {
+		spd *= MOD_SWIFT_SPD
+	}
 	return
 }
 
@@ -510,7 +528,121 @@ arena: Arena_Kind = .GRASSLAND
 // endless.
 weather: [dynamic]weather_particle
 
-// Active mission ("level") for this run. -1 means an ordinary endless run with no
+// --- run rules ---------------------------------------------------------------
+//
+// Everything that decides *what kind of run this is*, gathered in one struct.
+// The rest of the game asks run_rules instead of testing hardcoded constants,
+// so a new mode is configuration rather than a new code path through the wave
+// loop, the shop trigger and the boss check.
+
+Run_Mode :: enum {
+	STANDARD,  // waves -> the arena's boss -> endless survival
+	ENDLESS,   // waves forever, and no boss ever arrives
+	BOSS_RUSH, // the arena's bosses back to back, no trash waves between
+	EXPEDITION, // branching node map (still being built)
+}
+
+// Run-wide dials a player opts into before a run. Each is an independent bit so
+// they compose, and each is read at the point it affects rather than baked into
+// stats up front -- that keeps a NO_SHOP run honest even after a resume.
+Run_Modifier :: enum {
+	TOUGH,   // enemies hit much harder to kill
+	SWIFT,   // and they move faster
+	BRUTAL,  // and they hit harder
+	THIN,    // far fewer enemies per wave
+	SWARM,   // far more
+	NO_SHOP,    // the between-waves shop never opens
+	NO_CARDS,   // and no upgrade cards either
+	ONE_LIFE,   // health pickups and heals do nothing
+}
+
+Run_Modifier_Info :: struct {
+	name: cstring,
+	desc: cstring,
+}
+
+RUN_MODIFIER_INFO := [Run_Modifier]Run_Modifier_Info {
+	.TOUGH  = {"HEAVY", "ENEMIES HAVE MUCH MORE HEALTH"},
+	.SWIFT  = {"SWIFT", "ENEMIES MOVE FASTER"},
+	.BRUTAL = {"BRUTAL", "ENEMIES HIT HARDER"},
+	.THIN   = {"SPARSE", "FAR FEWER ENEMIES PER WAVE"},
+	.SWARM  = {"SWARMED", "FAR MORE ENEMIES PER WAVE"},
+	.NO_SHOP = {"NO SHOP", "NO BETWEEN-WAVE SHOP"},
+	.NO_CARDS = {"NO CARDS", "NO UPGRADE CARDS"},
+	.ONE_LIFE = {"ONE LIFE", "NO HEALING"},
+}
+
+Run_Mode_Info :: struct {
+	name: cstring,
+	desc: cstring,
+	live: bool, // false while a mode is still being built
+}
+
+RUN_MODE_INFO := [Run_Mode]Run_Mode_Info {
+	.STANDARD = {"STANDARD", "WAVES, THEN THE ARENA BOSS, THEN ENDLESS", true},
+	.ENDLESS = {"ENDLESS", "WAVES FOREVER. NO BOSS, NO MAP CLEAR", true},
+	.BOSS_RUSH = {"BOSS RUSH", "BACK-TO-BACK BOSSES. NO TRASH WAVES", true},
+	.EXPEDITION = {"EXPEDITION", "BRANCHING MAP OF NODES", false},
+}
+
+// The rules the current run is playing under. Reset to STANDARD with no
+// modifiers by start_run; the mode screen sets them before that.
+run_rules := Run_Rules {
+	mode      = .STANDARD,
+	modifiers = 0,
+}
+
+Run_Rules :: struct {
+	mode: Run_Mode,
+	modifiers: u32, // Run_Modifier bitmask
+}
+
+run_mod :: proc(m: Run_Modifier) -> bool {
+	return (run_rules.modifiers & (u32(1) << u32(int(m)))) != 0
+}
+
+run_toggle_mod :: proc(m: Run_Modifier) {
+	bit := u32(1) << u32(int(m))
+	run_rules.modifiers &~= bit
+	if run_mod(m) {
+		run_rules.modifiers |= bit
+	}
+}
+
+run_set_mode :: proc(m: Run_Mode) {
+	run_rules.mode = m
+	// Mutually exclusive crowd sizes: being both SPARSE and SWARMED is nonsense.
+	thin_bit := u32(1) << u32(int(Run_Modifier.THIN))
+	swarm_bit := u32(1) << u32(int(Run_Modifier.SWARM))
+	if (run_rules.modifiers & thin_bit) != 0 {
+		run_rules.modifiers &~= swarm_bit
+	}
+	if (run_rules.modifiers & swarm_bit) != 0 {
+		run_rules.modifiers &~= thin_bit
+	}
+}
+
+// Does this mode ever put a boss in front of the player?
+run_has_boss :: proc() -> bool {
+	switch run_rules.mode {
+	case .ENDLESS:
+		return false
+	case .BOSS_RUSH:
+		return true
+	case .EXPEDITION:
+		return false
+	case .STANDARD:
+	}
+	return true
+}
+
+// Does this mode put trash waves in front of the player?
+// BOSS RUSH answers this from new_wave directly rather than asking here.
+run_has_waves :: proc() -> bool {
+	return run_rules.mode != .BOSS_RUSH
+}
+
+// Active mission ("level") for this run. -1 means an ordinary run with no
 // objective. Set by the Mission Control screen and on START RUN; read by the HUD,
 // new_wave (for density) and mission_check_complete.
 active_mission: int = -1
@@ -668,6 +800,10 @@ start_run :: proc(stats: Run_Stats) {
 	// Fresh run: no arena cleared yet, so the arena's boss still lies ahead and
 	// waves are the normal, finite count rather than endless survival.
 	endless_mode = false
+	// Rush progress is per-run state, not a preference.
+	boss_rush_index = 0
+	boss_rush_won = false
+	clear(&pending_summons)
 	banner_timer = 0
 	if m := current_mission(); m != nil {
 		arena = m.arena
@@ -1941,7 +2077,30 @@ enemy_scales :: proc(wave: i32) -> (hp: f32, dmg: f32, spd: f32) {
 	hp = 1 + ENEMY_HP_PER_WAVE * f32(wave - 1)
 	dmg = 1 + ENEMY_DMG_PER_WAVE * f32(wave - 1)
 	spd = min(1 + ENEMY_SPEED_PER_WAVE * f32(wave - 1), f32(ENEMY_SPEED_CAP))
+	// Opt-in modifiers layer on here, so they apply to everything that spawns
+	// from here on rather than being baked into a stat up front.
+	if run_mod(.TOUGH) {
+		hp *= MOD_TOUGH_HP
+	}
+	if run_mod(.BRUTAL) {
+		dmg *= MOD_BRUTAL_DMG
+	}
+	if run_mod(.SWIFT) {
+		spd *= MOD_SWIFT_SPD
+	}
 	return
+}
+
+// How many enemies a wave carries once SPARSE / SWARMED land.
+wave_size_mult :: proc() -> f32 {
+	m: f32 = 1
+	if run_mod(.THIN) {
+		m *= MOD_THIN_COUNT
+	}
+	if run_mod(.SWARM) {
+		m *= MOD_SWARM_COUNT
+	}
+	return m
 }
 
 // Build and append one enemy at `pos`. Used by both the wave spawner and the
@@ -2042,6 +2201,17 @@ spawn_drop_near_player :: proc(kind: Drop_Kind, amount: f32) {
 
 new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	play(sounds.wave_start)
+	// BOSS RUSH: every "wave" is a boss. No trash, no arena script -- the
+	// chain advances itself inside arena_cleared when one of them dies.
+	if run_rules.mode == .BOSS_RUSH {
+		if boss_rush_index < boss_rush_total() {
+			next_arena := boss_rush_next()
+			fight := ARENA_BOSSES[next_arena]
+			show_banner(fight.name, fight.color, 3.0)
+			spawn_arena_boss_as(next_arena, random_spawn_pos(fight.size))
+		}
+		return
+	}
 	// The arena's last wave is its boss: a distinct set-piece fight. Beating it
 	// clears the map and drops the run into endless survival.
 	if is_boss_wave(wave) {
@@ -2056,7 +2226,7 @@ new_wave :: proc(enemies: ^[dynamic]enemy, wave: i32) {
 	}
 	// Difficulty scales how many show up; never fewer than one. An active
 	// mission's density modifier then crowds (or thins) the wave on top.
-	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] + 0.5), 1)
+	num := max(i32(f32(wave) * DIFF_SPAWN_MULT[int(difficulty)] * wave_size_mult() + 0.5), 1)
 	if m := current_mission(); m != nil {
 		num = max(i32(f32(num) * m.density + 0.5), 1)
 	}
@@ -2117,13 +2287,23 @@ is_boss_wave :: proc(wave: i32) -> bool {
 	if endless_mode || gf_mode {
 		return false
 	}
+	// Some modes never hand you a boss at all.
+	if !run_has_boss() {
+		return false
+	}
 	return wave == ARENAS[arena].waves
 }
 
-// Build the arena's boss from ARENA_BOSSES (its own name, colour, size, hp and
-// attack knobs) and drop it in at `pos`. The normal wave scaling still applies.
+// Build the arena's boss from ARENA_BOSSES and drop it in at `pos`.
+// `spawn_arena_boss_as` is the same thing but for an arena chosen by the caller
+// rather than the current one -- BOSS RUSH uses it to field a boss out of its
+// home map.
 spawn_arena_boss :: proc(pos: raylib.Vector2) {
-	b := ARENA_BOSSES[arena]
+	spawn_arena_boss_as(arena, pos)
+}
+
+spawn_arena_boss_as :: proc(which: Arena_Kind, pos: raylib.Vector2) {
+	b := ARENA_BOSSES[which]
 	hp_scale, dmg_scale, spd_scale := boss_scales(ARENAS[arena].waves)
 	append(
 		&enemies,
@@ -2259,8 +2439,81 @@ unlock_all_maps :: proc() {
 
 // The arena's boss just died: record the clear, unlock the next map, and drop
 // into endless survival. Idempotent, so it only fires once per run.
+// --- boss rush ---------------------------------------------------------------
+// BOSS RUSH chains the whole bestiary together. It borrows the arena map the
+// player picked (so it feels like somewhere), but walks every boss in turn
+// regardless of which arena it "belongs" to, and never awards a map clear.
+boss_rush_index: i32 = 0 // how many bosses are down
+boss_rush_won: bool = false
+
+boss_rush_total :: proc() -> i32 {
+	return len(ARENA_BOSSES)
+}
+
+boss_rush_next :: proc() -> Arena_Kind {
+	order := []Arena_Kind {
+		.GRASSLAND,
+		.CANYON,
+		.RUINS,
+		.GLACIER,
+		.FOUNDRY,
+		.FOREST,
+		.SWAMP,
+	}
+	return order[int(boss_rush_index) % len(order)]
+}
+
+// Called when a boss dies. In BOSS RUSH this starts the next one immediately
+// instead of clearing the map; everywhere else it does nothing.
+//
+// Safe to spawn from here: this is reached via spawn_kill_rewards, and
+// update_enemy can never deal damage, so it is never called from inside the
+// enemy update loop that holds a ^enemy across its body. (See boss_summon for
+// the case that WASN'T safe and had to be deferred.)
+boss_rush_advance :: proc() {
+	if run_rules.mode != .BOSS_RUSH {
+		return
+	}
+	boss_rush_index += 1
+	if boss_rush_index >= boss_rush_total() {
+		boss_rush_won = true
+		endless_mode = true
+		show_banner(cstring("RUSH CLEARED"), raylib.GOLD, 5.0)
+		play(sounds.shop_buy)
+		settings.maps_done |= 1 << u32(int(arena))
+		settings_save()
+		return
+	}
+	next_arena := boss_rush_next()
+	show_banner(RUN_MODE_BOSS_NAMES[next_arena], raylib.GOLD, 3.0)
+	// Spawn the next boss under the arena identity it owns, so its art, its
+	// crystals and its tuning all come along without duplicating the table.
+	spawn_arena_boss_as(next_arena, random_spawn_pos(ARENA_BOSSES[next_arena].size))
+}
+
+// Boss display names, indexed by arena, for the rush banner.
+RUN_MODE_BOSS_NAMES := [Arena_Kind]cstring {
+	.GRASSLAND = "PACKLEADER",
+	.CANYON    = "DUSTMAW",
+	.RUINS     = "THE COLOSSUS",
+	.GLACIER   = "FROSTBITE",
+	.FOUNDRY   = "MECHANIKTRON",
+	.FOREST    = "THORNWALD",
+	.SWAMP     = "BOGWRAITH",
+}
+
 arena_cleared :: proc() {
 	if endless_mode {
+		return
+	}
+	// In a rush a boss dying is a step, not a finish.
+	if run_rules.mode == .BOSS_RUSH {
+		boss_rush_advance()
+		return
+	}
+	// ENDLESS never awards a map clear -- that is the whole contract of the
+	// mode: you are not working toward anything, you are just surviving.
+	if run_rules.mode != .STANDARD {
 		return
 	}
 	endless_mode = true

@@ -483,6 +483,27 @@ draw_telegraphs :: proc() {
 	}
 }
 
+// The mode screen has two panels, so its selection state lives here rather than
+// in a local: it has to survive across the frames the player sits on the screen.
+mode_focus: int = 0 // 0 = mode list, 1 = modifier list
+mod_pick: int = 0
+
+// Toggle a modifier, keeping the mutually exclusive pairs from coexisting.
+toggle_mod_pick :: proc(mi: int) {
+	if mi < 0 || mi >= len(RUN_MODIFIER_INFO) {
+		return
+	}
+	m := Run_Modifier(mi)
+	run_toggle_mod(m)
+	// SPARSE and SWARMED are opposites; taking one drops the other.
+	if m == .THIN {
+		run_toggle_mod(.SWARM)
+	} else if m == .SWARM {
+		run_toggle_mod(.THIN)
+	}
+	play(sounds.ui_move)
+}
+
 main :: proc() {
 	windowX: i32 = 800
 	windowY: i32 = 600
@@ -703,7 +724,8 @@ main :: proc() {
 			} else if k1 || (confirm && main_menu_sel == 1) {
 				play(sounds.ui_select)
 				active_mission = -1
-				state = .DIFFICULTY
+				// Mode first, then difficulty, then the loadout.
+				state = .MODE_SELECT
 			} else if k2 || (confirm && main_menu_sel == 2) {
 				play(sounds.ui_select)
 				mission_sel = 0
@@ -722,6 +744,135 @@ main :: proc() {
 			} else if k6 || (confirm && main_menu_sel == 6) {
 				quit_requested = true
 			}
+		case .MODE_SELECT:
+			// Pick the kind of run before anything else: mode and modifiers are
+			// the frame the rest of the run plays inside, so they come first.
+			//
+			// Two panels share this screen, so TAB moves between them. The number
+			// keys mean "pick mode 1-4" on one and "toggle modifier 1-8" on the
+			// other, which is why they cannot both be live at once.
+			mode_pick := int(run_rules.mode)
+			if raylib.IsKeyPressed(raylib.KeyboardKey.TAB) {
+				mode_focus = 1 - mode_focus
+				play(sounds.ui_move)
+			}
+			if mode_focus == 0 {
+				if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+					mode_pick = (mode_pick + 1) % len(RUN_MODE_INFO)
+					play(sounds.ui_move)
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+					mode_pick = (mode_pick - 1 + len(RUN_MODE_INFO)) % len(RUN_MODE_INFO)
+					play(sounds.ui_move)
+				}
+				for key, idx in NUMBER_KEYS {
+					if idx < len(RUN_MODE_INFO) && raylib.IsKeyPressed(key) {
+						mode_pick = idx
+						play(sounds.ui_move)
+					}
+				}
+			} else if raylib.IsKeyPressed(raylib.KeyboardKey.DOWN) ||
+			          raylib.IsKeyPressed(raylib.KeyboardKey.S) {
+				mod_pick = (mod_pick + 1) % len(RUN_MODIFIER_INFO)
+				play(sounds.ui_move)
+			} else if raylib.IsKeyPressed(raylib.KeyboardKey.UP) ||
+			          raylib.IsKeyPressed(raylib.KeyboardKey.W) {
+				mod_pick = (mod_pick - 1 + len(RUN_MODIFIER_INFO)) % len(RUN_MODIFIER_INFO)
+				play(sounds.ui_move)
+			} else if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			          raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+				toggle_mod_pick(mod_pick)
+			}
+			for mi in 0 ..< len(RUN_MODIFIER_INFO) {
+				if mi < len(NUMBER_KEYS) && raylib.IsKeyPressed(NUMBER_KEYS[mi]) &&
+				   mode_focus == 1 {
+					toggle_mod_pick(mi)
+				}
+			}
+
+			raylib.BeginTextureMode(target)
+			raylib.ClearBackground(raylib.BLACK)
+			draw_centered(cstring("SELECT MODE"), 40, 42, raylib.WHITE)
+			for mi in 0 ..< len(RUN_MODE_INFO) {
+				m := Run_Mode(mi)
+				sel := mi == mode_pick
+				col := raylib.RAYWHITE
+				if mode_focus == 1 {
+					col = raylib.GRAY
+				}
+				if sel {
+					col = RUN_MODE_INFO[m].live ? raylib.YELLOW : raylib.MAROON
+				}
+				ck, hv := ui_row(
+					raylib.TextFormat("%i)  %s", mi + 1, string(RUN_MODE_INFO[m].name)),
+					100 + i32(mi) * 34,
+					26,
+					col,
+				)
+				if (mouse_moved && hv) || ck {
+					mode_pick = mi
+				}
+			}
+			info := RUN_MODE_INFO[Run_Mode(mode_pick)]
+			draw_centered(info.desc, 246, 15, info.live ? raylib.LIGHTGRAY : raylib.MAROON)
+			if !info.live {
+				draw_centered(cstring("(STILL BEING BUILT)"), 264, 14, raylib.MAROON)
+			}
+
+			hdr_col := mode_focus == 1 ? raylib.YELLOW : raylib.GRAY
+			draw_centered(cstring("MODIFIERS"), 292, 20, hdr_col)
+			for mi in 0 ..< len(RUN_MODIFIER_INFO) {
+				m := Run_Modifier(mi)
+				on := run_mod(m)
+				focused := mode_focus == 1 && mi == mod_pick
+				col := raylib.DARKGRAY
+				if on {
+					col = raylib.GOLD
+				}
+				if mode_focus == 0 {
+					col = on ? raylib.GOLD : raylib.DARKGRAY
+				}
+				raylib.DrawText(
+					raylib.TextFormat(
+						"%s %-9s  %s",
+						on ? "[X]" : "[ ]",
+						string(RUN_MODIFIER_INFO[m].name),
+						string(RUN_MODIFIER_INFO[m].desc),
+					),
+					96,
+					316 + i32(mi) * 24,
+					15,
+					col,
+				)
+				row := raylib.Rectangle{86, f32(310 + i32(mi) * 24), 620, 22}
+				hover := raylib.CheckCollisionPointRec(mouse_pos, row)
+				if hover && raylib.IsMouseButtonPressed(.LEFT) {
+					toggle_mod_pick(mi)
+				}
+				if focused {
+					raylib.DrawRectangleLinesEx(row, 2, raylib.YELLOW)
+				} else if hover {
+					raylib.DrawRectangleLinesEx(row, 1, raylib.DARKGRAY)
+				}
+			}
+
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+				if mode_focus == 0 && info.live {
+					run_set_mode(Run_Mode(mode_pick))
+					play(sounds.ui_select)
+					state = .DIFFICULTY
+				}
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
+				play(sounds.ui_select)
+				state = .MAIN_MENU
+			}
+			hint := cstring("TAB switches panels   -   ENTER begins   -   ESC goes back")
+			draw_centered(hint, 570, 15, raylib.DARKGRAY)
+			raylib.EndTextureMode()
 		case .DIFFICULTY:
 			// Official difficulty select. EASY enables the same comfort assists
 			// the hidden GF mode (Ctrl+G) toggles during a run.
@@ -2550,8 +2701,13 @@ main :: proc() {
 				if raylib.CheckCollisionRecs(player_rect, drop_rect) {
 					switch drops[i].kind {
 					case .HEALTH:
-						health = min(max_health, health + drops[i].amount)
-						play(sounds.health)
+						// ONE LIFE: the drop still reads, it just does nothing.
+						if run_mod(.ONE_LIFE) {
+							play(sounds.ui_move)
+						} else {
+							health = min(max_health, health + drops[i].amount)
+							play(sounds.health)
+						}
 					case .AMMO:
 						primary.ammo = min(primary.ammo_cap, primary.ammo + i32(drops[i].amount))
 						secondary.ammo = min(
@@ -2585,11 +2741,16 @@ main :: proc() {
 				save_run()
 				// Every 5th cleared wave opens the shop instead of a card pick.
 				// (`wave` is the *next* wave, so wave-1 is the one just cleared.)
-				if wave > 1 && (wave - 1) % 5 == 0 {
+				if run_mod(.NO_SHOP) {
+					// Suppressed: fall through to cards, or to nothing at all.
+					if !run_mod(.NO_CARDS) && (!debug_mode || wave == 1) {
+						spawn_cards(&cards, card_choices)
+					}
+				} else if wave > 1 && (wave - 1) % 5 == 0 {
 					shop_selected = 0
 					build_shop()
 					state = .SHOP
-				} else if !debug_mode || wave == 1 {
+				} else if !run_mod(.NO_CARDS) && (!debug_mode || wave == 1) {
 					spawn_cards(&cards, card_choices)
 				}
 				// In debug (not shop wave), skip the card reward after wave 1.
