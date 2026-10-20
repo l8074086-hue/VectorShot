@@ -370,6 +370,26 @@ relic_pick_update :: proc() {
 		play(sounds.ui_move)
 		return
 	}
+	// When inventory is full, LEFT/RIGHT navigate choice cards, ENTER stages
+	// the selected one for swapping.
+	if relic_equipped_count() >= RELIC_MAX_EQUIPPED {
+		if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+			relic_pick_idx = (relic_pick_idx + relic_pick_count - 1) % relic_pick_count
+			play(sounds.ui_move)
+		}
+		if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+			relic_pick_idx = (relic_pick_idx + 1) % relic_pick_count
+			play(sounds.ui_move)
+		}
+		if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+		   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+			relic_swap_pending = &relic_pick_choices[relic_pick_idx]
+			play(sounds.ui_move)
+		}
+		return
+	}
 	for key, idx in NUMBER_KEYS {
 		if idx < relic_pick_count && raylib.IsKeyPressed(key) {
 			take_relic(relic_pick_choices[idx])
@@ -454,7 +474,15 @@ relic_pick_draw :: proc() {
 		rx := x + 30 + f32(i) * (bw + 16)
 		rect := raylib.Rectangle{rx, by, bw, bh}
 		hover := raylib.CheckCollisionPointRec(mouse_pos, rect)
-		raylib.DrawRectangleLinesEx(rect, hover ? 3 : 2, hover ? raylib.YELLOW : raylib.GRAY)
+		// Show which relic is staged for swapping (when inventory is full).
+		pending := relic_swap_pending != nil && relic_pick_choices[i] == relic_swap_pending^
+		border_col := raylib.GRAY
+		if pending {
+			border_col = raylib.GOLD
+		} else if hover {
+			border_col = raylib.YELLOW
+		}
+		raylib.DrawRectangleLinesEx(rect, hover ? 3 : 2, border_col)
 		draw_text_cx(r.name, i32(rx + bw * 0.5), i32(by) + 8, 15, raylib.RAYWHITE)
 		draw_text_cx(r.desc, i32(rx + bw * 0.5), i32(by) + 28, 11, raylib.LIGHTGRAY)
 		if hover && raylib.IsMouseButtonPressed(.LEFT) {
@@ -508,7 +536,7 @@ relic_pick_draw :: proc() {
 	draw_centered(cstring("ESC to skip"), i32(y + h) - 16, 14, raylib.DARKGRAY)
 	// Spell out the keys and ring whichever card the cursor is on, so the
 	// overlay is usable without ever reaching for the mouse.
-	if !full && relic_pick_count > 0 {
+	if relic_pick_count > 0 {
 		cur := raylib.Rectangle {
 			x + 30 + f32(relic_pick_idx) * (bw + 16),
 			by,
@@ -516,12 +544,21 @@ relic_pick_draw :: proc() {
 			bh,
 		}
 		raylib.DrawRectangleLinesEx(cur, 2, raylib.YELLOW)
-		draw_centered(
-			cstring("1-3 or LEFT/RIGHT + ENTER to take"),
-			i32(y + h) - 16,
-			14,
-			raylib.DARKGRAY,
-		)
+		if full {
+			draw_centered(
+				cstring("LEFT/RIGHT pick relic, ENTER stage, then click equipped relic to swap"),
+				i32(y + h) - 16,
+				14,
+				raylib.DARKGRAY,
+			)
+		} else {
+			draw_centered(
+				cstring("1-3 or LEFT/RIGHT + ENTER to take"),
+				i32(y + h) - 16,
+				14,
+				raylib.DARKGRAY,
+			)
+		}
 	}
 }
 

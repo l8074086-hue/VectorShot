@@ -5881,6 +5881,7 @@ RELIC_MAX_EQUIPPED :: 3
 // has to choose which equipped one to give up (nil = no swap in progress).
 relic_pick_open: bool = false
 relic_swap_pending: ^Relic_Kind = nil
+relic_swap_selected: int = -1
 relic_pick_choices: [3]Relic_Kind = { .VAMPIRE_FANG, .IRON_STEADY, .SWIFT_SOLE }
 relic_pick_count: int = 3
 // Which drawn relic the keyboard cursor is on.
