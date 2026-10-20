@@ -364,8 +364,7 @@ update_modal_overlays :: proc() {
 // is on, ESC closes. Anything that can open this overlay has to be reachable
 // without a mouse, so every caller routes its input through here.
 relic_pick_update :: proc() {
-	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) ||
-	   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 		relic_pick_open = false
 		relic_swap_pending = nil
 		play(sounds.ui_move)
@@ -605,6 +604,7 @@ main :: proc() {
 	refresh_run_save_presence()
 	// The codex list is static, so it is built once here.
 	build_codex_rows()
+	init_boss_visuals()
 	apply_fullscreen()
 	defer settings_save()
 
@@ -4084,47 +4084,52 @@ main :: proc() {
 			}
 			raylib.BeginTextureMode(target)
 			raylib.ClearBackground(raylib.BLACK)
-			draw_centered(cstring("RUN OVER"), 40, 52, raylib.RED)
-			draw_centered(
-				raylib.TextFormat(
-					"CHARACTER %s    ARENA %s",
-					string(CHARACTERS[result.character].name),
-					string(ARENAS[result.arena].name),
-				),
-				108,
-				22,
-				raylib.VIOLET,
-			)
-			draw_centered(
-				raylib.TextFormat(
-					"PRIMARY %s    SECONDARY %s",
-					string(GUNS[result.gun].name),
-					string(SECONDARIES[result.secondary].name),
-				),
-				138,
-				18,
-				raylib.DARKGRAY,
-			)
-			draw_centered(
-				raylib.TextFormat(
-					"DASH %s    UTILITY %s",
-					string(DASHES[result.dash].name),
-					string(UTILITIES[result.utility].name),
-				),
-				162,
-				18,
-				raylib.DARKGRAY,
-			)
-			draw_stat(cstring("WAVE REACHED"), raylib.TextFormat("%i", result.wave_reached), 214)
-			draw_stat(cstring("ENEMIES SLAIN"), raylib.TextFormat("%i", result.kills), 248)
-			draw_stat(cstring("ELITES SLAIN"), raylib.TextFormat("%i", result.elite_kills), 282)
-			draw_stat(cstring("COINS EARNED"), raylib.TextFormat("%i", result.coins_earned), 316)
-			draw_stat(cstring("COINS SPENT"), raylib.TextFormat("%i", result.coins_spent), 350)
-			draw_stat(
-				cstring("TIME SURVIVED"),
-				raylib.TextFormat("%i:%02i", int(result.time) / 60, int(result.time) % 60),
-				384,
-			)
+			if run_rules.mode == .BOSS_RUSH && boss_rush_won {
+				draw_centered(cstring("RUSH CLEARED"), 40, 52, raylib.GOLD)
+				draw_centered(cstring("ALL BOSSES DEFEATED"), 108, 22, raylib.VIOLET)
+			} else {
+				draw_centered(cstring("RUN OVER"), 40, 52, raylib.RED)
+				draw_centered(
+					raylib.TextFormat(
+						"CHARACTER %s    ARENA %s",
+						string(CHARACTERS[result.character].name),
+						string(ARENAS[result.arena].name),
+					),
+					108,
+					22,
+					raylib.VIOLET,
+				)
+				draw_centered(
+					raylib.TextFormat(
+						"PRIMARY %s    SECONDARY %s",
+						string(GUNS[result.gun].name),
+						string(SECONDARIES[result.secondary].name),
+					),
+					138,
+					18,
+					raylib.DARKGRAY,
+				)
+				draw_centered(
+					raylib.TextFormat(
+						"DASH %s    UTILITY %s",
+						string(DASHES[result.dash].name),
+						string(UTILITIES[result.utility].name),
+					),
+					162,
+					18,
+					raylib.DARKGRAY,
+				)
+				draw_stat(cstring("WAVE REACHED"), raylib.TextFormat("%i", result.wave_reached), 214)
+				draw_stat(cstring("ENEMIES SLAIN"), raylib.TextFormat("%i", result.kills), 248)
+				draw_stat(cstring("ELITES SLAIN"), raylib.TextFormat("%i", result.elite_kills), 282)
+				draw_stat(cstring("COINS EARNED"), raylib.TextFormat("%i", result.coins_earned), 316)
+				draw_stat(cstring("COINS SPENT"), raylib.TextFormat("%i", result.coins_spent), 350)
+				draw_stat(
+					cstring("TIME SURVIVED"),
+					raylib.TextFormat("%i:%02i", int(result.time) / 60, int(result.time) % 60),
+					384,
+				)
+			}
 			g_main, _ := ui_row(cstring("ENTER   MAIN MENU"), 480, 24, raylib.GRAY)
 			g_retry, _ := ui_row(cstring("R   RETRY SAME LOADOUT"), 512, 22, raylib.DARKGRAY)
 			raylib.EndTextureMode()

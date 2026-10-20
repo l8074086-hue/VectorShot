@@ -1408,43 +1408,92 @@ draw_boss_body :: proc(e: enemy) {
 	if raylib.Vector2Length(pc - ec) > 0.01 {
 		facing = raylib.Vector2Normalize(pc - ec)
 	}
-	switch e.boss_kind {
-	case .PACKLEADER:
-		pack_leader_body(e, ec, er, facing)
-	case .DUSTMAW:
-		dustmaw_body(e, ec, er, facing)
-	case .COLOSSUS:
-		colossus_body(e, ec, er)
-	case .FROSTBITE:
-		frostbite_body(e, ec, er)
-	case .MECHANIKTRON:
-		mechaniktron_body(e, ec, er, facing)
-	case .THORNWALD:
-		thornwald_body(e, ec, er)
-	case .BOGWRAITH:
-		bogwraith_body(e, ec, er, facing)
+	// Boss visuals are data-driven: ARENA_BOSSES[e.boss_kind].visuals.shapes
+	// lists the shapes that make up the boss. Each shape's offset is relative
+	// to the boss center and is rotated by `facing` so the boss always faces
+	// the player.
+	v := ARENA_BOSSES[boss_kind_to_arena_kind(e.boss_kind)].visuals
+	for s in v.shapes {
+		// Rotate the shape's offset by the boss's facing direction so it
+		// stays anchored to the body as the boss turns.
+		off := raylib.Vector2Rotate(s.offset, math.atan2_f32(facing.y, facing.x) + s.rotation)
+		draw_boss_shape(ec, er, s, off)
+	}
+	// Dynamic per-boss decoration that can't be expressed in static shapes:
+	// windup tells, state-specific changes, weakpoint pulses, etc.
+	draw_boss_body_dynamic(e, ec, er, facing)
+}
+
+// Draw a single boss shape at `center + offset`.
+draw_boss_shape :: proc(center, er: raylib.Vector2, s: Boss_Shape, off: raylib.Vector2) {
+	p := center + off
+	switch s.kind {
+	case .CIRCLE:
+		raylib.DrawCircleV(p, s.size.x, s.color)
+	case .RECTANGLE:
+		raylib.DrawRectangleRec(
+			raylib.Rectangle{p.x - s.size.x, p.y - s.size.y, s.size.x * 2, s.size.y * 2},
+			s.color,
+		)
+	case .TRIANGLE:
+		// Triangle points along the rotated offset direction.
+		dir := raylib.Vector2Normalize(off)
+		if raylib.Vector2Length(dir) < 0.01 {
+			dir = raylib.Vector2{1, 0}
+		}
+		perp := raylib.Vector2{-dir.y, dir.x}
+		raylib.DrawTriangle(
+			p + dir * s.size.x,
+			p - dir * s.size.x * 0.5 + perp * s.size.y,
+			p - dir * s.size.x * 0.5 - perp * s.size.y,
+			s.color,
+		)
+	case .LINE:
+		dir := raylib.Vector2Normalize(off)
+		if raylib.Vector2Length(dir) < 0.01 {
+			dir = raylib.Vector2{1, 0}
+		}
+		raylib.DrawLineEx(p, p + dir * s.size.x, s.size.y, s.color)
+	case .SECTOR:
+		dir := raylib.Vector2Normalize(off)
+		if raylib.Vector2Length(dir) < 0.01 {
+			dir = raylib.Vector2{1, 0}
+		}
+		base := math.atan2_f32(dir.y, dir.x)
+		raylib.DrawCircleSector(p, s.size.x, base - s.size.y * 0.5, base + s.size.y * 0.5, 16, s.color)
+	case .POLY:
+		raylib.DrawPoly(p, i32(s.size.y), s.size.x, s.rotation, s.color)
 	}
 }
 
-pack_leader_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
-	// Two ears, a darker mane ring, a pair of eyes and a snout toward the player.
-	raylib.DrawTriangle(
-		ec + {-er * 0.55, -er},
-		ec + {-er * 0.15, -er * 1.5},
-		ec + {-er * 0.1, -er},
-		raylib.Color{60, 92, 52, 255},
-	)
-	raylib.DrawTriangle(
-		ec + {er * 0.55, -er},
-		ec + {er * 0.15, -er * 1.5},
-		ec + {er * 0.1, -er},
-		raylib.Color{60, 92, 52, 255},
-	)
-	raylib.DrawCircleLines(i32(ec.x), i32(ec.y), er * 0.85, raylib.Color{40, 70, 40, 255})
+// Dynamic per-boss decoration that can't be expressed in static shapes:
+// windup tells, state-specific changes, weakpoint pulses, etc.
+draw_boss_body_dynamic :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
+	switch e.boss_kind {
+	case .PACKLEADER:
+		draw_boss_body_packleader(e, ec, er, facing)
+	case .DUSTMAW:
+		draw_boss_body_dustmaw(e, ec, er, facing)
+	case .COLOSSUS:
+		draw_boss_body_colossus(e, ec, er)
+	case .FROSTBITE:
+		draw_boss_body_frostbite(e, ec, er, facing)
+	case .MECHANIKTRON:
+		draw_boss_body_mechaniktron(e, ec, er, facing)
+	case .THORNWALD:
+		draw_boss_body_thornwald(e, ec, er)
+	case .BOGWRAITH:
+		draw_boss_body_bogwraith(e, ec, er, facing)
+	}
+}
+
+draw_boss_body_packleader :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
+	// Eyes follow the player.
 	eye := ec + facing * er * 0.35
 	perp := raylib.Vector2{-facing.y, facing.x}
 	raylib.DrawCircleV(eye + perp * er * 0.3, 3.5, raylib.YELLOW)
 	raylib.DrawCircleV(eye - perp * er * 0.3, 3.5, raylib.YELLOW)
+	// Snout.
 	snout := ec + facing * er * 0.9
 	raylib.DrawCircleV(snout, 4, raylib.Color{30, 50, 30, 255})
 	if e.state == .WINDUP {
@@ -1452,7 +1501,7 @@ pack_leader_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.V
 	}
 }
 
-dustmaw_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
+draw_boss_body_dustmaw :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
 	if e.boss_hidden {
 		// Just a disturbed mound of dirt with ripples, sliding over the ground.
 		raylib.DrawCircleV(ec, er * 1.05, raylib.Color{96, 74, 46, 255})
@@ -1461,10 +1510,7 @@ dustmaw_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vecto
 		raylib.DrawCircleLines(i32(ec.x), i32(ec.y), er * 1.15, raylib.Color{70, 54, 34, 200})
 		return
 	}
-	// Surfaced: a segmented body with a maw facing the player.
-	raylib.DrawCircleV(ec - facing * er * 0.5, er * 0.75, raylib.Color{150, 120, 74, 255})
-	raylib.DrawCircleV(ec, er * 0.95, raylib.Color{178, 146, 92, 255})
-	raylib.DrawCircleV(ec + facing * er * 0.35, er * 0.7, raylib.Color{206, 172, 108, 255})
+	// Surfaced: segmented body with a maw facing the player.
 	maw := ec + facing * er * 0.55
 	raylib.DrawCircleV(maw, er * 0.5, raylib.Color{40, 24, 16, 255})
 	perp := raylib.Vector2{-facing.y, facing.x}
@@ -1472,16 +1518,7 @@ dustmaw_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vecto
 	raylib.DrawTriangle(maw - perp * 6, maw + facing * 6, maw - perp * 4 - facing * 8, raylib.RAYWHITE)
 }
 
-colossus_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.9, ec.y - er * 0.9, er * 1.8, er * 1.8},
-		raylib.Color{108, 108, 118, 255},
-	)
-	raylib.DrawRectangleLinesEx(
-		raylib.Rectangle{ec.x - er * 0.9, ec.y - er * 0.9, er * 1.8, er * 1.8},
-		3,
-		raylib.Color{70, 70, 80, 255},
-	)
+draw_boss_body_colossus :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 	// Cracks of glowing light.
 	core := raylib.Color{255, 170, 70, 255}
 	raylib.DrawLineEx(ec + {-er * 0.6, -er * 0.3}, ec + {er * 0.1, er * 0.5}, 2, core)
@@ -1489,20 +1526,10 @@ colossus_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 	raylib.DrawCircleV(ec, er * 0.22 + (e.state == .WINDUP ? 3 : 0), raylib.Color{255, 200, 110, 255})
 }
 
-frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
-	// She faces the player, and both fans lead that way.
-	pc := position + size * 0.5
-	facing := raylib.Vector2{1, 0}
-	if raylib.Vector2Length(pc - ec) > 0.01 {
-		facing = raylib.Vector2Normalize(pc - ec)
-	}
+draw_boss_body_frostbite :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
 	base := math.atan2_f32(facing.y, facing.x)
 
-	raylib.DrawPoly(ec, 4, er * 1.15, 0, raylib.Color{150, 225, 255, 255})
-	raylib.DrawPoly(ec, 4, er * 0.7, 0, raylib.Color{215, 245, 255, 255})
-
-	// Two fans. They open wider while she's swinging or spinning, so the pose
-	// itself tells you which phrase she's in before any tell paints the floor.
+	// Two fans. They open wider while she's swinging or spinning.
 	open: f32 = 0.9
 	if e.state == .BOSS_ATTACK &&
 	   (e.boss_next == 0 || e.boss_next == 1 || e.boss_next == 3) {
@@ -1513,16 +1540,10 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 		open = 1.4
 	}
 	for i in 0 ..< 2 {
-		// Offset each fan to either side of her facing, and let the waltz carry
-		// them around with her.
 		side: f32 = 0.55
 		if i == 1 {
 			side = -0.55
 		}
-		// boss_spin only advances during the waltz, but it never resets. Reading
-		// it unconditionally would leave the fans pointing off at whatever angle
-		// the last spin left them, long after she'd stopped turning. Only the
-		// waltz actually uses it.
 		spin := f32(0)
 		if e.state == .BOSS_ATTACK && e.boss_next == 1 {
 			spin = f32(e.boss_spin)
@@ -1530,7 +1551,6 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 		ang := base + side + spin
 		dir := raylib.Vector2{math.cos_f32(ang), math.sin_f32(ang)}
 		pivot := ec + dir * er * 0.85
-		perp := raylib.Vector2{-dir.y, dir.x}
 		raylib.DrawCircleSector(
 			pivot,
 			er * 0.95,
@@ -1547,7 +1567,7 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 			16,
 			raylib.Color{120, 200, 240, 255},
 		)
-		// The ribs, so a fan reads as a fan and not a blob.
+		// Ribs so a fan reads as a fan and not a blob.
 		for k in -1 ..= 1 {
 			ra := ang + f32(k) * open * 0.33
 			raylib.DrawLineEx(
@@ -1557,11 +1577,10 @@ frostbite_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 				raylib.Color{150, 215, 245, 190},
 			)
 		}
-		_ = perp
 	}
 }
 
-mechaniktron_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing_in: raylib.Vector2) {
+draw_boss_body_mechaniktron :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing_in: raylib.Vector2) {
 	// While exposed the machine can't turn, so draw its frozen facing and let the
 	// weakpoint stay where the stun left it.
 	facing := facing_in
@@ -1571,27 +1590,6 @@ mechaniktron_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing_in: rayl
 	perp := raylib.Vector2{-facing.y, facing.x}
 	steel := raylib.Color{104, 118, 134, 255}
 	dark := raylib.Color{52, 60, 70, 255}
-	// Treads.
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.98, ec.y - er * 0.34, er * 1.96, er * 0.68},
-		dark,
-	)
-	// Back plate: the armour that hides the weakpoint.
-	back := ec - facing * er * 0.55
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{back.x - er * 0.55, back.y - er * 0.55, er * 1.1, er * 1.1},
-		raylib.Color{70, 80, 92, 255},
-	)
-	// Torso.
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.68, ec.y - er * 0.68, er * 1.36, er * 1.36},
-		steel,
-	)
-	raylib.DrawRectangleLinesEx(
-		raylib.Rectangle{ec.x - er * 0.68, ec.y - er * 0.68, er * 1.36, er * 1.36},
-		2,
-		dark,
-	)
 	// Arms reaching at the player, ending in fists.
 	for s in ([2]f32{-1, 1}) {
 		shoulder := ec + facing * er * 0.1 + perp * (er * 0.66 * s)
@@ -1618,46 +1616,14 @@ mechaniktron_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing_in: rayl
 	raylib.DrawCircleLines(i32(wp.x), i32(wp.y), er * 0.36, raylib.Color{150, 220, 255, 255})
 }
 
-thornwald_body :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
-	// Trunk.
-	raylib.DrawRectangleRec(
-		raylib.Rectangle{ec.x - er * 0.35, ec.y - er * 0.4, er * 0.7, er * 1.3},
-		raylib.Color{78, 58, 36, 255},
-	)
-	// Canopy.
-	raylib.DrawCircleV(ec + {0, -er * 0.75}, er * 0.65, raylib.Color{56, 112, 56, 255})
-	raylib.DrawCircleV(ec + {-er * 0.5, -er * 0.45}, er * 0.45, raylib.Color{68, 132, 62, 255})
-	raylib.DrawCircleV(ec + {er * 0.5, -er * 0.45}, er * 0.45, raylib.Color{68, 132, 62, 255})
-	// Roots.
-	raylib.DrawTriangle(
-		ec + {-er * 0.35, er * 0.85},
-		ec + {-er * 0.7, er * 1.15},
-		ec + {-er * 0.05, er * 0.95},
-		raylib.Color{60, 46, 30, 255},
-	)
-	raylib.DrawTriangle(
-		ec + {er * 0.35, er * 0.85},
-		ec + {er * 0.7, er * 1.15},
-		ec + {er * 0.05, er * 0.95},
-		raylib.Color{60, 46, 30, 255},
-	)
+draw_boss_body_thornwald :: proc(e: enemy, ec: raylib.Vector2, er: f32) {
 	// Eyes in the trunk.
 	raylib.DrawCircleV(ec + {-er * 0.14, er * 0.05}, 3, raylib.Color{200, 240, 120, 255})
 	raylib.DrawCircleV(ec + {er * 0.14, er * 0.05}, 3, raylib.Color{200, 240, 120, 255})
 }
 
-bogwraith_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
-	col := e.color
-	// Tattered robe: a hood circle over a downward triangle skirt.
-	raylib.DrawCircleV(ec + {0, -er * 0.2}, er * 0.95, raylib.Color{col.r, col.g, col.b, 220})
-	raylib.DrawTriangle(
-		ec + {-er * 0.85, er * 0.2},
-		ec + {er * 0.85, er * 0.2},
-		ec + {0, er * 1.25},
-		raylib.Color{col.r, col.g, col.b, 200},
-	)
+draw_boss_body_bogwraith :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vector2) {
 	// Hood shadow + glowing eyes.
-	raylib.DrawCircleV(ec + {0, -er * 0.2}, er * 0.55, raylib.Color{28, 16, 38, 235})
 	perp := raylib.Vector2{-facing.y, facing.x}
 	eye := ec + facing * er * 0.2
 	raylib.DrawCircleV(eye + perp * er * 0.22, 3, raylib.Color{210, 150, 255, 255})
@@ -1666,3 +1632,4 @@ bogwraith_body :: proc(e: enemy, ec: raylib.Vector2, er: f32, facing: raylib.Vec
 		raylib.DrawCircleLines(i32(ec.x), i32(ec.y), er * 1.2, raylib.Color{200, 140, 255, 200})
 	}
 }
+

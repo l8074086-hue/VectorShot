@@ -530,6 +530,36 @@ Arena_Boss :: struct {
 	speed:           f32,
 	damage:          f32,
 	preferred_range: f32, // distance the boss tries to hold (where it applies)
+	visuals:         Boss_Visual, // data-driven look: list of shapes to draw each frame
+}
+
+// One drawable piece of a boss. `offset` is relative to the boss center and is
+// rotated by `facing` when the boss faces the player (for bosses that turn).
+// `size` is interpreted per `kind`: CIRCLE uses .x as radius, RECTANGLE uses
+// both as half-extents, TRIANGLE uses .x as width and .y as height, LINE uses
+// .x as length and .y as thickness, SECTOR uses .x as radius and .y as angle
+// (radians, full sweep), POLY uses .x as radius and .y as side count.
+Boss_Shape_Kind :: enum {
+	CIRCLE,
+	RECTANGLE,
+	TRIANGLE,
+	LINE,
+	SECTOR,
+	POLY,
+}
+
+Boss_Shape :: struct {
+	kind:     Boss_Shape_Kind,
+	offset:   raylib.Vector2, // relative to boss center, rotated by facing
+	size:     raylib.Vector2,
+	color:    raylib.Color,
+	rotation: f32, // extra rotation applied on top of facing (radians)
+}
+
+// A boss's look: a list of shapes drawn every frame, plus per-frame dynamic
+// state (facing, windup, etc.) applied by draw_boss_body.
+Boss_Visual :: struct {
+	shapes: [dynamic]Boss_Shape,
 }
 
 // What a mission (level) asks you to do. `target` is a wave number for SURVIVE

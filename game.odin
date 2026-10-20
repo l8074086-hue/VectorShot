@@ -3948,6 +3948,72 @@ bestiary_id_for_revenant :: proc(name: cstring) -> cstring {
 	return ""
 }
 
+// Map Boss_Kind to Arena_Kind for looking up boss visuals.
+boss_kind_to_arena_kind :: proc(k: Boss_Kind) -> Arena_Kind {
+	switch k {
+	case .PACKLEADER:
+		return .GRASSLAND
+	case .DUSTMAW:
+		return .CANYON
+	case .COLOSSUS:
+		return .RUINS
+	case .FROSTBITE:
+		return .GLACIER
+	case .MECHANIKTRON:
+		return .FOUNDRY
+	case .THORNWALD:
+		return .FOREST
+	case .BOGWRAITH:
+		return .SWAMP
+	}
+	return .GRASSLAND
+}
+
+// Initialize boss visuals data. Called once at game startup.
+init_boss_visuals :: proc() {
+	// PACKLEADER - Wolf alpha
+	append(&ARENA_BOSSES[.GRASSLAND].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, 0},        {40, 0},  {60, 92, 52, 255}, 0})
+	append(&ARENA_BOSSES[.GRASSLAND].visuals.shapes, Boss_Shape{Boss_Shape_Kind.TRIANGLE,   {-28, -44},    {22, 44}, {60, 92, 52, 255}, 0})
+	append(&ARENA_BOSSES[.GRASSLAND].visuals.shapes, Boss_Shape{Boss_Shape_Kind.TRIANGLE,   {28, -44},     {22, 44}, {60, 92, 52, 255}, 0})
+	append(&ARENA_BOSSES[.GRASSLAND].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, 0},        {34, 0},  {40, 70, 40, 255}, 0})
+	append(&ARENA_BOSSES[.GRASSLAND].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {36, 0},       {16, 0},  {30, 50, 30, 255}, 0})
+
+	// DUSTMAW - Burrowing worm
+	append(&ARENA_BOSSES[.CANYON].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {-28, 0},     {30, 0},  {150, 120, 74, 255}, 0})
+	append(&ARENA_BOSSES[.CANYON].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, 0},        {38, 0},  {178, 146, 92, 255}, 0})
+	append(&ARENA_BOSSES[.CANYON].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {28, 0},       {26, 0},  {206, 172, 108, 255}, 0})
+	append(&ARENA_BOSSES[.CANYON].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {-38, 0},      {20, 0},  {40, 24, 16, 255}, 0})
+
+	// COLOSSUS - Stone titan
+	append(&ARENA_BOSSES[.RUINS].visuals.shapes, Boss_Shape{Boss_Shape_Kind.RECTANGLE,  {0, 0},        {58, 58}, {108, 108, 118, 255}, 0})
+	append(&ARENA_BOSSES[.RUINS].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, 0},        {22, 0},  {255, 170, 70, 255}, 0})
+
+	// FROSTBITE - Ice wraith
+	append(&ARENA_BOSSES[.GLACIER].visuals.shapes, Boss_Shape{Boss_Shape_Kind.POLY,       {0, 0},        {46, 4},   {150, 225, 255, 255}, 0})
+	append(&ARENA_BOSSES[.GLACIER].visuals.shapes, Boss_Shape{Boss_Shape_Kind.POLY,       {0, 0},        {28, 4},   {215, 245, 255, 255}, 0})
+
+	// MECHANIKTRON - War machine
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.RECTANGLE,  {0, 22},       {58, 17}, {52, 60, 70, 255}, 0})
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.RECTANGLE,  {0, 0},        {34, 34}, {104, 118, 134, 255}, 0})
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.RECTANGLE,  {-28, 0},      {28, 28}, {70, 80, 92, 255}, 0})
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {21, 0},       {16, 0},  {52, 60, 70, 255}, 0})
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {30, 0},       {10, 0},  {255, 90, 70, 255}, 0})
+	append(&ARENA_BOSSES[.FOUNDRY].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {-35, 0},      {14, 0},  {90, 110, 130, 255}, 0})
+
+	// THORNWALD - Tree horror
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.RECTANGLE,  {0, -12},     {18, 26}, {78, 58, 36, 255}, 0})
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, -38},     {26, 0},  {56, 112, 56, 255}, 0})
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {-20, -23},   {18, 0},  {68, 132, 62, 255}, 0})
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {20, -23},    {18, 0},  {68, 132, 62, 255}, 0})
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.TRIANGLE,   {-14, 34},    {28, 18}, {60, 46, 30, 255}, 0})
+	append(&ARENA_BOSSES[.FOREST].visuals.shapes, Boss_Shape{Boss_Shape_Kind.TRIANGLE,   {14, 34},     {28, 18}, {60, 46, 30, 255}, 0})
+
+	// BOGWRAITH - Bog spirit
+	append(&ARENA_BOSSES[.SWAMP].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, -8},      {38, 0},  {28, 16, 38, 235}, 0})
+	append(&ARENA_BOSSES[.SWAMP].visuals.shapes, Boss_Shape{Boss_Shape_Kind.TRIANGLE,   {0, 25},      {34, 25}, {176, 110, 214, 200}, 0})
+	append(&ARENA_BOSSES[.SWAMP].visuals.shapes, Boss_Shape{Boss_Shape_Kind.CIRCLE,     {0, -8},      {22, 0},  {28, 16, 38, 235}, 0})
+}
+
 // The bestiary id for an arena's boss.
 bestiary_id_for_boss :: proc(which: Arena_Kind) -> cstring {
 	switch which {

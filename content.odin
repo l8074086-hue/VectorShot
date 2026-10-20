@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package main
 import "vendor:raylib"
 
@@ -1135,7 +1136,7 @@ ARENA_BOSSES := [Arena_Kind]Arena_Boss {
 		hp              = 175,
 		speed           = 68,
 		damage          = 17,
-		preferred_range = 0, // DUSTMAW ambushes; it doesn't hold a range
+		preferred_range = 0,
 	},
 	.RUINS     = {
 		name            = "THE COLOSSUS",
@@ -1145,8 +1146,6 @@ ARENA_BOSSES := [Arena_Kind]Arena_Boss {
 		hp              = 230,
 		speed           = 46,
 		damage          = 18,
-		// It fights with its arms, so it has to stand inside swinging range
-		// instead of hanging back at a caster's distance.
 		preferred_range = 120,
 	},
 	.GLACIER   = {
