@@ -5996,7 +5996,7 @@ draw_relic_choices :: proc() -> (count: int) {
 	}
 	count = min(3, len(pool))
 	for i in 0..<count {
-		j := rand.int_range(0, len(pool)-1)
+		j := rand.int_range(0, len(pool))
 		relic_pick_choices[i] = pool[j]
 		unordered_remove(&pool, j)
 	}
