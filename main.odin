@@ -487,7 +487,11 @@ relic_pick_draw :: proc() {
 			   raylib.CheckCollisionPointRec(mouse_pos, row_rect) {
 				raylib.DrawRectangleLinesEx(row_rect, 3, raylib.YELLOW)
 				if raylib.IsMouseButtonPressed(.LEFT) {
-					take_relic(relic_swap_pending^)
+					// Swap the clicked equipped relic for the staged pick.
+					swap_relic(k, relic_swap_pending^)
+					relic_pick_open = false
+					relic_swap_pending = nil
+					play(sounds.shop_buy)
 				}
 			} else {
 				raylib.DrawRectangleLinesEx(row_rect, 2, raylib.DARKGRAY)
@@ -4531,14 +4535,16 @@ draw_wrapped :: proc(text: cstring, x, y: i32, width: i32, size: i32, color: ray
 draw_inventory :: proc(target: raylib.RenderTexture) {
 	raylib.BeginTextureMode(target)
 	raylib.ClearBackground(raylib.BLACK)
-	draw_centered(cstring("DRAWING DECK"), 90, 28, raylib.WHITE)
+	// Left column title.
+	raylib.DrawText(cstring("DRAWING DECK"), 40, 28, 34, raylib.WHITE)
 	draw_centered(
 		raylib.TextFormat("%i CARDS   -   FLOOR %i", len(deck), DECK_MIN_SIZE),
 		124,
 		16,
 		raylib.GOLD,
 	)
-	draw_centered(cstring("GRAVEYARD"), 90, 28, REVENANT_COLOR)
+	// Right column title.
+	raylib.DrawText(cstring("GRAVEYARD"), 440, 28, 34, REVENANT_COLOR)
 	draw_centered(raylib.TextFormat("%i", len(graveyard)), 124, 16, raylib.DARKGRAY)
 
 	entries := deck_tally()

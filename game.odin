@@ -4271,6 +4271,10 @@ boss_rush_advance :: proc() {
 		play(sounds.shop_buy)
 		settings.maps_done |= 1 << u32(int(arena))
 		settings_save()
+		// The run is over: all bosses are down. Transition to results instead
+		// of leaving the player stranded in PLAYING with no enemies and no
+		// way forward.
+		state = .GAME_OVER
 		return
 	}
 	// Deliberately does NOT spawn the next boss here. The field has just gone
