@@ -546,15 +546,15 @@ relic_pick_draw :: proc() {
 		raylib.DrawRectangleLinesEx(cur, 2, raylib.YELLOW)
 		if full {
 			draw_centered(
-				cstring("LEFT/RIGHT pick relic, ENTER stage, then click equipped relic to swap"),
-				i32(y + h) - 16,
+				cstring("LEFT/RIGHT pick relic, ENTER stage, click equipped relic to swap"),
+				i32(y + h) - 34,
 				14,
 				raylib.DARKGRAY,
 			)
 		} else {
 			draw_centered(
 				cstring("1-3 or LEFT/RIGHT + ENTER to take"),
-				i32(y + h) - 16,
+				i32(y + h) - 34,
 				14,
 				raylib.DARKGRAY,
 			)
