@@ -2195,6 +2195,13 @@ resume_run :: proc() -> bool {
 	// loadout and re-apply the accumulated upgrade state on top.
 	arena = rs.arena
 	active_mission = rs.active_mission
+	// Restore the run's equipped relics before start_run applies them.
+	// This prevents a player from editing settings.cfg mid-run to change
+	// their loadout, then resuming with different relics.
+	settings.relics_equipped = rs.relics_equipped
+	settings.relics_equipped &~= settings.relics_equipped & ~settings.relics_owned
+	settings.relics_owned |= rs.relics_equipped
+	settings_save()
 	// The mode and modifiers have to be restored BEFORE start_run runs, not
 	// after. start_run reads both: it builds the opening deck (which differs
 	// under ONE LIFE), it decides whether to generate an expedition map, and
@@ -2240,13 +2247,6 @@ resume_run :: proc() -> bool {
 	for eff in Status_Effect {
 		status_power[eff] = rs.status_power[int(eff)]
 	}
-	// Relic effects are already baked into the stats above (start_run applied the
-	// equipped set before the save values were restored on top), so don't apply
-	// them again here. Just make sure the equipment the run was saved with is
-	// still what the Equipment screen shows.
-	settings.relics_equipped = rs.relics_equipped
-	settings.relics_equipped &~= settings.relics_equipped & ~settings.relics_owned
-	settings.relics_owned |= rs.relics_equipped
 	// Resume into the same mode: a run that had already cleared its boss stays in
 	// endless survival, and one that hadn't still gets its boss on the last wave.
 	endless_mode = rs.endless
@@ -5992,6 +5992,14 @@ draw_relic_choices :: proc() -> (count: int) {
 	defer delete(pool)
 	for k in Relic_Kind {
 		if !relic_in_collection(k) {
+			append(&pool, k)
+		}
+	}
+	// If all relics are collected, still offer 3 random relics so the player
+	// can swap their equipped loadout mid-run. Picking one doesn't add to the
+	// collection (they already own it), it just equips or swaps.
+	if len(pool) == 0 {
+		for k in Relic_Kind {
 			append(&pool, k)
 		}
 	}
