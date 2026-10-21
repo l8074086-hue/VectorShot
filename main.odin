@@ -372,7 +372,7 @@ relic_pick_update :: proc() {
 	}
 	// When inventory is full, LEFT/RIGHT navigate choice cards, ENTER stages
 	// the selected one for swapping.
-	if relic_equipped_count() >= RELIC_MAX_EQUIPPED {
+	if relic_equipped_count() >= RELIC_MAX_EQUIPPED && relic_pick_count > 0 {
 		if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
 		   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
 			relic_pick_idx = (relic_pick_idx + relic_pick_count - 1) % relic_pick_count
