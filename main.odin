@@ -327,6 +327,12 @@ leave_shop :: proc() {
 			new_wave(&enemies, wave)
 		}
 		wave += 1
+		// The reward latch was set when the previous wave card was dealt;
+			// clear it so the next wave reward shows normally.
+			between_wave_reward_done = false
+		// The reward latch was set when the previous wave card was dealt;
+			// clear it so the next wave reward shows normally.
+			between_wave_reward_done = false
 	}
 }
 
@@ -3254,6 +3260,11 @@ main :: proc() {
 							state = .EXPEDITION_MAP
 						}
 					}
+					// expedition_commit() advanced the frontier, but
+					// expedition_in_node is still set to the node we just cleared.
+					// Reset it to a non-combat kind so a resume doesn't try to
+					// re-enter the cleared node.
+					expedition_in_node = .DECKMASTER
 					break
 				}
 				// Every 5th cleared wave opens a visit instead of a card

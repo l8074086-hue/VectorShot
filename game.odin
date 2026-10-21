@@ -4145,9 +4145,18 @@ leave_deckmaster :: proc() {
 			new_wave(&enemies, wave)
 		}
 		wave += 1
+		// The reward latch was set when the previous wave card was dealt;
+			// clear it so the next wave reward shows normally.
+			between_wave_reward_done = false
 		// Discards made here are the whole point of the visit, so checkpoint
 		// before the next wave rather than waiting for it to be cleared.
-		save_run()
+				// The reward latch was set when the previous wave card was dealt;
+			// clear it so the next wave reward shows normally.
+			between_wave_reward_done = false
+			// The reward latch was set when the previous wave card was dealt;
+			// clear it so the next wave reward shows normally.
+			between_wave_reward_done = false
+	save_run()
 	}
 }
 
