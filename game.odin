@@ -5960,9 +5960,11 @@ equip_relic :: proc(kind: Relic_Kind) -> bool {
 // The old one's stat bonus is NOT refunded: these are permanent run upgrades, so
 // a swap only ever adds. Keeps swaps safe to trigger from a frozen overlay.
 swap_relic :: proc(old: Relic_Kind, new: Relic_Kind) {
-	if old == new || !relic_in_collection(new) {
+	if old == new {
 		return
 	}
+	// Make sure the new relic is in the player's collection before equipping it.
+	settings.relics_owned |= u32(1) << u32(int(new))
 	settings.relics_equipped &~= u32(1) << u32(int(old))
 	settings.relics_equipped |= u32(1) << u32(int(new))
 	settings.relics_owned |= u32(1) << u32(int(new))
