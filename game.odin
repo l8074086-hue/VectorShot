@@ -930,6 +930,14 @@ start_run :: proc(stats: Run_Stats) {
 	// node rather than being dropped into a wave.
 	if run_rules.mode == .EXPEDITION {
 		state = .EXPEDITION_MAP
+	} else if run_rules.mode == .BOSS_RUSH {
+		// Boss Rush starts you with your base loadout against the first boss.
+		// Deal a card before the first fight so you have at least one upgrade
+		// before facing the arena boss.
+		between_wave_reward_done = false
+		deck_offer_next()
+		deck_offer_draw_cards()
+		state = .PLAYING
 	} else {
 		state = .PLAYING
 	}
