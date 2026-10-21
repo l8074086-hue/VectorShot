@@ -367,29 +367,78 @@ relic_pick_update :: proc() {
 	if raylib.IsKeyPressed(raylib.KeyboardKey.ESCAPE) {
 		relic_pick_open = false
 		relic_swap_pending = nil
+		relic_pick_focus = 0
+		relic_pick_equipped_idx = 0
 		play(sounds.ui_move)
 		return
 	}
-	// When inventory is full, LEFT/RIGHT navigate choice cards, ENTER stages
-	// the selected one for swapping.
+	// When inventory is full, the player first picks a replacement relic from
+	// the 3 choices, then picks which equipped relic to swap it out with.
+	// TAB moves between choice cards and equipped relics.
 	if relic_equipped_count() >= RELIC_MAX_EQUIPPED && relic_pick_count > 0 {
-		if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
-		   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
-			relic_pick_idx = (relic_pick_idx + relic_pick_count - 1) % relic_pick_count
-			play(sounds.ui_move)
-		}
-		if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
-		   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
-			relic_pick_idx = (relic_pick_idx + 1) % relic_pick_count
-			play(sounds.ui_move)
-		}
-		if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
-		   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
-			relic_swap_pending = &relic_pick_choices[relic_pick_idx]
-			play(sounds.ui_move)
+		if relic_pick_focus == 0 {
+			// Choice card navigation.
+			if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+				relic_pick_idx = (relic_pick_idx + relic_pick_count - 1) % relic_pick_count
+				play(sounds.ui_move)
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+				relic_pick_idx = (relic_pick_idx + 1) % relic_pick_count
+				play(sounds.ui_move)
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.TAB) {
+				relic_pick_focus = 1
+				play(sounds.ui_move)
+			}
+			if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+			   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+				relic_swap_pending = &relic_pick_choices[relic_pick_idx]
+				relic_pick_focus = 1
+				play(sounds.ui_move)
+			}
+		} else {
+			// Equipped relic navigation.
+			eq: [3]Relic_Kind
+			neq: int = 0
+			for k in Relic_Kind {
+				if relic_equipped(k) {
+					eq[neq] = k
+					neq += 1
+				}
+			}
+			if neq > 0 {
+				if raylib.IsKeyPressed(raylib.KeyboardKey.LEFT) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.A) {
+					relic_pick_equipped_idx = (relic_pick_equipped_idx + neq - 1) % neq
+					play(sounds.ui_move)
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.RIGHT) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.D) {
+					relic_pick_equipped_idx = (relic_pick_equipped_idx + 1) % neq
+					play(sounds.ui_move)
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.TAB) {
+					relic_pick_focus = 0
+					play(sounds.ui_move)
+				}
+				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) ||
+				   raylib.IsKeyPressed(raylib.KeyboardKey.SPACE) {
+					if relic_swap_pending != nil {
+						swap_relic(eq[relic_pick_equipped_idx], relic_swap_pending^)
+						relic_pick_open = false
+						relic_swap_pending = nil
+						relic_pick_focus = 0
+						relic_pick_equipped_idx = 0
+						play(sounds.shop_buy)
+					}
+				}
+			}
 		}
 		return
 	}
+	// Not full inventory - normal card pick.
 	for key, idx in NUMBER_KEYS {
 		if idx < relic_pick_count && raylib.IsKeyPressed(key) {
 			take_relic(relic_pick_choices[idx])
@@ -503,25 +552,39 @@ relic_pick_draw :: proc() {
 			14,
 			raylib.SKYBLUE,
 		)
+		// Build the list of equipped relics (for keyboard nav).
+		eq: [3]Relic_Kind
+		neq: i32 = 0
+		for k in Relic_Kind {
+			if relic_equipped(k) {
+				eq[neq] = k
+				neq += 1
+			}
+		}
 		sw2: f32 = 180
 		sy := y + 154
-		for k in Relic_Kind {
-			if !relic_equipped(k) {
-				continue
-			}
+		for i in 0 ..< neq {
+			k := eq[i]
 			row_rect := raylib.Rectangle{x + 30, sy, w - 60, 30}
-			if relic_swap_pending != nil &&
-			   raylib.CheckCollisionPointRec(mouse_pos, row_rect) {
-				raylib.DrawRectangleLinesEx(row_rect, 3, raylib.YELLOW)
-				if raylib.IsMouseButtonPressed(.LEFT) {
-					// Swap the clicked equipped relic for the staged pick.
+			hover := raylib.CheckCollisionPointRec(mouse_pos, row_rect)
+			is_selected := relic_pick_focus == 1 &&
+				i32(relic_pick_equipped_idx) == i
+			border_col := raylib.GRAY
+			if is_selected || (relic_swap_pending != nil &&
+			   raylib.CheckCollisionPointRec(mouse_pos, row_rect)) {
+				border_col = raylib.YELLOW
+			}
+			raylib.DrawRectangleLinesEx(row_rect, 2, border_col)
+			if raylib.IsMouseButtonPressed(.LEFT) {
+				// Swap the clicked equipped relic for the staged pick.
+				if relic_swap_pending != nil {
 					swap_relic(k, relic_swap_pending^)
 					relic_pick_open = false
 					relic_swap_pending = nil
+					relic_pick_focus = 0
+					relic_pick_equipped_idx = 0
 					play(sounds.shop_buy)
 				}
-			} else {
-				raylib.DrawRectangleLinesEx(row_rect, 2, raylib.DARKGRAY)
 			}
 			raylib.DrawText(
 				RELICS[k].name,
@@ -546,7 +609,7 @@ relic_pick_draw :: proc() {
 		raylib.DrawRectangleLinesEx(cur, 2, raylib.YELLOW)
 		if full {
 			draw_centered(
-				cstring("LEFT/RIGHT pick relic, ENTER stage, click equipped relic to swap"),
+				cstring("TAB swap card/equipped, LEFT/RIGHT pick, ENTER stage/swap"),
 				i32(y + h) - 34,
 				14,
 				raylib.DARKGRAY,

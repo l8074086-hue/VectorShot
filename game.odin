@@ -5886,6 +5886,10 @@ relic_pick_choices: [3]Relic_Kind = { .VAMPIRE_FANG, .IRON_STEADY, .SWIFT_SOLE }
 relic_pick_count: int = 3
 // Which drawn relic the keyboard cursor is on.
 relic_pick_idx: int = 0
+// 0 = choice cards, 1 = equipped relics (swap selection).
+relic_pick_focus: int = 0
+// Index into equipped relics when focus == 1.
+relic_pick_equipped_idx: int = 0
 
 relic_in_collection :: proc(kind: Relic_Kind) -> bool {
 	return (settings.relics_owned & (u32(1) << u32(int(kind)))) != 0
@@ -6013,6 +6017,8 @@ draw_relic_choices :: proc() -> (count: int) {
 	}
 	relic_pick_count = count
 	relic_pick_idx = 0 // the keyboard cursor starts on the first draw
+	relic_pick_focus = 0
+	relic_pick_equipped_idx = 0
 	return count
 }
 
