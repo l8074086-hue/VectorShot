@@ -3848,7 +3848,7 @@ main :: proc() {
 					}
 					raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
 					raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
-					draw_centered(ARENA_BOSSES[arena].name, by + 20, 16, raylib.LIGHTGRAY)
+					draw_centered(ARENA_BOSSES[boss_kind_to_arena_kind(e.boss_kind)].name, by + 20, 16, raylib.LIGHTGRAY)
 					if e.boss_stun > 0 {
 						draw_centered(
 							raylib.TextFormat("WEAKPOINT EXPOSED  %is", int(e.boss_stun) + 1),
@@ -3874,7 +3874,7 @@ main :: proc() {
 				}
 				raylib.DrawRectangle(bx, by, i32(f32(bw) * frac), 16, bar_col)
 				raylib.DrawRectangleLines(bx, by, bw, 16, raylib.WHITE)
-				draw_centered(ARENA_BOSSES[arena].name, by + 20, 16, raylib.LIGHTGRAY)
+				draw_centered(ARENA_BOSSES[boss_kind_to_arena_kind(e.boss_kind)].name, by + 20, 16, raylib.LIGHTGRAY)
 				if e.boss_hidden {
 					draw_centered(cstring("UNDERGROUND"), by + 38, 14, raylib.Color{196, 164, 110, 255})
 				} else if e.boss_phase >= 2 {
