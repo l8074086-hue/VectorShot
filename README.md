@@ -38,7 +38,7 @@ To make it you just need Odin installed and reachable in PATH and you also need 
 
 ### NixOS
 ```nix
-nix shell
+nix-shell
 ```
 The repo contains the shell.nix required.
 
